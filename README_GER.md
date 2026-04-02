@@ -60,13 +60,39 @@ python CopyCat.py --help             # Hilfe
 
 
 
-code:  \*.java \*.py \*.spec
+| Kategorie | Dateien                                         |
 
-img:   \*.png \*.jpg \*.gif \*.bmp \*.webp
+| --------- | ----------------------------------------------- |
 
-audio: \*.mp3 \*.wav \*.ogg \*.m4a \*.flac
+| code      | \*.java, \*.py, \*.spec, \*.cpp, \*.c                |
 
-drawio:\*.drawio \*.svg \*.dia
+| web       | \*.html, \*.css, \*.js, \*.ts, \*.jsx                |
+
+| db        | \*.sql, \*.db, \*.sqlite                           |
+
+| config    | \*.json, \*.yaml, \*.xml, \*.properties, \*.env      |
+
+| docs      | \*.md, \*.txt, \*.log, \*.docx                      |
+
+| deps      | requirements.txt, package.json, pom.xml, go.mod |
+
+| img       | \*.png, \*.jpg, \*.gif, \*.bmp, \*.webp, \*.svg       |
+
+| audio     | \*.mp3, \*.wav, \*.ogg, \*.m4a, \*.flac              |
+
+| diagram   | \*.drawio, \*.svg, \*.dia, \*.puml                  |
+
+
+
+#### CLI-Beispiele:
+
+
+
+copycat.py -t code diagram      # Nur Code + Diagramme
+
+copycat.py -t web db config     # 3 spezifische Kategorien
+
+copycat.py -t all               # Alle 9 Kategorien
 
 
 

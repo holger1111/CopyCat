@@ -36,7 +36,7 @@ python CopyCat.py                    # Standard
 
 python CopyCat.py -i "C:\\Projects"    # Input folder
 
-python CopyCat.py -o "docs"           # Output folder  
+python CopyCat.py -o "docs"           # Output folder
 
 python CopyCat.py -t code drawio      # Code+Diagrams only
 
@@ -50,7 +50,7 @@ python CopyCat.py --help              # Help
 
 \-i, --input    Input folder (Default: script folder)
 
-\-o, --output   Output folder (Default: input folder)  
+\-o, --output   Output folder (Default: input folder)
 
 \-t, --types    Types: code img audio drawio (Default: all)
 
@@ -60,13 +60,39 @@ python CopyCat.py --help              # Help
 
 
 
-code:  \*.java \*.py \*.spec
+| category  | file                                            |
 
-img:   \*.png \*.jpg \*.gif \*.bmp \*.webp
+| --------- | ----------------------------------------------- |
 
-audio: \*.mp3 \*.wav \*.ogg \*.m4a \*.flac
+| code      | \*.java, \*.py, \*.spec, \*.cpp, \*.c                |
 
-drawio:\*.drawio \*.svg \*.dia
+| web       | \*.html, \*.css, \*.js, \*.ts, \*.jsx                |
+
+| db        | \*.sql, \*.db, \*.sqlite                           |
+
+| config    | \*.json, \*.yaml, \*.xml, \*.properties, \*.env      |
+
+| docs      | \*.md, \*.txt, \*.log, \*.docx                      |
+
+| deps      | requirements.txt, package.json, pom.xml, go.mod |
+
+| img       | \*.png, \*.jpg, \*.gif, \*.bmp, \*.webp, \*.svg       |
+
+| audio     | \*.mp3, \*.wav, \*.ogg, \*.m4a, \*.flac              |
+
+| diagram   | \*.drawio, \*.svg, \*.dia, \*.puml                  |
+
+
+
+#### CLI Example:
+
+
+
+copycat.py -t code diagram      # Only code and diagrams
+
+copycat.py -t web db config     # 3 specific categories
+
+copycat.py -t all               # All 9 categories
 
 
 
@@ -176,7 +202,7 @@ README.md
 
 \- \[x] pathlib filesystem
 
-\- \[x] argparse CLI  
+\- \[x] argparse CLI
 
 \- \[x] XML-Parsing ElementTree
 
