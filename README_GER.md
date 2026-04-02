@@ -1,62 +1,62 @@
-# CopyCat v2.1 - Project Documenter
+# CopyCat v2.1 - Projekt-Dokumentierer
 
 \_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_
 
-## Automates Code + Diagrams + Media into Text Report
+## Automatisiert Code + Diagramme + Medien zu Text-Report
 
 \_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_
 
 
 
-### Main Features
+### Hauptfunktionen
 
 
 
-| Feature | Description |
+| Feature | Beschreibung |
 
 |---------|-------------|
 
-| Code Analysis | Line count + source code (Java/Python) |
+| Code-Analyse | Zeilenanzahl + Quellcode (Java/Python) |
 
-| Draw.io | 100% extraction of all cells |
+| Draw.io | 100% Extraktion aller Cells |
 
-| Media | MIME-Type, size, audio duration |
+| Medien | MIME-Type, Groesse, Audio-Dauer |
 
-| Serial System | Automatic archiving |
+| Serial-System | Automatisches Archiv |
 
-| Self-Protection | Ignores CopyCat.py |
+| Selbstschutz | Ignoriert CopyCat.py |
 
 
 
-### Console Commands
+### Konsolenbefehle
 
 
 
 python CopyCat.py                    # Standard
 
-python CopyCat.py -i "C:\\Projects"    # Input folder
+python CopyCat.py -i "C:\\Projekte"   # Eingabeordner
 
-python CopyCat.py -o "docs"           # Output folder  
+python CopyCat.py -o "docs"          # Ausgabeordner
 
-python CopyCat.py -t code drawio      # Code+Diagrams only
+python CopyCat.py -t code drawio     # Nur Code+Diagramme
 
-python CopyCat.py --help              # Help
-
-
-
-### Parameters
+python CopyCat.py --help             # Hilfe
 
 
 
-\-i, --input    Input folder (Default: script folder)
-
-\-o, --output   Output folder (Default: input folder)  
-
-\-t, --types    Types: code img audio drawio (Default: all)
+### Parameter
 
 
 
-#### File Types:
+\-i, --input    Eingabeordner (Default: Skriptordner)
+
+\-o, --output   Ausgabeordner (Default: Eingabeordner)
+
+\-t, --types    Typen: code img audio drawio (Default: all)
+
+
+
+#### Dateitypen:
 
 
 
@@ -70,7 +70,7 @@ drawio:\*.drawio \*.svg \*.dia
 
 
 
-### Output Example
+### Ausgabe-Beispiel
 
 
 
@@ -102,21 +102,21 @@ CODE-Details:
 
 
 
-### Use Cases
+### Einsatzmöglichkeiten
 
 
 
-#### 1\. Exam Portfolio:
+#### 1\. IHK-Prüfung:
 
 
 
-Trainer: "Show me code + UML!"
+Ausbilder: "Zeig Code + UML!"
 
-CopyCat.py -> 1 text file instead of 50+
+CopyCat.py -> 1 Textdatei statt 50+
 
 
 
-#### 2\. Git Backup:
+#### 2\. Git-Backup:
 
 
 
@@ -124,29 +124,29 @@ git init \&\& python CopyCat.py \&\& git commit
 
 
 
-#### 3\. Daily Report:
+#### 3\. Täglicher Report:
 
 
 
-python CopyCat.py -i "C:\\Projects" -o "Reports"
+python CopyCat.py -i "C:\\Projekte" -o "Reports"
 
 
 
-### Technology
+### Technik
 
 
 
-Draw.io: 101 cells extracted
+Draw.io: 101 Cells extrahiert
 
-WAV: Header analysis (struct.unpack)
+WAV: Header-Analyse (struct.unpack)
 
 Serial: combined\_copycat\_26.txt
 
-Archive: CopyCat\_Archive/
+Archiv: CopyCat\_Archive/
 
 
 
-### GitHub Setup
+### GitHub-Setup
 
 
 
@@ -160,7 +160,7 @@ combined\_copycat\*.txt
 
 
 
-Commit contains:
+Commit enthaelt:
 
 CopyCat.py
 
@@ -170,17 +170,17 @@ README.md
 
 
 
-### Demo for IT Specialists
+### Demo Fachinformatiker
 
 
 
-\- \[x] pathlib filesystem
+\- \[x] pathlib Dateisystem
 
-\- \[x] argparse CLI  
+\- \[x] argparse CLI
 
 \- \[x] XML-Parsing ElementTree
 
-\- \[x] Exception handling
+\- \[x] Exception-Handling
 
-\- \[x] Binary analysis struct
+\- \[x] Binary-Analyse struct
 

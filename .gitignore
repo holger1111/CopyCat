@@ -1,0 +1,26 @@
+
+# Alles außer CopyCat.py und README.md ignorieren
+*
+!.gitignore
+!CopyCat.py
+!README.md
+!README_GER.md
+
+# Explizit wichtige Ordner ignorieren
+CopyCat_Archive/
+combined_copycat*.txt
+__pycache__/
+*.pyc
+.env
+.DS_Store
+Thumbs.db
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
