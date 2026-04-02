@@ -48,7 +48,9 @@ def list_binary_file(writer, bin_file):
         mime_types = {
             '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif',
             '.bmp': 'image/bmp', '.webp': 'image/webp', '.wav': 'audio/wav', '.mp3': 'audio/mpeg',
-            '.ogg': 'audio/ogg', '.m4a': 'audio/mp4', '.flac': 'audio/flac'
+            '.ogg': 'audio/ogg', '.m4a': 'audio/mp4', '.flac': 'audio/flac', '.json': 'application/json',
+            '.sql': 'text/sql', '.yaml': 'text/yaml', 'xml': 'text/xml', '.html': 'text/html',
+            '.css': 'text/css', '.md': 'text/markdown', '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         }
         mime = mime_types.get(suffix, 'application/octet-stream')
         duration = "N/A"
@@ -137,13 +139,23 @@ def run_copycat(args):
         return
     
     types = args.types[0] if args.types else "all"
+    # type_filters = {
+    #     'code': ['*.java', '*.py', '*.spec'],
+    #     'img': ['*.png', '*.jpg', '*.jpeg', '*.gif', '*.bmp', '*.webp'],
+    #     'audio': ['*.mp3', '*.wav', '*.ogg', '*.m4a', '*.flac'],
+    #     'drawio': ['*.drawio', '*.drawio.png', '*.dia', '*.svg']
+    # }
     type_filters = {
-        'code': ['*.java', '*.py', '*.spec'],
-        'img': ['*.png', '*.jpg', '*.jpeg', '*.gif', '*.bmp', '*.webp'],
-        'audio': ['*.mp3', '*.wav', '*.ogg', '*.m4a', '*.flac'],
-        'drawio': ['*.drawio', '*.drawio.png', '*.dia', '*.svg']
+    'code': ['*.java', '*.py', '*.spec'],
+    'web': ['*.html','*.css','*.js','*.ts'],
+    'db': ['*.sql', '*.db', '*.sqlite'], 
+    'config': ['*.json', '*.yaml', '*.xml', '*.properties'], # '*.xlsx',
+    'docs': ['*.md', '*.txt', '*.log', '*.docx'],
+    'deps': ['requirements.txt', 'package.json', 'pom.xml'],
+    'img': ['*.png', '*.jpg', '*.gif', '*.bmp', '*.webp', '*.svg', '*.ico'],
+    'audio': ['*.mp3', '*.wav', '*.ogg', '*.m4a', '*.flac'],
+    'diagram': ['*.drawio', '*.svg', '*.dia', '*.puml']
     }
-    
     files = {k: [] for k in type_filters}
     
     # Sammle Dateien
@@ -152,7 +164,7 @@ def run_copycat(args):
             for pat in patterns:
                 candidates = input_dir.glob(pat)
                 for candidate in candidates:
-                    if candidate.resolve() != script_file:
+                    if candidate.resolve() != script_file and "combined_copycat" not in candidate.name:
                         files[t].append(candidate)
 
     # Serial & Archiv
@@ -187,14 +199,14 @@ def run_copycat(args):
                         writer.writelines(f.readlines())
                 except UnicodeDecodeError:
                     writer.write("(Binary oder ungültiges Encoding - übersprungen)\n")
-                writer.write("\n")
+                writer.write("\n\n")
         
         # Binärdateien
-        for t in ['img', 'audio', 'drawio']:
+        for t in ['code','web','db','config','docs','img','audio','diagram']:
             if files[t]:
                 writer.write(f"\n{'='*20} {t.upper()} {'='*20}\n")
                 for bfile in files[t]:
-                    if t == 'drawio':
+                    if t == 'diagram' and bfile.suffix.lower() in ['.drawio', '.dia']:
                         extract_drawio(writer, bfile)
                     else:
                         list_binary_file(writer, bfile)
