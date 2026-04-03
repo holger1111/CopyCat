@@ -18,7 +18,7 @@
 
 | Code-Analyse  | Zeilenanzahl + Quellcode (Java/Python) |
 
-| Draw.io       | 100% Extraktion aller Cells            |
+| Draw.io       | ZIP + Compressed + Edge-Case           |
 
 | Medien        | MIME-Type, Groesse, Audio-Dauer   	 |
 
@@ -53,6 +53,44 @@ python CopyCat.py --help             # Hilfe
 \-o, --output   Ausgabeordner (Default: Eingabeordner)
 
 \-t, --types    Typen: code web db config docs deps img audio diagram (Default: all)
+
+
+
+### Draw.io-Extraktion (v2.2)
+
+
+
+\- \*\*ALLE Cells\*\*: ID, Text/HTML, Position (x,y)
+
+\- \*\*ZIP-Fallback\*\*: drawio.zip → XML
+
+\- \*\*Compressed\*\*: Base64+zlib+unquote (Standard)
+
+\- \*\*Edge-Cases\*\*: 
+
+&#x20; - Leer → "\[LEERES MODELL]"
+
+&#x20; - Corrupt → "\[XML PARSE ERROR]"
+
+&#x20; - Binary → "\[ENCODING ERROR]"
+
+\- \*\*Limits\*\*: <1MB, keine Bilder extrahiert
+
+\- \*\*Statistik\*\*: Cells/Texte/Unique
+
+
+
+#### Beispiel:
+
+
+
+VOLLSTÄNDIGES DIAGRAMM: komplex.drawio
+
+MODEL 1: dx=586
+
+CELL 1 \[ID=col...] 'Start' | GEOM: x=320,y=400
+
+STATISTIK: 152 Cells | 45 Texte | 23 Unique
 
 
 

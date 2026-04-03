@@ -4,6 +4,10 @@ import shutil
 import re
 import logging
 import struct
+import zipfile
+import zlib
+import base64
+import urllib.parse
 from pathlib import Path
 from datetime import datetime
 
@@ -115,90 +119,80 @@ def list_binary_file(writer, bin_file):
 
 
 def extract_drawio(writer, drawio_file):
-    """VOLLSTÄNDIGE Extraktion: ALLE Elemente, Attribute, Positionen, Styles"""
+    """STABILISIERT: XML + Compressed + ZIP + Edge-Cases"""
     try:
-        tree = ET.parse(drawio_file)
-        root = tree.getroot()
+        writer.write(f"\n{'='*80}\nVOLLSTÄNDIGES DIAGRAMM: {drawio_file.name}\n")
 
-        writer.write(f"\n{'='*80}\n")
-        writer.write(f"VOLLSTÄNDIGES DIAGRAMM: {drawio_file.name}\n")
-        writer.write(
-            f"Root: name='{root.get('name', 'N/A')}', id='{root.get('id', 'N/A')}'\n"
-        )
-        writer.write(f"{'='*80}\n")
+        try:
+            with zipfile.ZipFile(drawio_file) as zf:
+                xml_content = zf.read(zf.namelist()[0]).decode("utf-8")
+        except zipfile.BadZipFile:
+            xml_content = drawio_file.read_bytes().decode("utf-8")
 
-        mx_models = root.findall(".//mxGraphModel")
+        tree = ET.fromstring(xml_content)
+
+        diagram = tree.find(".//diagram")
+        if diagram is not None and diagram.text:
+            try:
+                b64_data = diagram.text.strip()
+                data = base64.b64decode(b64_data)
+                decompressed = zlib.decompress(data, wbits=-zlib.MAX_WBITS)
+                unquoted = urllib.parse.unquote(decompressed.decode("utf-8"))
+                diagram_tree = ET.fromstring(unquoted)
+            except (base64.binascii.Error, zlib.error, ET.ParseError):
+                diagram_tree = tree
+        else:
+            diagram_tree = tree
+
+        mx_models = diagram_tree.findall(".//mxGraphModel")
+        if not mx_models:
+            writer.write("  [LEERES MODELL - Keine mxGraphModel gefunden]\n")
+            return
+
+        total_cells = 0
+        all_texts = []
+
         for model_idx, model in enumerate(mx_models, 1):
-            writer.write(
-                f"\nMODEL {model_idx}: dx={model.get('dx')}, dy={model.get('dy')}\n"
-            )
-            writer.write("-" * 50 + "\n")
-
-            # ALLE Cells
+            writer.write(f"\nMODEL {model_idx}: dx={model.get('dx', 'N/A')}\n")
             cells = model.findall(".//mxCell")
+
             for cell_idx, cell in enumerate(cells, 1):
+                total_cells += 1
                 cell_id = cell.get("id", "N/A")
                 value = cell.get("value", "").strip()
-                style = (
-                    cell.get("style", "N/A")[:200] + "..."
-                    if len(cell.get("style", "")) > 200
-                    else cell.get("style", "N/A")
-                )
-                vertex = cell.get("vertex", "N/A")
 
-                # Geometrie extrahieren
-                geom = cell.find(".//mxGeometry")
-                geom_info = ""
-                if geom is not None:
-                    x, y, width, height = (
-                        geom.get("x", ""),
-                        geom.get("y", ""),
-                        geom.get("width", ""),
-                        geom.get("height", ""),
+                if value:
+                    all_texts.append(value)
+                    display_value = (
+                        f"HTML[{len(value)}]" if "<" in value else f"'{value[:30]}'"
                     )
-                    geom_info = f"x={x},y={y},w={width},h={height}"
+                else:
+                    display_value = "N/A"
 
-                writer.write(f"  CELL {cell_idx:3d} [ID={cell_id}] vertex={vertex}\n")
-                writer.write(f"    TEXT: '{value}'\n")
-                writer.write(f"    STYLE: {style}\n")
-                writer.write(f"    GEOM:  {geom_info}\n")
+                geom = cell.find(".//mxGeometry")
+                geom_info = (
+                    f"x={geom.get('x','')},y={geom.get('y','')}"
+                    if geom is not None
+                    else "N/A"
+                )
 
-                # Source/Target für Verbindungen
-                source = cell.get("source", "N/A")
-                target = cell.get("target", "N/A")
-                if source != "N/A" or target != "N/A":
-                    writer.write(f"    CONN:  source={source}, target={target}\n")
-
-                writer.write("\n")
+                writer.write(
+                    f"  CELL {cell_idx:3d} [ID={cell_id}] {display_value} | GEOM: {geom_info}\n"
+                )
 
         # Statistik
-        all_texts = [
-            cell.get("value", "")
-            for model in mx_models
-            for cell in model.findall(".//mxCell[@value]")
-            if cell.get("value")
-        ]
-        unique_texts = list(set(t.strip() for t in all_texts if t.strip()))
-        writer.write(f"\nSTATISTIK:\n")
+        unique_texts = list(set(all_texts))
+        writer.write(f"\n{'='*40}\n")
         writer.write(
-            f"  Gesamt Cells: {len([c for m in mx_models for c in m.findall('.//mxCell')])}\n"
+            f"STATISTIK: {total_cells} Cells | {len(all_texts)} Texte | {len(unique_texts)} Unique\n"
         )
-        writer.write(f"  Text-Elemente: {len(all_texts)}\n")
-        writer.write(f"  Unique Texte: {len(unique_texts)}\n")
 
-    except ET.ParseError:
-        writer.write(
-            f"DIAGRAMM INVALID XML: {drawio_file.name} - Korrupte Draw.io XML-Struktur\n"
-        )
+    except ET.ParseError as e:
+        writer.write(f"[XML PARSE ERROR: {drawio_file.name} - {str(e)[:50]}]\n")
     except UnicodeDecodeError:
-        writer.write(
-            f"DIAGRAMM BINARY SKIPPED: {drawio_file.name} - Kein lesbarer Text (Binary?)\n"
-        )
-    except FileNotFoundError:
-        writer.write(f"DIAGRAMM NOT FOUND: {drawio_file.name}\n")
+        writer.write(f"[ENCODING ERROR: {drawio_file.name} - Binär/ungültiges UTF-8]\n")
     except Exception as e:
-        logging.error(f"Unexpected error in extract_drawio {drawio_file.name}: {e}")
-        writer.write(f"DIAGRAMM ERROR: {drawio_file.name} - {str(e)}\n")
+        writer.write(f"[DIAGRAM ERROR: {drawio_file.name} - {str(e)[:50]}]\n")
 
 
 # Übersicht - Singular/Plural korrekt
@@ -292,7 +286,7 @@ def run_copycat(args):
                         writer.writelines(f.readlines())
                 except UnicodeDecodeError:
                     writer.write("(Binary oder ungültiges Encoding - übersprungen)\n")
-                except Exception as e:  # Neu
+                except Exception as e:
                     logging.error(
                         f"Unexpected error reading code {code_file.name}: {e}"
                     )
@@ -302,6 +296,8 @@ def run_copycat(args):
         # Binärdateien
         types_to_process = list(TYPE_FILTERS.keys()) if process_all else selected_types
         for t in types_to_process:
+            if t == "code" or not files[t]:
+                continue
             if files[t]:
                 writer.write(f"\n{'='*20} {t.upper()} {'='*20}\n")
                 for bfile in files[t]:
