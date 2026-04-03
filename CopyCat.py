@@ -3,7 +3,6 @@ import xml.etree.ElementTree as ET
 import shutil
 from pathlib import Path
 import struct
-
 from datetime import datetime
 
 
@@ -73,7 +72,7 @@ def list_binary_file(writer, bin_file):
             ".json": "application/json",
             ".sql": "text/sql",
             ".yaml": "text/yaml",
-            "xml": "text/xml",
+            ".xml": "text/xml",
             ".html": "text/html",
             ".css": "text/css",
             ".md": "text/markdown",
@@ -187,7 +186,6 @@ def run_copycat(args):
         print(f"Fehler: {input_dir} ist kein Ordner")
         return
 
-    types = args.types[0] if args.types else "all"
     TYPE_FILTERS = {
         "code": ["*.java", "*.py", "*.spec", "*.cpp", "*.c"],
         "web": ["*.html", "*.css", "*.js", "*.ts", "*.jsx"],
@@ -197,13 +195,13 @@ def run_copycat(args):
         "deps": ["requirements.txt", "package.json", "pom.xml", "go.mod"],
         "img": ["*.png", "*.jpg", "*.gif", "*.bmp", "*.webp", "*.svg", "*.ico"],
         "audio": ["*.mp3", "*.wav", "*.ogg", "*.m4a", "*.flac"],
-        "diagram": ["*.drawio", "*.svg", "*.dia", "*.puml"],
+        "diagram": ["*.drawio", "*.dia", "*.puml"],
     }
     files = {k: [] for k in TYPE_FILTERS}
 
     selected_types = args.types if args.types else ["all"]
     process_all = "all" in selected_types
-    
+
     # Sammle Dateien
     for t, patterns in TYPE_FILTERS.items():
         if process_all or t in selected_types:
@@ -244,7 +242,7 @@ def run_copycat(args):
         writer.write("\n")
 
         # Codeinhalte
-        if types == "process_all" or "code" in selected_types:
+        if process_all or "code" in selected_types:
             writer.write("CODE-Details:\n")
             for code_file in files["code"]:
                 lines = sum(1 for line in open(code_file) if line.strip())
@@ -258,7 +256,8 @@ def run_copycat(args):
                 writer.write("\n\n")
 
         # Binärdateien
-        for t in ["code", "web", "db", "config", "docs", "img", "audio", "diagram"]:
+        types_to_process = list(TYPE_FILTERS.keys()) if process_all else selected_types
+        for t in types_to_process:
             if files[t]:
                 writer.write(f"\n{'='*20} {t.upper()} {'='*20}\n")
                 for bfile in files[t]:

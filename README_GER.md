@@ -12,19 +12,19 @@
 
 
 
-| Feature | Beschreibung |
+| Feature 	| Beschreibung 				 |
 
-|---------|-------------|
+|---------------|----------------------------------------|
 
-| Code-Analyse | Zeilenanzahl + Quellcode (Java/Python) |
+| Code-Analyse  | Zeilenanzahl + Quellcode (Java/Python) |
 
-| Draw.io | 100% Extraktion aller Cells |
+| Draw.io       | 100% Extraktion aller Cells            |
 
-| Medien | MIME-Type, Groesse, Audio-Dauer |
+| Medien        | MIME-Type, Groesse, Audio-Dauer   	 |
 
-| Serial-System | Automatisches Archiv |
+| Serial-System | Automatisches Archiv 			 |
 
-| Selbstschutz | Ignoriert CopyCat.py |
+| Selbstschutz  | Ignoriert CopyCat.py 			 |
 
 
 
@@ -52,7 +52,7 @@ python CopyCat.py --help             # Hilfe
 
 \-o, --output   Ausgabeordner (Default: Eingabeordner)
 
-\-t, --types    Typen: code img audio drawio (Default: all)
+\-t, --types    Typen: code web db config docs deps img audio diagram (Default: all)
 
 
 
@@ -80,7 +80,7 @@ python CopyCat.py --help             # Hilfe
 
 | audio     | \*.mp3, \*.wav, \*.ogg, \*.m4a, \*.flac              |
 
-| diagram   | \*.drawio, \*.svg, \*.dia, \*.puml                  |
+| diagram   | \*.drawio, \*.dia, \*.puml                         |
 
 
 
@@ -88,11 +88,11 @@ python CopyCat.py --help             # Hilfe
 
 
 
-copycat.py -t code diagram      # Nur Code + Diagramme
+CopyCat.py -t code diagram      # Nur Code + Diagramme
 
-copycat.py -t web db config     # 3 spezifische Kategorien
+CopyCat.py -t web db config     # 3 spezifische Kategorien
 
-copycat.py -t all               # Alle 9 Kategorien
+CopyCat.py -t all               # Alle 9 Kategorien
 
 
 

@@ -12,19 +12,19 @@
 
 
 
-| Feature | Description |
+| Feature 	  | Description 			   |
 
-|---------|-------------|
+|-----------------|----------------------------------------|
 
-| Code Analysis | Line count + source code (Java/Python) |
+| Code Analysis   | Line count + source code (Java/Python) |
 
-| Draw.io | 100% extraction of all cells |
+| Draw.io         | 100% extraction of all cells 	   |
 
-| Media | MIME-Type, size, audio duration |
+| Media 	  | MIME-Type, size, audio duration        |
 
-| Serial System | Automatic archiving |
+| Serial System   | Automatic archiving 		   |
 
-| Self-Protection | Ignores CopyCat.py |
+| Self-Protection | Ignores CopyCat.py 			   |
 
 
 
@@ -32,7 +32,7 @@
 
 
 
-python CopyCat.py                    # Standard
+python CopyCat.py                     # Standard
 
 python CopyCat.py -i "C:\\Projects"    # Input folder
 
@@ -52,7 +52,7 @@ python CopyCat.py --help              # Help
 
 \-o, --output   Output folder (Default: input folder)
 
-\-t, --types    Types: code img audio drawio (Default: all)
+\-t, --types    Types: code web db config docs deps img audio diagram (Default: all)
 
 
 
@@ -80,7 +80,7 @@ python CopyCat.py --help              # Help
 
 | audio     | \*.mp3, \*.wav, \*.ogg, \*.m4a, \*.flac              |
 
-| diagram   | \*.drawio, \*.svg, \*.dia, \*.puml                  |
+| diagram   | \*.drawio, \*.dia, \*.puml                         |
 
 
 
@@ -88,11 +88,11 @@ python CopyCat.py --help              # Help
 
 
 
-copycat.py -t code diagram      # Only code and diagrams
+CopyCat.py -t code diagram      # Only code and diagrams
 
-copycat.py -t web db config     # 3 specific categories
+CopyCat.py -t web db config     # 3 specific categories
 
-copycat.py -t all               # All 9 categories
+CopyCat.py -t all               # All 9 categories
 
 
 
