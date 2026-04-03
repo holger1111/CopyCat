@@ -1,8 +1,9 @@
 import argparse
 import xml.etree.ElementTree as ET
 import shutil
-from pathlib import Path
+import re
 import struct
+from pathlib import Path
 from datetime import datetime
 
 
@@ -26,25 +27,37 @@ def parse_arguments():
     return parser.parse_args()
 
 
+def is_valid_serial_filename(filename: str) -> bool:
+    """Validiert combined_copycat_N.txt via Regex"""
+    pattern = r'^combined_copycat_(\d+)\.txt$'
+    return bool(re.match(pattern, filename))
+
 def get_next_serial_number(base_path: Path) -> int:
+    """Robuste Serial-Nummerierung mit Regex-Validierung"""
     existing = list(base_path.glob("combined_copycat*.txt"))
     max_num = 0
     for p in existing:
-        if "_" in p.stem:
+        if is_valid_serial_filename(p.name):
             try:
-                num = int(p.stem.split("_")[-1])
+                match = re.match(r'^combined_copycat_(\d+)\.txt$', p.name)
+                num = int(match.group(1))
                 max_num = max(max_num, num)
-            except ValueError:
-                pass
+            except (ValueError, AttributeError):
+                continue  # Ungültige Namen ignorieren
     return max_num + 1
 
 
 def move_to_archive(base_path: Path, filename: str):
+    """Archiviert ALLE CopyCat-Dateien (auch serial=1)"""
     archive_path = base_path / "CopyCat_Archive"
     archive_path.mkdir(exist_ok=True)
+    
     old_file = base_path / filename
-    if old_file.exists():
-        shutil.move(old_file, archive_path / filename)
+    if old_file.exists() and is_valid_serial_filename(filename):
+        try:
+            shutil.move(old_file, archive_path / filename)
+        except (shutil.Error, PermissionError, OSError) as e:
+            print(f"Archiv-Fehler {filename}: {e}")
 
 
 def list_binary_file(writer, bin_file):
@@ -218,9 +231,15 @@ def run_copycat(args):
     serial = get_next_serial_number(output_dir)
     basename = "combined_copycat"
     new_file = output_dir / f"{basename}_{serial}.txt"
-    if serial > 1:
-        move_to_archive(output_dir, f"{basename}_{serial-1}.txt")
 
+    # Vorherige archivieren
+    existing = list(output_dir.glob("combined_copycat*.txt"))
+    to_archive = [f for f in existing if f != new_file and is_valid_serial_filename(f.name)]
+    print(f"Archiviere {len(to_archive)} Datei(en)")
+
+    for old_file in to_archive:
+        move_to_archive(output_dir, old_file.name)
+        
     # Übersicht
     with open(new_file, "w", encoding="utf-8") as writer:
         writer.write(
