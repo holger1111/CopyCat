@@ -15,7 +15,7 @@ htmlcov/
 .pytest_cache/
 
 # Tests
-#!test_copycat.py
+!test_copycat.py
 
 # Tests (temporär ignorieren)
 Test_*.*
