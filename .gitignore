@@ -1,19 +1,27 @@
+# CopyCat v2.3
 
-# Alles außer CopyCat.py und README.md ignorieren
-*
-!.gitignore
-!CopyCat.py
-!README.md
-!README_GER.md
-
-# Explizit wichtige Ordner ignorieren
+# CopyCat-Output
 CopyCat_Archive/
 combined_copycat*.txt
+
+# Python
 __pycache__/
+*.py[cod]
 *.pyc
-.env
-.DS_Store
-Thumbs.db
+.pytest_cache/
+htmlcov/
+.coverage
+*.cover
+.pytest_cache/
+
+# Tests
+#!test_copycat.py
+
+# Tests (temporär ignorieren)
+Test_*.*
+*.drawio
+*.bkp
+Entwicklungsplan.md
 
 # IDEs
 .vscode/
@@ -21,6 +29,17 @@ Thumbs.db
 *.swp
 *.swo
 
-# OS
+# OS generiert
 .DS_Store
 Thumbs.db
+ehthumbs.db
+.DS_Store?
+
+# Secrets
+.env
+*.env
+
+# Build/Packages
+dist/
+build/
+*.egg-info/

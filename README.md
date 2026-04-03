@@ -1,10 +1,16 @@
-# CopyCat v2.2 - Project Documenter
+# CopyCat v2.3 - Project Documenter
 
 \_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_
 
 ## Automates Code + Diagrams + Media into Text Report
 
 \_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_
+
+
+
+\[!\[Tests](https://github.com/holger1111/CopyCat/workflows/CI/badge.svg)](https://github.com/holger1111/CopyCat/actions)
+
+\[!\[Coverage](https://codecov.io/gh/holger1111/CopyCat/branch/main/graph/badge.svg)](https://codecov.io/gh/holger1111/CopyCat)
 
 
 
@@ -98,27 +104,31 @@ STATISTIK: 152 Cells | 45 Texte | 23 Unique
 
 
 
-| category  | file                                            |
+| category  | file                                            | tests	    |
 
-| --------- | ------------------------------------------------|
+|-----------|-------------------------------------------------|-------------|
 
-| code      | \*.java, \*.py, \*.spec, \*.cpp, \*.c                |
+| code      | \*.java, \*.py, \*.spec, \*.cpp, \*.c                | 5 files     |
 
-| web       | \*.html, \*.css, \*.js, \*.ts, \*.jsx                |
+| web       | \*.html, \*.css, \*.js, \*.ts, \*.jsx                | 5 empty     |
 
-| db        | \*.sql, \*.db, \*.sqlite                           |
+| db        | \*.sql, \*.db, \*.sqlite                           | 3 files     |
 
-| config    | \*.json, \*.yaml, \*.xml, \*.properties, \*.env      |
+| config    | \*.json, \*.yaml, \*.xml, \*.properties, \*.env      | 8 files     |
 
-| docs      | \*.md, \*.txt, \*.log, \*.docx                      |
+| docs      | \*.md, \*.txt, \*.log, \*.docx                      | 8 files     |
 
-| deps      | requirements.txt, package.json, pom.xml, go.mod |
+| deps      | requirements.txt, package.json, pom.xml, go.mod | defined     |
 
-| img       | \*.png, \*.jpg, \*.gif, \*.bmp, \*.webp, \*.svg       |
+| img       | \*.png, \*.jpg, \*.gif, \*.bmp, \*.webp, \*.svg       | 7 files     |
 
-| audio     | \*.mp3, \*.wav, \*.ogg, \*.m4a, \*.flac              |
+| audio     | \*.mp3, \*.wav, \*.ogg, \*.m4a, \*.flac              | 5 files     |
 
-| diagram   | \*.drawio, \*.dia, \*.puml                         |
+| diagram   | \*.drawio, \*.dia, \*.puml                         | 6 Edge-cases|
+
+
+
+47 test files -> CopyCat v2.3 Serial #3
 
 
 
@@ -249,6 +259,35 @@ CopyCat.py
 README.md
 
 .gitignore
+
+
+
+### Developer Guide
+
+
+
+**Test: 100% Core-Coverage (CLI, Serial, Draw.io)**
+
+
+
+```bash
+py -m pytest test\_copycat.py -v --cov  # local tests
+\\# 10/10 PASSED | Coverage: 100%
+```
+
+
+
+**Before every commit:**
+
+1\. `pytest test\\\_copycat.py` ✅
+
+2\. README.md + README\_GER.md + Code SYNCHRON
+
+3\. `git commit -m "feat: X | Tests: 100%"`
+
+
+
+**CI runs automatically:** \[Actions](https://github.com/holger1111/CopyCat/actions)
 
 
 

@@ -1,10 +1,16 @@
-# CopyCat v2.2 - Projekt-Dokumentierer
+# CopyCat v2.3 - Projekt-Dokumentierer
 
 \_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_
 
 ## Automatisiert Code + Diagramme + Medien zu Text-Report
 
 \_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_
+
+
+
+\[!\[Tests](https://github.com/holger1111/CopyCat/workflows/CI/badge.svg)](https://github.com/holger1111/CopyCat/actions)
+
+\[!\[Coverage](https://codecov.io/gh/holger1111/CopyCat/branch/main/graph/badge.svg)](https://codecov.io/gh/holger1111/CopyCat)
 
 
 
@@ -66,7 +72,7 @@ python CopyCat.py --help             # Hilfe
 
 \- \*\*Compressed\*\*: Base64+zlib+unquote (Standard)
 
-\- \*\*Edge-Cases\*\*: 
+\- \*\*Edge-Cases\*\*:
 
 &#x20; - Leer → "\[LEERES MODELL]"
 
@@ -98,27 +104,31 @@ STATISTIK: 152 Cells | 45 Texte | 23 Unique
 
 
 
-| Kategorie | Dateien                                         |
+| Kategorie | Dateien                                         | Tests	    |
 
-| --------- | ------------------------------------------------|
+|-----------|-------------------------------------------------|-------------|
 
-| code      | \*.java, \*.py, \*.spec, \*.cpp, \*.c                |
+| code      | \*.java, \*.py, \*.spec, \*.cpp, \*.c                | 5 Dateien   |
 
-| web       | \*.html, \*.css, \*.js, \*.ts, \*.jsx                |
+| web       | \*.html, \*.css, \*.js, \*.ts, \*.jsx                | 5 leere     |
 
-| db        | \*.sql, \*.db, \*.sqlite                           |
+| db        | \*.sql, \*.db, \*.sqlite                           | 3 Dateien   |
 
-| config    | \*.json, \*.yaml, \*.xml, \*.properties, \*.env      |
+| config    | \*.json, \*.yaml, \*.xml, \*.properties, \*.env      | 8 Dateien   |
 
-| docs      | \*.md, \*.txt, \*.log, \*.docx                      |
+| docs      | \*.md, \*.txt, \*.log, \*.docx                      | 8 Dateien   |
 
-| deps      | requirements.txt, package.json, pom.xml, go.mod |
+| deps      | requirements.txt, package.json, pom.xml, go.mod | Definiert   |
 
-| img       | \*.png, \*.jpg, \*.gif, \*.bmp, \*.webp, \*.svg       |
+| img       | \*.png, \*.jpg, \*.gif, \*.bmp, \*.webp, \*.svg       | 7 Dateien   |
 
-| audio     | \*.mp3, \*.wav, \*.ogg, \*.m4a, \*.flac              |
+| audio     | \*.mp3, \*.wav, \*.ogg, \*.m4a, \*.flac              | 5 Dateien   |
 
-| diagram   | \*.drawio, \*.dia, \*.puml                         |
+| diagram   | \*.drawio, \*.dia, \*.puml                         | 6 Edge-Cases|
+
+
+
+47 Testdateien -> CopyCat v2.3 Serial #3
 
 
 
@@ -249,6 +259,38 @@ CopyCat.py
 README.md
 
 .gitignore
+
+
+
+### Entwickler-Guide
+
+
+
+**Tests: 100% Core-Coverage (CLI, Serial, Draw.io)**
+
+
+
+```bash
+
+py -m pytest test\_copycat.py -v --cov  # Lokale Tests
+
+\# 10/10 PASSED | Coverage: 100%
+
+```
+
+
+
+**Vor jedem Commit:**
+
+1\. `pytest test\_copycat.py` ✅
+
+2\. README.md + README\_GER.md + Code SYNCHRON 
+
+3\. `git commit -m "feat: X | Tests: 100%"`
+
+
+
+**CI läuft automatisch:** \[Actions](https://github.com/holger1111/CopyCat/actions)
 
 
 
