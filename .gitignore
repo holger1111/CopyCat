@@ -21,6 +21,7 @@ htmlcov/
 Test_*.*
 *.drawio
 *.bkp
+corrupt.xml
 Entwicklungsplan.md
 
 # IDEs
