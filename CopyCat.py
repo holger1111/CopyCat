@@ -2,6 +2,7 @@ import argparse
 import xml.etree.ElementTree as ET
 import shutil
 import re
+import logging
 import struct
 from pathlib import Path
 from datetime import datetime
@@ -29,8 +30,9 @@ def parse_arguments():
 
 def is_valid_serial_filename(filename: str) -> bool:
     """Validiert combined_copycat_N.txt via Regex"""
-    pattern = r'^combined_copycat_(\d+)\.txt$'
+    pattern = r"^combined_copycat_(\d+)\.txt$"
     return bool(re.match(pattern, filename))
+
 
 def get_next_serial_number(base_path: Path) -> int:
     """Robuste Serial-Nummerierung mit Regex-Validierung"""
@@ -39,7 +41,7 @@ def get_next_serial_number(base_path: Path) -> int:
     for p in existing:
         if is_valid_serial_filename(p.name):
             try:
-                match = re.match(r'^combined_copycat_(\d+)\.txt$', p.name)
+                match = re.match(r"^combined_copycat_(\d+)\.txt$", p.name)
                 num = int(match.group(1))
                 max_num = max(max_num, num)
             except (ValueError, AttributeError):
@@ -51,7 +53,7 @@ def move_to_archive(base_path: Path, filename: str):
     """Archiviert ALLE CopyCat-Dateien (auch serial=1)"""
     archive_path = base_path / "CopyCat_Archive"
     archive_path.mkdir(exist_ok=True)
-    
+
     old_file = base_path / filename
     if old_file.exists() and is_valid_serial_filename(filename):
         try:
@@ -103,7 +105,12 @@ def list_binary_file(writer, bin_file):
             writer.write(f" [DUR: {duration}]\n")
         else:
             writer.write("\n")
-    except Exception:
+    except UnicodeDecodeError:
+        writer.write(f"[BINARY SKIPPED: {bin_file.name} - Ungültiges Text-Encoding]\n")
+    except (struct.error, OSError) as e:
+        writer.write(f"[BINARY ERROR: {bin_file.name} - {str(e)}]\n")
+    except Exception as e:
+        logging.error(f"Unexpected error in list_binary_file {bin_file.name}: {e}")
         writer.write(f"[ERROR: {bin_file.name}]\n")
 
 
@@ -179,7 +186,18 @@ def extract_drawio(writer, drawio_file):
         writer.write(f"  Text-Elemente: {len(all_texts)}\n")
         writer.write(f"  Unique Texte: {len(unique_texts)}\n")
 
+    except ET.ParseError:
+        writer.write(
+            f"DIAGRAMM INVALID XML: {drawio_file.name} - Korrupte Draw.io XML-Struktur\n"
+        )
+    except UnicodeDecodeError:
+        writer.write(
+            f"DIAGRAMM BINARY SKIPPED: {drawio_file.name} - Kein lesbarer Text (Binary?)\n"
+        )
+    except FileNotFoundError:
+        writer.write(f"DIAGRAMM NOT FOUND: {drawio_file.name}\n")
     except Exception as e:
+        logging.error(f"Unexpected error in extract_drawio {drawio_file.name}: {e}")
         writer.write(f"DIAGRAMM ERROR: {drawio_file.name} - {str(e)}\n")
 
 
@@ -234,17 +252,19 @@ def run_copycat(args):
 
     # Vorherige archivieren
     existing = list(output_dir.glob("combined_copycat*.txt"))
-    to_archive = [f for f in existing if f != new_file and is_valid_serial_filename(f.name)]
+    to_archive = [
+        f for f in existing if f != new_file and is_valid_serial_filename(f.name)
+    ]
     print(f"Archiviere {len(to_archive)} Datei(en)")
 
     for old_file in to_archive:
         move_to_archive(output_dir, old_file.name)
-        
+
     # Übersicht
     with open(new_file, "w", encoding="utf-8") as writer:
         writer.write(
             "=" * 60
-            + f"\nCopyCat v2.1 | {datetime.now().strftime('%d.%m.%Y %H:%M')}\n{input_dir}\n\n"
+            + f"\nCopyCat v2.2 | {datetime.now().strftime('%d.%m.%Y %H:%M')} | GEZIELTE FEHLERBEHANDLUNG\n{input_dir}\n\n"
         )
         total_files = sum(len(files[t]) for t in files)
         writer.write(
@@ -272,6 +292,11 @@ def run_copycat(args):
                         writer.writelines(f.readlines())
                 except UnicodeDecodeError:
                     writer.write("(Binary oder ungültiges Encoding - übersprungen)\n")
+                except Exception as e:  # Neu
+                    logging.error(
+                        f"Unexpected error reading code {code_file.name}: {e}"
+                    )
+                    writer.write(f"(Fehler beim Lesen: {str(e)})\n")
                 writer.write("\n\n")
 
         # Binärdateien
@@ -289,5 +314,6 @@ def run_copycat(args):
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.ERROR, format="CopyCat ERROR: %(message)s")
     args = parse_arguments()
     run_copycat(args)

@@ -1,4 +1,4 @@
-# CopyCat v2.1 - Project Documenter
+# CopyCat v2.2 - Project Documenter
 
 \_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_
 
@@ -62,7 +62,7 @@ python CopyCat.py --help              # Help
 
 | category  | file                                            |
 
-| --------- | ----------------------------------------------- |
+| --------- | ------------------------------------------------|
 
 | code      | \*.java, \*.py, \*.spec, \*.cpp, \*.c                |
 
@@ -169,6 +169,24 @@ WAV: Header analysis (struct.unpack)
 Serial: combined\_copycat\_26.txt
 
 Archive: CopyCat\_Archive/
+
+
+
+### Error Handling (v2.2)
+
+
+
+\- UnicodeDecodeError: "Binary skipped"
+
+\- ET.ParseError: "Invalid XML"
+
+\- 0-Byte: "\[EMPTY:...]"
+
+\- Rest: Silent Logging (no spam)
+
+
+
+Example: 'DIAGRAMM INVALID XML: test.drawio'
 
 
 
