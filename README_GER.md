@@ -8,9 +8,8 @@
 
 
 
-\[!\[Tests](https://github.com/holger1111/CopyCat/workflows/CI/badge.svg)](https://github.com/holger1111/CopyCat/actions)
-
-\[!\[Coverage](https://codecov.io/gh/holger1111/CopyCat/branch/main/graph/badge.svg)](https://codecov.io/gh/holger1111/CopyCat)
+[![Tests](https://github.com/holger1111/CopyCat/workflows/CI/badge.svg)](https://github.com/holger1111/CopyCat/actions)
+[![Coverage](https://codecov.io/gh/holger1111/CopyCat/branch/main/graph/badge.svg)](https://codecov.io/gh/holger1111/CopyCat)
 
 
 
