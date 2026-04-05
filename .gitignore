@@ -1,4 +1,4 @@
-# CopyCat v2.3
+# CopyCat v2.5
 
 # CopyCat-Output
 CopyCat_Archive/
@@ -14,15 +14,12 @@ htmlcov/
 *.cover
 .pytest_cache/
 
-# Tests
+# Tests - Unit Test immer inkludieren
 !test_copycat.py
 
-# Tests (temporär ignorieren)
-Test_*.*
-*.drawio
-*.bkp
-corrupt.xml
-Entwicklungsplan.md
+# Test-Ordner
+!Test_Set/
+Information/
 
 # IDEs
 .vscode/

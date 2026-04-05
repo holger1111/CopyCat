@@ -1,3 +1,7 @@
+"""
+CopyCat v2.5
+"""
+
 import argparse
 import xml.etree.ElementTree as ET
 import shutil
@@ -10,7 +14,7 @@ import base64
 import urllib.parse
 from pathlib import Path
 from datetime import datetime
- 
+
 
 def parse_arguments():
     parser = argparse.ArgumentParser(
@@ -28,6 +32,12 @@ def parse_arguments():
         nargs="*",
         default=["all"],
         help="Dateitypen: code, web, db, config, docs, deps, img, audio, diagram (oder 'all')",
+    )
+    parser.add_argument(
+        "--recursive",
+        "-r",
+        action="store_true",
+        help="Rekursive Suche in Unterordnern (default: nur Hauptordner)",
     )
     return parser.parse_args()
 
@@ -227,11 +237,14 @@ def run_copycat(args):
     selected_types = args.types if args.types else ["all"]
     process_all = "all" in selected_types
 
-    # Sammle Dateien
+    # Sammle Dateien - REKURSIV ODER FLACH
+    search_method = input_dir.rglob if args.recursive else input_dir.glob
+    print(f"Suche {'rekursiv' if args.recursive else 'flach'} in {input_dir}")
+
     for t, patterns in TYPE_FILTERS.items():
         if process_all or t in selected_types:
             for pat in patterns:
-                candidates = input_dir.glob(pat)
+                candidates = search_method(pat)
                 for candidate in candidates:
                     if (
                         candidate.resolve() != script_file
@@ -255,10 +268,11 @@ def run_copycat(args):
         move_to_archive(output_dir, old_file.name)
 
     # Übersicht
+    mode_text = "REKURSIV" if args.recursive else "FLACH (Default)"
     with open(new_file, "w", encoding="utf-8") as writer:
         writer.write(
             "=" * 60
-            + f"\nCopyCat v2.2 | {datetime.now().strftime('%d.%m.%Y %H:%M')} | GEZIELTE FEHLERBEHANDLUNG\n{input_dir}\n\n"
+            + f"\nCopyCat v2.5 | {datetime.now().strftime('%d.%m.%Y %H:%M')} | {mode_text}\n{input_dir}\n\n"
         )
         total_files = sum(len(files[t]) for t in files)
         writer.write(
@@ -279,7 +293,10 @@ def run_copycat(args):
             writer.write("CODE-Details:\n")
             for code_file in files["code"]:
                 lines = sum(1 for line in open(code_file) if line.strip())
-                writer.write(f"  {code_file.name}: {lines} Zeilen\n")
+                writer.write(f"  {code_file.name}: {lines} Zeilen")
+                if args.recursive:
+                    writer.write(f" [{code_file.parent.name}]")
+                writer.write("\n")
                 writer.write(f"----- {code_file.name} -----\n")
                 try:
                     with open(code_file, "r", encoding="utf-8") as f:
@@ -305,6 +322,8 @@ def run_copycat(args):
                         extract_drawio(writer, bfile)
                     else:
                         list_binary_file(writer, bfile)
+                        if args.recursive:
+                            writer.write(f"  Pfad: {bfile.parent.name}/{bfile.name}\n")
 
     print(f"Erstellt: {new_file}")
 

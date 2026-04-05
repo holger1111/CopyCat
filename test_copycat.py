@@ -1,5 +1,5 @@
 """
-Pytest-Suite für CopyCat v2.2
+Pytest-Suite für CopyCat v2.4
 """
 
 import pytest

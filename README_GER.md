@@ -1,4 +1,4 @@
-# CopyCat v2.3 - Projekt-Dokumentierer
+# CopyCat v2.5 - Projekt-Dokumentierer
 
 \_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_
 
@@ -53,11 +53,22 @@ python CopyCat.py --help             # Hilfe
 
 
 
-\-i, --input    Eingabeordner (Default: Skriptordner)
+\-i, --input     Eingabeordner (Default: Skriptordner)
 
-\-o, --output   Ausgabeordner (Default: Eingabeordner)
+\-o, --output    Ausgabeordner (Default: Eingabeordner)
 
-\-t, --types    Typen: code web db config docs deps img audio diagram (Default: all)
+\-t, --types     Typen: code web db config docs deps img audio diagram (Default: all)
+
+\-r, --recursive Rekursive Suche in Unterordnern (Default: nur Hauptordner)
+
+
+
+### Flach vs Rekursiv
+
+| Modus         | Flag       | Verhalten            | Performance     |
+|---------------|------------|---------------------:|-----------------|
+| **Flach (Default)** | -     | Nur Hauptordner      | Schnell         |
+| **Rekursiv**  | `-r`       | Alle Unterordner     | Langsamer bei 1000+ Files |
 
 
 
@@ -127,7 +138,7 @@ STATISTIK: 152 Cells | 45 Texte | 23 Unique
 
 
 
-47 Testdateien -> CopyCat v2.3 Serial #3
+47 Testdateien -> CopyCat v2.5 Serial #3
 
 
 
@@ -141,6 +152,10 @@ CopyCat.py -t web db config     # 3 spezifische Kategorien
 
 CopyCat.py -t all               # Alle 9 Kategorien
 
+CopyCat.py -i tests/            # Flach: 47 Dateien
+
+CopyCat.py -i tests/ -r         # Rekursiv: Unterordner inkl.
+
 
 
 ### Ausgabe-Beispiel
@@ -148,15 +163,11 @@ CopyCat.py -t all               # Alle 9 Kategorien
 
 
 ============================================================
+CopyCat v2.5 | 05.04.2026 15:05 | FLACH (Default)
+c:\Projekte\Test
 
-CopyCat v2.1 | 02.04.2026 14:16
-
-c:\\Projekte\\Test
-
-
-
-Gesamt: 13 Dateien | Serial #26
-
+Gesamt: 47 Dateien
+Serial #3
 ============================================================
 
 CODE: 2 Dateien
@@ -171,7 +182,7 @@ DRAWIO: 1 Datei
 
 CODE-Details:
 
-&#x20; Code\_java.java: 28 Zeilen
+code.py: 42 Zeilen [subfolder]
 
 
 
@@ -216,6 +227,8 @@ WAV: Header-Analyse (struct.unpack)
 Serial: combined\_copycat\_26.txt
 
 Archiv: CopyCat\_Archive/
+
+Recursiv: `glob()` vs `rglob()` rekursive Suche
 
 
 
@@ -307,3 +320,4 @@ py -m pytest test\_copycat.py -v --cov  # Lokale Tests
 
 \- \[x] Binary-Analyse struct
 
+\- \[x] pathlib: `glob()` vs `rglob()` recursive search
