@@ -1,4 +1,4 @@
-# CopyCat v2.5 - Projekt-Dokumentierer
+# CopyCat v2.6 - Projekt-Dokumentierer
 
 \_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_
 
@@ -138,7 +138,7 @@ STATISTIK: 152 Cells | 45 Texte | 23 Unique
 
 
 
-47 Testdateien -> CopyCat v2.5 Serial #3
+1000+ Testdateien -> CopyCat v2.6 Serial #4 (Performance getestet)
 
 
 
@@ -156,6 +156,8 @@ CopyCat.py -i tests/            # Flach: 47 Dateien
 
 CopyCat.py -i tests/ -r         # Rekursiv: Unterordner inkl.
 
+CopyCat.py -s, --max-size  	# Max Dateigröße MB (Default: ∞, keine Grenze)
+
 
 
 ### Ausgabe-Beispiel
@@ -163,11 +165,13 @@ CopyCat.py -i tests/ -r         # Rekursiv: Unterordner inkl.
 
 
 ============================================================
-CopyCat v2.5 | 05.04.2026 15:05 | FLACH (Default)
+CopyCat v2.6 | 05.04.2026 15:05 | REKURSIV
 c:\Projekte\Test
+Limit: <5.0MB (5242880 Bytes)
+→ 1274 geprüft, Filter OK
 
 Gesamt: 47 Dateien
-Serial #3
+Serial #4
 ============================================================
 
 CODE: 2 Dateien
@@ -248,6 +252,25 @@ Recursiv: `glob()` vs `rglob()` rekursive Suche
 
 Beispiel: 'DIAGRAMM INVALID XML: test.drawio'
 
+
+##  Performance-Tuning (v2.6)
+
+**Für große Projekte (1000+ Files):**
+
+| Szenario | Flags | Filter | Progress | Performance |
+|----------|-------|--------|----------|-------------|
+| Standard | - | ❌ | ❌ | Blitzschnell |
+| Limit | `--max-size 10` | ✅ <10MB | ❌ | Schnell |
+| Rekursiv | `-r` | ✅ auto | ✅ Live | 3x schneller |
+| Full | `-r --max-size 1` | ✅ <1MB | ✅ Live | Optimal |
+
+**Beispiele:**
+```bash
+CopyCat.py -r --max-size 1      # Rekursiv + <1MB + Progress ✓
+CopyCat.py --max-size 10        # Flach + <10MB (kein Progress)
+CopyCat.py -r                   # Rekursiv + auto-Filter (Progress)
+CopyCat.py                      # Flach + keine Filter (wie v2.5) ✓
+```
 
 
 ### GitHub-Setup

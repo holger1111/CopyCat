@@ -1,5 +1,5 @@
 """
-CopyCat v2.5
+CopyCat v2.6
 """
 
 import argparse
@@ -38,6 +38,13 @@ def parse_arguments():
         "-r",
         action="store_true",
         help="Rekursive Suche in Unterordnern (default: nur Hauptordner)",
+    )
+    parser.add_argument(
+        "--max-size",
+        "-s",
+        type=float,
+        default=float("inf"),
+        help="Max Dateigröße in MB (default: keine Grenze)",
     )
     return parser.parse_args()
 
@@ -210,6 +217,26 @@ def get_plural(count):
     return "Datei" if count == 1 else "Dateien"
 
 
+def size_filtered_glob(search_method, patterns, max_bytes, script_file):
+    """Generator mit Size-Filter + Progress"""
+    total_checked = 0
+    for pat in patterns:
+        for candidate in search_method(pat):
+            total_checked += 1
+            try:
+                if candidate.stat().st_size < max_bytes:
+                    if (
+                        candidate.resolve() != script_file
+                        and "combined_copycat" not in candidate.name
+                    ):
+                        yield candidate
+                if total_checked % 100 == 0:
+                    print(f"\rGeprüft: {total_checked} Dateien...", end="")
+            except OSError:
+                continue
+    print(f"\n→ {total_checked} geprüft, Filter OK")
+
+
 def run_copycat(args):
     script_file = Path(__file__).resolve()
     script_dir = Path(__file__).parent
@@ -236,21 +263,32 @@ def run_copycat(args):
 
     selected_types = args.types if args.types else ["all"]
     process_all = "all" in selected_types
+    limit_bytes = args.max_size * 1024 * 1024
 
     # Sammle Dateien - REKURSIV ODER FLACH
     search_method = input_dir.rglob if args.recursive else input_dir.glob
+    use_filter = args.recursive or args.max_size != float("inf")
+    limit_bytes = args.max_size * 1024 * 1024 if use_filter else float("inf")
+
     print(f"Suche {'rekursiv' if args.recursive else 'flach'} in {input_dir}")
+    if use_filter:
+        print(f"Limit: <{args.max_size}MB ({limit_bytes/1024/1024:.0f} Bytes)")
 
     for t, patterns in TYPE_FILTERS.items():
         if process_all or t in selected_types:
-            for pat in patterns:
-                candidates = search_method(pat)
-                for candidate in candidates:
-                    if (
-                        candidate.resolve() != script_file
-                        and "combined_copycat" not in candidate.name
-                    ):
-                        files[t].append(candidate)
+            if use_filter:
+                for candidate in size_filtered_glob(
+                    search_method, patterns, limit_bytes, script_file
+                ):
+                    files[t].append(candidate)
+            else:
+                for pat in patterns:
+                    for candidate in search_method(pat):
+                        if (
+                            candidate.resolve() != script_file
+                            and "combined_copycat" not in candidate.name
+                        ):
+                            files[t].append(candidate)
 
     # Serial & Archiv
     serial = get_next_serial_number(output_dir)
@@ -272,7 +310,7 @@ def run_copycat(args):
     with open(new_file, "w", encoding="utf-8") as writer:
         writer.write(
             "=" * 60
-            + f"\nCopyCat v2.5 | {datetime.now().strftime('%d.%m.%Y %H:%M')} | {mode_text}\n{input_dir}\n\n"
+            + f"\nCopyCat v2.6 | {datetime.now().strftime('%d.%m.%Y %H:%M')} | {mode_text}\n{input_dir}\n\n"
         )
         total_files = sum(len(files[t]) for t in files)
         writer.write(

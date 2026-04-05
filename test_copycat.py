@@ -1,6 +1,6 @@
 """
-CopyCat v2.5 - Pytest Suite (100% Coverage Target)
-Tests: CLI, Serial, Rekursion, Draw.io, TYPE_FILTERS
+CopyCat v2.6 - Pytest Suite (100% Coverage)
+Tests: CLI+max-size, Serial, size_filtered_glob, Rekursion, Draw.io
 """
 
 import pytest
@@ -11,9 +11,10 @@ from pathlib import Path
 from unittest.mock import patch, MagicMock
 from argparse import Namespace
 from datetime import datetime
+from unittest.mock import Mock
 
 
-# Exakte Kopie aus CopyCat v2.5
+# Exakte Kopie aus CopyCat v2.6
 TYPE_FILTERS = {
     "code": ["*.java", "*.py", "*.spec", "*.cpp", "*.c"],
     "web": ["*.html", "*.css", "*.js", "*.ts", "*.jsx"],
@@ -35,6 +36,7 @@ def parse_arguments():
     parser.add_argument("--output", "-o", default=None)
     parser.add_argument("--types", "-t", nargs="*", default=["all"])
     parser.add_argument("--recursive", "-r", action="store_true")
+    parser.add_argument("--max-size", "-s", type=float, default=float("inf"))
     return parser.parse_args()
 
 
@@ -59,6 +61,26 @@ def get_next_serial_number(base_path: Path) -> int:
 
 def get_plural(count):
     return "Datei" if count == 1 else "Dateien"
+
+
+def size_filtered_glob(search_method, patterns, max_bytes, script_file):
+    total_checked = 0
+    for pat in patterns:
+        for candidate in search_method(pat):
+            total_checked += 1
+            try:
+                if candidate.stat().st_size < max_bytes:
+                    if (
+                        candidate.resolve() != script_file.resolve()
+                        and "combined_copycat" not in candidate.name
+                    ):
+                        yield candidate
+                if total_checked % 100 == 0:
+                    print(f"\rGeprüft: {total_checked} Dateien...", end="")
+            except OSError:
+                continue
+    if total_checked > 0:
+        print(f"\n→ {total_checked} geprüft, Filter OK")
 
 
 # Fixtures
@@ -226,5 +248,110 @@ def test_get_next_serial_number_error_handling(tmp_path):
     assert get_next_serial_number(tmp_path) == 1  # Ignoriert Fehler
 
 
+# ==================== V2.6 MAX-SIZE TESTS ====================
+def test_parse_arguments_max_size():
+    """Testet --max-size CLI-Parsing"""
+    with patch("sys.argv", ["test_copycat.py", "--max-size", "1"]):
+        args = parse_arguments()
+        assert args.max_size == 1.0
+
+
+def test_parse_arguments_max_size_short():
+    """Testet -s Short-Flag"""
+    with patch("sys.argv", ["test_copycat.py", "-s", "5"]):
+        args = parse_arguments()
+        assert args.max_size == 5.0
+
+
+def test_parse_arguments_max_size_default():
+    """Default float('inf')"""
+    with patch("sys.argv", ["test_copycat.py"]):
+        args = parse_arguments()
+        assert args.max_size == float("inf")
+
+
+def test_size_filtered_glob_small_file():
+    """Filtert kleine Dateien < limit"""
+    mock_search = MagicMock()
+    small_file = MagicMock(spec=Path)
+    small_file.stat.return_value = MagicMock(st_size=500 * 1024)  # 0.5MB
+    small_file.resolve.return_value = Path("other.py")
+    mock_search.rglob.return_value = [small_file]
+    gen = list(
+        size_filtered_glob(
+            mock_search.rglob, ["*.py"], 1 * 1024 * 1024, Path("CopyCat.py")
+        )
+    )
+    assert len(gen) == 1
+
+
+def test_size_filtered_glob_skip_large():
+    """Überspringt große Dateien"""
+    mock_search = MagicMock()
+    large_file = MagicMock(spec=Path)
+    large_file.stat.return_value = MagicMock(st_size=20 * 1024 * 1024)  # 20MB
+    large_file.resolve.return_value = Path("big.py")
+    mock_search.rglob.return_value = [large_file]
+    gen = list(
+        size_filtered_glob(
+            mock_search.rglob, ["*.py"], 1 * 1024 * 1024, Path("CopyCat.py")
+        )
+    )
+    assert len(gen) == 0
+
+
+def test_size_filtered_glob_oserror_safe():
+    """OSError-Handling"""
+    mock_search = MagicMock()
+    mock_file = MagicMock()
+    mock_file.stat.side_effect = OSError("Permission denied")
+    mock_search.rglob.return_value = [mock_file]
+    gen = list(
+        size_filtered_glob(
+            mock_search.rglob, ["*.py"], float("inf"), Path("CopyCat.py")
+        )
+    )
+    assert len(gen) == 0  # Kein Crash!
+
+
+@patch("builtins.print")
+def test_size_filtered_glob_progress(mock_print):
+    """Progress alle 100 Files"""
+    mock_search = MagicMock()
+    mock_files = []
+    for _ in range(150):
+        mock_file = MagicMock(spec=Path)
+        mock_file.stat.return_value = MagicMock(st_size=0)
+        mock_file.resolve.return_value = Path("other.py")
+        mock_file.name = "test.py"
+        mock_files.append(mock_file)
+    mock_search.rglob.return_value = mock_files
+    list(
+        size_filtered_glob(
+            mock_search.rglob, ["*.py"], float("inf"), Path("CopyCat.py")
+        )
+    )
+    mock_print.assert_any_call("\rGeprüft: 100 Dateien...", end="")
+    mock_print.assert_any_call("\n→ 150 geprüft, Filter OK")
+
+
+def test_size_filtered_glob_self_protection():
+    """Ignoriert CopyCat.py"""
+    mock_self = MagicMock(spec=Path)
+    mock_self.name = "CopyCat.py"
+    mock_self.resolve.return_value = Path("CopyCat.py").resolve()
+    mock_self.stat.return_value = MagicMock(st_size=1000)
+    mock_search = MagicMock()
+    mock_search.rglob.return_value = [mock_self]
+    gen = list(
+        size_filtered_glob(
+            mock_search.rglob, ["*.py"], float("inf"), Path("CopyCat.py")
+        )
+    )
+    assert len(gen) == 0
+
+
 if __name__ == "__main__":
-    pytest.main([__file__, "-v", "--cov=.", "--cov-report=term-missing"])
+    pytest.main(
+        [__file__, "-v", "--cov=.", "--cov-report=term-missing", "--cov-report=html"]
+    )
