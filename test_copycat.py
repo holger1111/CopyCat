@@ -11,23 +11,7 @@ from pathlib import Path
 from unittest.mock import patch, MagicMock
 from argparse import Namespace
 from datetime import datetime
-from CopyCat import (
-    parse_arguments,
-    is_valid_serial_filename,
-    get_next_serial_number,
-    get_plural,
-)
 
-try:
-    from CopyCat import (
-        parse_arguments,
-        is_valid_serial_filename,
-        get_next_serial_number,
-        get_plural,
-    )
-except ImportError:
-    # Fallback für GitHub Actions
-    exec(open("CopyCat.py").read(), globals())
 
 # Exakte Kopie aus CopyCat v2.5
 TYPE_FILTERS = {
@@ -42,33 +26,39 @@ TYPE_FILTERS = {
     "diagram": ["*.drawio", "*.dia", "*.puml"],
 }
 
-# def parse_arguments():
-#     parser = argparse.ArgumentParser(description="CopyCat: Kombiniert Dateien zu Textdatei")
-#     parser.add_argument("--input", "-i", default=None)
-#     parser.add_argument("--output", "-o", default=None)
-#     parser.add_argument("--types", "-t", nargs="*", default=["all"])
-#     parser.add_argument("--recursive", "-r", action="store_true")
-#     return parser.parse_args()
 
-# def is_valid_serial_filename(filename: str) -> bool:
-#     pattern = r"^combined_copycat_(\d+)\.txt$"
-#     return bool(re.match(pattern, filename))
+def parse_arguments():
+    parser = argparse.ArgumentParser(
+        description="CopyCat: Kombiniert Dateien zu Textdatei"
+    )
+    parser.add_argument("--input", "-i", default=None)
+    parser.add_argument("--output", "-o", default=None)
+    parser.add_argument("--types", "-t", nargs="*", default=["all"])
+    parser.add_argument("--recursive", "-r", action="store_true")
+    return parser.parse_args()
 
-# def get_next_serial_number(base_path: Path) -> int:
-#     existing = list(base_path.glob("combined_copycat*.txt"))
-#     max_num = 0
-#     for p in existing:
-#         if is_valid_serial_filename(p.name):
-#             try:
-#                 match = re.match(r"^combined_copycat_(\d+)\.txt$", p.name)
-#                 num = int(match.group(1))
-#                 max_num = max(max_num, num)
-#             except (ValueError, AttributeError):
-#                 continue
-#     return max_num + 1
 
-# def get_plural(count):
-#     return "Datei" if count == 1 else "Dateien"
+def is_valid_serial_filename(filename: str) -> bool:
+    pattern = r"^combined_copycat_(\d+)\.txt$"
+    return bool(re.match(pattern, filename))
+
+
+def get_next_serial_number(base_path: Path) -> int:
+    existing = list(base_path.glob("combined_copycat*.txt"))
+    max_num = 0
+    for p in existing:
+        if is_valid_serial_filename(p.name):
+            try:
+                match = re.match(r"^combined_copycat_(\d+)\.txt$", p.name)
+                num = int(match.group(1))
+                max_num = max(max_num, num)
+            except (ValueError, AttributeError):
+                continue
+    return max_num + 1
+
+
+def get_plural(count):
+    return "Datei" if count == 1 else "Dateien"
 
 
 # Fixtures
