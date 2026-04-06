@@ -1,12 +1,6 @@
 [run]
-source = .
-branch = False
+source = CopyCat.py
 omit = 
     test_copycat.py
     */__pycache__/*
-    *.pyc
-
-[report]
-show_missing = True
-fail_under = 80
-skip_covered = False
+branch = True

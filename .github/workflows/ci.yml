@@ -14,13 +14,17 @@ jobs:
     - name: Install pytest + cov
       run: pip install pytest pytest-cov
     
-    - name: Run Tests with Coverage
-      run: pytest test_copycat.py -v --cov=CopyCat.py --cov-report=xml --cov-report=term-missing
+    - name: Run Tests with Coverage  
+      run: |
+        pytest test_copycat.py -v --cov=CopyCat.py \
+          --cov-config=.coveragerc \
+          --cov-report=xml:coverage.xml \
+          --cov-report=term-missing
     
     - name: Upload Coverage to Codecov
       uses: codecov/codecov-action@v4
+      if: always()
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
-        file: coverage.xml
-        verbose: true
+        file: ./coverage.xml
     

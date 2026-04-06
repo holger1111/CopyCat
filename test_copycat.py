@@ -769,8 +769,8 @@ def test_run_copycat_unicode_code_error(tmp_path):
     )
     run_copycat(args)
     report = next(tmp_path.glob("combined_copycat_*.txt"))
-    content = report.read_text()
-    assert "(Binary oder ungÃ¼ltiges Encoding - Ã¼bersprungen)" in content
+    content = report.read_text(encoding="utf-8")
+    assert "(Binary oder ungültiges Encoding - übersprungen)" in content
 
 
 def test_gitignore_recursive(tmp_path):
@@ -920,12 +920,12 @@ def test_run_copycat_binary_recursive_detail(tmp_path):
     run_copycat(args)
 
     report = next(tmp_path.glob("combined_copycat_*.txt"))
-    report_text = report.read_text()
+    report_text = report.read_text(encoding="utf-8")
 
     assert "CODE: 2 Dateien" in report_text
     assert "test.py: 1 Zeilen" in report_text
     assert "fake.py: 1 Zeilen [bin]" in report_text
-    assert "(Binary oder ungÃ¼ltiges Encoding - Ã¼bersprungen)" in report_text
+    assert "(Binary oder ungültiges Encoding - übersprungen)" in report_text
 
 
 def test_extract_drawio_compressed_coverage(tmp_path):
