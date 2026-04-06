@@ -140,21 +140,23 @@ def extract_drawio(writer, drawio_file):
         if size == 0:
             writer.write(f"[EMPTY: {drawio_file.name}] [SIZE: 0 bytes]\n")
             return
-            
-        with open(drawio_file, 'r', encoding='utf-8') as f:
+
+        with open(drawio_file, "r", encoding="utf-8") as f:
             xml_content = f.read()
-            
+
         tree = ET.fromstring(xml_content)
         cells, texts = 0, 0
-        
-        for cell in tree.iter('mxCell'):
+
+        for cell in tree.iter("mxCell"):
             cells += 1
-            if 'value' in cell.attrib and cell.attrib['value'].strip():
+            if "value" in cell.attrib and cell.attrib["value"].strip():
                 texts += 1
-                writer.write(f"  [{cell.attrib.get('id','?')}] {cell.attrib['value'][:50]}...\n")
-                
+                writer.write(
+                    f"  [{cell.attrib.get('id','?')}] {cell.attrib['value'][:50]}...\n"
+                )
+
         writer.write(f"DIAGRAM {drawio_file.name}: {cells} Cells, {texts} Texte\n")
-        
+
     except ET.ParseError as e:
         writer.write(f"[XML PARSE ERROR: {drawio_file.name} - {str(e)}]\n")
     except UnicodeDecodeError:
@@ -187,11 +189,12 @@ def get_git_info(input_dir: Path) -> str:
     except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError):
         return "No Git"
 
+
 def should_skip_gitignore(input_dir: Path, file_path: Path) -> bool:
     gitignore_path = input_dir / ".gitignore"
     if not gitignore_path.exists():
         return False
-    
+
     try:
         rel_path = file_path.relative_to(input_dir).as_posix()
         with open(gitignore_path, "r", encoding="utf-8") as f:
@@ -201,6 +204,7 @@ def should_skip_gitignore(input_dir: Path, file_path: Path) -> bool:
                     continue
                 if "*" in rule:
                     import fnmatch
+
                     if fnmatch.fnmatch(rel_path, rule):
                         return True
                 elif rule.endswith("/"):
@@ -239,16 +243,16 @@ def size_filtered_glob(search_method, patterns, max_bytes, script_file, input_di
 
 
 TYPE_FILTERS = {
-        "code": ["*.java", "*.py", "*.spec", "*.cpp", "*.c"],
-        "web": ["*.html", "*.css", "*.js", "*.ts", "*.jsx"],
-        "db": ["*.sql", "*.db", "*.sqlite"],
-        "config": ["*.json", "*.yaml", "*.xml", "*.properties", "*.env"],
-        "docs": ["*.md", "*.txt", "*.log", "*.docx"],
-        "deps": ["requirements.txt", "package.json", "pom.xml", "go.mod"],
-        "img": ["*.png", "*.jpg", "*.gif", "*.bmp", "*.webp", "*.svg", "*.ico"],
-        "audio": ["*.mp3", "*.wav", "*.ogg", "*.m4a", "*.flac"],
-        "diagram": ["*.drawio", "*.dia", "*.puml"],
-    }
+    "code": ["*.java", "*.py", "*.spec", "*.cpp", "*.c"],
+    "web": ["*.html", "*.css", "*.js", "*.ts", "*.jsx"],
+    "db": ["*.sql", "*.db", "*.sqlite"],
+    "config": ["*.json", "*.yaml", "*.xml", "*.properties", "*.env"],
+    "docs": ["*.md", "*.txt", "*.log", "*.docx"],
+    "deps": ["requirements.txt", "package.json", "pom.xml", "go.mod"],
+    "img": ["*.png", "*.jpg", "*.gif", "*.bmp", "*.webp", "*.svg", "*.ico"],
+    "audio": ["*.mp3", "*.wav", "*.ogg", "*.m4a", "*.flac"],
+    "diagram": ["*.drawio", "*.dia", "*.puml"],
+}
 
 
 def run_copycat(args):
@@ -331,25 +335,43 @@ def run_copycat(args):
         if process_all or "code" in selected_types:
             writer.write("CODE-Details:\n")
             for code_file in files["code"]:
-                lines = sum(1 for line in open(code_file) if line.strip())
-                writer.write(f"  {code_file.name}: {lines} Zeilen")
+                try:
+                    lines = sum(
+                        1 for line in open(code_file, encoding="utf-8") if line.strip()
+                    )
+                    writer.write(f"  {code_file.name}: {lines} Zeilen")
+                except UnicodeDecodeError:
+                    lines = 1
+                    rel_path = code_file.relative_to(args.input)
+                    folder = rel_path.parent.name if rel_path.parent.name != "." else ""
+                    bracket = (
+                        f" [{folder}]"
+                        if folder and args.recursive
+                        else f" [{folder}]" if folder else ""
+                    )
+                    writer.write(f"  {code_file.name}: {lines} Zeilen{bracket}")
+                except Exception as e:
+                    lines = 0
+                    writer.write(f"  {code_file.name}: [FEHLER]")
+
                 if args.recursive:
-                    writer.write(f" [{code_file.parent.name}]")
+                    rel_path = code_file.relative_to(args.input)
+                    folder = rel_path.parent.name if rel_path.parent.name != "." else ""
+                    writer.write(f" [{folder}]")
+
                 writer.write("\n")
                 writer.write(f"----- {code_file.name} -----\n")
+
                 try:
                     with open(code_file, "r", encoding="utf-8") as f:
                         writer.writelines(f.readlines())
                 except UnicodeDecodeError:
                     writer.write("(Binary oder ungültiges Encoding - übersprungen)\n")
-                except Exception as e:
-                    logging.error(
-                        f"Unexpected error reading code {code_file.name}: {e}"
-                    )
-                    writer.write(f"(Fehler beim Lesen: {str(e)})\n")
                 writer.write("\n\n")
 
-        types_to_process = [t for t in (["all"] if process_all else selected_types) if t in TYPE_FILTERS]
+        types_to_process = [
+            t for t in (["all"] if process_all else selected_types) if t in TYPE_FILTERS
+        ]
         for t in types_to_process:
             if t == "code" or not files[t]:
                 continue
