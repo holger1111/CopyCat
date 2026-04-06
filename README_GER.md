@@ -1,4 +1,4 @@
-# CopyCat v2.6 - Projekt-Dokumentierer
+# CopyCat v2.7 - Projekt-Dokumentierer
 
 \_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_
 
@@ -51,15 +51,13 @@ python CopyCat.py --help             # Hilfe
 
 ### Parameter
 
-
-
-\-i, --input     Eingabeordner (Default: Skriptordner)
-
-\-o, --output    Ausgabeordner (Default: Eingabeordner)
-
-\-t, --types     Typen: code web db config docs deps img audio diagram (Default: all)
-
-\-r, --recursive Rekursive Suche in Unterordnern (Default: nur Hauptordner)
+| Flag | Beschreibung | Default |
+|------|--------------|---------|
+| `-i,--input` | Eingabeordner | Skriptordner |
+| `-o,--output` | Ausgabeordner | Eingabeordner |
+| `-t,--types` | Typen: `code web db config docs deps img audio diagram` oder `all` | `all` |
+| `-r,--recursive` | Rekursive Suche | Flach |
+| `-s,--max-size` | Max Größe MB | ∞ (keine Grenze) |
 
 
 
@@ -156,8 +154,7 @@ CopyCat.py -i tests/            # Flach: 47 Dateien
 
 CopyCat.py -i tests/ -r         # Rekursiv: Unterordner inkl.
 
-CopyCat.py -s, --max-size  	# Max Dateigröße MB (Default: ∞, keine Grenze)
-
+CopyCat.py -s, --max-size 1 	# Max Dateigröße 1 MB
 
 
 ### Ausgabe-Beispiel
@@ -165,7 +162,7 @@ CopyCat.py -s, --max-size  	# Max Dateigröße MB (Default: ∞, keine Grenze)
 
 
 ============================================================
-CopyCat v2.6 | 05.04.2026 15:05 | REKURSIV
+CopyCat v2.7 | 05.04.2026 15:05 | REKURSIV
 c:\Projekte\Test
 Limit: <5.0MB (5242880 Bytes)
 → 1274 geprüft, Filter OK
@@ -301,15 +298,13 @@ README.md
 
 
 
-**Tests: 100% Core-Coverage (CLI, Serial, Draw.io)**
+**Tests: 100% Core-Coverage (CLI, Serial, Draw.io, max-size)**
 
 
 
 ```bash
 
-py -m pytest test\_copycat.py -v --cov  # Lokale Tests
-
-\# 10/10 PASSED | Coverage: 100%
+py -m pytest test_copycat.py -v --cov  # 150/150 PASSED | 100%
 
 ```
 

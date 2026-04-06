@@ -1,5 +1,5 @@
 """
-CopyCat v2.6
+CopyCat v2.7
 """
 
 import argparse
@@ -11,6 +11,8 @@ import struct
 import zipfile
 import zlib
 import base64
+import subprocess
+import fnmatch
 import urllib.parse
 from pathlib import Path
 from datetime import datetime
@@ -50,13 +52,11 @@ def parse_arguments():
 
 
 def is_valid_serial_filename(filename: str) -> bool:
-    """Validiert combined_copycat_N.txt via Regex"""
     pattern = r"^combined_copycat_(\d+)\.txt$"
     return bool(re.match(pattern, filename))
 
 
 def get_next_serial_number(base_path: Path) -> int:
-    """Robuste Serial-Nummerierung mit Regex-Validierung"""
     existing = list(base_path.glob("combined_copycat*.txt"))
     max_num = 0
     for p in existing:
@@ -66,12 +66,11 @@ def get_next_serial_number(base_path: Path) -> int:
                 num = int(match.group(1))
                 max_num = max(max_num, num)
             except (ValueError, AttributeError):
-                continue  # Ungültige Namen ignorieren
+                continue
     return max_num + 1
 
 
 def move_to_archive(base_path: Path, filename: str):
-    """Archiviert ALLE CopyCat-Dateien (auch serial=1)"""
     archive_path = base_path / "CopyCat_Archive"
     archive_path.mkdir(exist_ok=True)
 
@@ -91,7 +90,7 @@ def list_binary_file(writer, bin_file):
             return
 
         with open(bin_file, "rb") as f:
-            data = f.read(1024)  # Nur Header für Metadaten
+            data = f.read(1024)
         suffix = bin_file.suffix.lower()
         mime_types = {
             ".png": "image/png",
@@ -136,94 +135,96 @@ def list_binary_file(writer, bin_file):
 
 
 def extract_drawio(writer, drawio_file):
-    """STABILISIERT: XML + Compressed + ZIP + Edge-Cases"""
     try:
-        writer.write(f"\n{'='*80}\nVOLLSTÄNDIGES DIAGRAMM: {drawio_file.name}\n")
-
-        try:
-            with zipfile.ZipFile(drawio_file) as zf:
-                xml_content = zf.read(zf.namelist()[0]).decode("utf-8")
-        except zipfile.BadZipFile:
-            xml_content = drawio_file.read_bytes().decode("utf-8")
-
-        tree = ET.fromstring(xml_content)
-
-        diagram = tree.find(".//diagram")
-        if diagram is not None and diagram.text:
-            try:
-                b64_data = diagram.text.strip()
-                data = base64.b64decode(b64_data)
-                decompressed = zlib.decompress(data, wbits=-zlib.MAX_WBITS)
-                unquoted = urllib.parse.unquote(decompressed.decode("utf-8"))
-                diagram_tree = ET.fromstring(unquoted)
-            except (base64.binascii.Error, zlib.error, ET.ParseError):
-                diagram_tree = tree
-        else:
-            diagram_tree = tree
-
-        mx_models = diagram_tree.findall(".//mxGraphModel")
-        if not mx_models:
-            writer.write("  [LEERES MODELL - Keine mxGraphModel gefunden]\n")
+        size = drawio_file.stat().st_size
+        if size == 0:
+            writer.write(f"[EMPTY: {drawio_file.name}] [SIZE: 0 bytes]\n")
             return
-
-        total_cells = 0
-        all_texts = []
-
-        for model_idx, model in enumerate(mx_models, 1):
-            writer.write(f"\nMODEL {model_idx}: dx={model.get('dx', 'N/A')}\n")
-            cells = model.findall(".//mxCell")
-
-            for cell_idx, cell in enumerate(cells, 1):
-                total_cells += 1
-                cell_id = cell.get("id", "N/A")
-                value = cell.get("value", "").strip()
-
-                if value:
-                    all_texts.append(value)
-                    display_value = (
-                        f"HTML[{len(value)}]" if "<" in value else f"'{value[:30]}'"
-                    )
-                else:
-                    display_value = "N/A"
-
-                geom = cell.find(".//mxGeometry")
-                geom_info = (
-                    f"x={geom.get('x','')},y={geom.get('y','')}"
-                    if geom is not None
-                    else "N/A"
-                )
-
-                writer.write(
-                    f"  CELL {cell_idx:3d} [ID={cell_id}] {display_value} | GEOM: {geom_info}\n"
-                )
-
-        # Statistik
-        unique_texts = list(set(all_texts))
-        writer.write(f"\n{'='*40}\n")
-        writer.write(
-            f"STATISTIK: {total_cells} Cells | {len(all_texts)} Texte | {len(unique_texts)} Unique\n"
-        )
-
+            
+        with open(drawio_file, 'r', encoding='utf-8') as f:
+            xml_content = f.read()
+            
+        tree = ET.fromstring(xml_content)
+        cells, texts = 0, 0
+        
+        for cell in tree.iter('mxCell'):
+            cells += 1
+            if 'value' in cell.attrib and cell.attrib['value'].strip():
+                texts += 1
+                writer.write(f"  [{cell.attrib.get('id','?')}] {cell.attrib['value'][:50]}...\n")
+                
+        writer.write(f"DIAGRAM {drawio_file.name}: {cells} Cells, {texts} Texte\n")
+        
     except ET.ParseError as e:
-        writer.write(f"[XML PARSE ERROR: {drawio_file.name} - {str(e)[:50]}]\n")
+        writer.write(f"[XML PARSE ERROR: {drawio_file.name} - {str(e)}]\n")
     except UnicodeDecodeError:
-        writer.write(f"[ENCODING ERROR: {drawio_file.name} - Binär/ungültiges UTF-8]\n")
-    except Exception as e:
-        writer.write(f"[DIAGRAM ERROR: {drawio_file.name} - {str(e)[:50]}]\n")
+        writer.write(f"[BINARY: {drawio_file.name} - Invalid Encoding]\n")
 
 
-# Übersicht - Singular/Plural korrekt
+def get_git_info(input_dir: Path) -> str:
+    if not (input_dir / ".git").exists():
+        return "No Git"
+    try:
+        branch = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            cwd=input_dir,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        branch_name = branch.stdout.strip() if branch.returncode == 0 else "N/A"
+
+        commit = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=input_dir,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        commit_hash = commit.stdout.strip() if commit.returncode == 0 else "N/A"
+
+        return f"Branch: {branch_name} | Last Commit: {commit_hash}"
+    except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError):
+        return "No Git"
+
+def should_skip_gitignore(input_dir: Path, file_path: Path) -> bool:
+    gitignore_path = input_dir / ".gitignore"
+    if not gitignore_path.exists():
+        return False
+    
+    try:
+        rel_path = file_path.relative_to(input_dir).as_posix()
+        with open(gitignore_path, "r", encoding="utf-8") as f:
+            for line in f:
+                rule = line.strip()
+                if rule.startswith("#") or not rule:
+                    continue
+                if "*" in rule:
+                    import fnmatch
+                    if fnmatch.fnmatch(rel_path, rule):
+                        return True
+                elif rule.endswith("/"):
+                    if rel_path.startswith(rule.rstrip("/")):
+                        return True
+                elif rel_path == rule:
+                    return True
+        return False
+    except Exception:
+        return False
+
+
 def get_plural(count):
     return "Datei" if count == 1 else "Dateien"
 
 
-def size_filtered_glob(search_method, patterns, max_bytes, script_file):
-    """Generator mit Size-Filter + Progress"""
+def size_filtered_glob(search_method, patterns, max_bytes, script_file, input_dir):
     total_checked = 0
     for pat in patterns:
         for candidate in search_method(pat):
             total_checked += 1
             try:
+                if should_skip_gitignore(input_dir, candidate):
+                    continue
                 if candidate.stat().st_size < max_bytes:
                     if (
                         candidate.resolve() != script_file
@@ -237,6 +238,19 @@ def size_filtered_glob(search_method, patterns, max_bytes, script_file):
     print(f"\n→ {total_checked} geprüft, Filter OK")
 
 
+TYPE_FILTERS = {
+        "code": ["*.java", "*.py", "*.spec", "*.cpp", "*.c"],
+        "web": ["*.html", "*.css", "*.js", "*.ts", "*.jsx"],
+        "db": ["*.sql", "*.db", "*.sqlite"],
+        "config": ["*.json", "*.yaml", "*.xml", "*.properties", "*.env"],
+        "docs": ["*.md", "*.txt", "*.log", "*.docx"],
+        "deps": ["requirements.txt", "package.json", "pom.xml", "go.mod"],
+        "img": ["*.png", "*.jpg", "*.gif", "*.bmp", "*.webp", "*.svg", "*.ico"],
+        "audio": ["*.mp3", "*.wav", "*.ogg", "*.m4a", "*.flac"],
+        "diagram": ["*.drawio", "*.dia", "*.puml"],
+    }
+
+
 def run_copycat(args):
     script_file = Path(__file__).resolve()
     script_dir = Path(__file__).parent
@@ -248,24 +262,12 @@ def run_copycat(args):
         print(f"Fehler: {input_dir} ist kein Ordner")
         return
 
-    TYPE_FILTERS = {
-        "code": ["*.java", "*.py", "*.spec", "*.cpp", "*.c"],
-        "web": ["*.html", "*.css", "*.js", "*.ts", "*.jsx"],
-        "db": ["*.sql", "*.db", "*.sqlite"],
-        "config": ["*.json", "*.yaml", "*.xml", "*.properties", "*env"],  # '*.xlsx',
-        "docs": ["*.md", "*.txt", "*.log", "*.docx"],
-        "deps": ["requirements.txt", "package.json", "pom.xml", "go.mod"],
-        "img": ["*.png", "*.jpg", "*.gif", "*.bmp", "*.webp", "*.svg", "*.ico"],
-        "audio": ["*.mp3", "*.wav", "*.ogg", "*.m4a", "*.flac"],
-        "diagram": ["*.drawio", "*.dia", "*.puml"],
-    }
     files = {k: [] for k in TYPE_FILTERS}
 
     selected_types = args.types if args.types else ["all"]
     process_all = "all" in selected_types
     limit_bytes = args.max_size * 1024 * 1024
 
-    # Sammle Dateien - REKURSIV ODER FLACH
     search_method = input_dir.rglob if args.recursive else input_dir.glob
     use_filter = args.recursive or args.max_size != float("inf")
     limit_bytes = args.max_size * 1024 * 1024 if use_filter else float("inf")
@@ -278,7 +280,7 @@ def run_copycat(args):
         if process_all or t in selected_types:
             if use_filter:
                 for candidate in size_filtered_glob(
-                    search_method, patterns, limit_bytes, script_file
+                    search_method, patterns, limit_bytes, script_file, input_dir
                 ):
                     files[t].append(candidate)
             else:
@@ -290,12 +292,10 @@ def run_copycat(args):
                         ):
                             files[t].append(candidate)
 
-    # Serial & Archiv
     serial = get_next_serial_number(output_dir)
     basename = "combined_copycat"
     new_file = output_dir / f"{basename}_{serial}.txt"
 
-    # Vorherige archivieren
     existing = list(output_dir.glob("combined_copycat*.txt"))
     to_archive = [
         f for f in existing if f != new_file and is_valid_serial_filename(f.name)
@@ -305,12 +305,14 @@ def run_copycat(args):
     for old_file in to_archive:
         move_to_archive(output_dir, old_file.name)
 
-    # Übersicht
     mode_text = "REKURSIV" if args.recursive else "FLACH (Default)"
     with open(new_file, "w", encoding="utf-8") as writer:
+        git_info = get_git_info(input_dir)
         writer.write(
             "=" * 60
-            + f"\nCopyCat v2.6 | {datetime.now().strftime('%d.%m.%Y %H:%M')} | {mode_text}\n{input_dir}\n\n"
+            + f"\nCopyCat v2.7 | {datetime.now().strftime('%d.%m.%Y %H:%M')} | {mode_text}\n"
+            + f"{input_dir}\n"
+            + f"GIT: {git_info}\n\n"
         )
         total_files = sum(len(files[t]) for t in files)
         writer.write(
@@ -326,7 +328,6 @@ def run_copycat(args):
 
         writer.write("\n")
 
-        # Codeinhalte
         if process_all or "code" in selected_types:
             writer.write("CODE-Details:\n")
             for code_file in files["code"]:
@@ -348,8 +349,7 @@ def run_copycat(args):
                     writer.write(f"(Fehler beim Lesen: {str(e)})\n")
                 writer.write("\n\n")
 
-        # Binärdateien
-        types_to_process = list(TYPE_FILTERS.keys()) if process_all else selected_types
+        types_to_process = [t for t in (["all"] if process_all else selected_types) if t in TYPE_FILTERS]
         for t in types_to_process:
             if t == "code" or not files[t]:
                 continue

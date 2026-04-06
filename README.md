@@ -1,4 +1,4 @@
-# CopyCat v2.6 - Project Documenter
+# CopyCat v2.7 - Project Documenter
 
 \_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_
 
@@ -49,18 +49,15 @@ python CopyCat.py --help              # Help
 
 
 
-### Parameters
+### Parameter
 
-
-
-\-i, --input     Input folder (Default: script folder)
-
-\-o, --output    Output folder (Default: input folder)
-
-\-t, --types     Types: code web db config docs deps img audio diagram (Default: all)
-
-\-r, --recursive Recursive search in subfolders (Default: main folder only)
-
+| Flag | Beschreibung | Default |
+|------|--------------|---------|
+| `-i,--input` | Input folder | script folder |
+| `-o,--output` | Output folder | input folder |
+| `-t,--types` | Types: `code web db config docs deps img audio diagram` or `all` | `all` |
+| `-r,--recursive` | Recursive search | flat |
+| `-s,--max-size` | Max size MB | ∞ (no limit) |
 
 
 ### Flat vs Recursive
@@ -156,7 +153,7 @@ CopyCat.py -i tests/            # Flat: 47 files
 
 CopyCat.py -i tests/ -r         # Recursive: includes subfolders
 
-CopyCat.py -s, --max-size  	# max file size MB (Default: ∞, no limit)
+CopyCat.py -s, --max-size 1 	# max file size 1 MB
 
 
 ### Output Example
@@ -164,7 +161,7 @@ CopyCat.py -s, --max-size  	# max file size MB (Default: ∞, no limit)
 
 
 ============================================================
-CopyCat v2.6 | 05.04.2026 15:05 | REKURSIV
+CopyCat v2.7 | 05.04.2026 15:05 | REKURSIV
 c:\Projekte\Test
 Limit: <5.0MB (5242880 Bytes)
 → 1274 geprüft, Filter OK
@@ -299,13 +296,12 @@ README.md
 
 
 
-**Test: 100% Core-Coverage (CLI, Serial, Draw.io)**
+**Test: 100% Core-Coverage (CLI, Serial, Draw.io, max-size)**
 
 
 
 ```bash
-py -m pytest test\_copycat.py -v --cov  # local tests
-\\# 10/10 PASSED | Coverage: 100%
+py -m pytest test_copycat.py -v --cov  # 150/150 PASSED | 100%
 ```
 
 
