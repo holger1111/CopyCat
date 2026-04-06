@@ -337,30 +337,32 @@ def run_copycat(args):
             for code_file in files["code"]:
                 rel_path = code_file.relative_to(input_dir)
                 folder = rel_path.parent.name if rel_path.parent.name != "." else ""
-                bracket = f" [{folder}]" if folder and args.recursive else f" [{folder}]" if folder else ""
+                bracket = (
+                    f" [{folder}]"
+                    if folder and args.recursive
+                    else f" [{folder}]" if folder else ""
+                )
                 lines = 0
-                # Zeilenzählung + Format
                 try:
-                    lines = sum(1 for line in open(code_file, encoding="utf-8") if line.strip())
+                    lines = sum(
+                        1 for line in open(code_file, encoding="utf-8") if line.strip()
+                    )
                     writer.write(f"  {code_file.name}: {lines} Zeilen{bracket}")
                 except UnicodeDecodeError:
                     lines = 1
                     writer.write(f"  {code_file.name}: {lines} Zeilen{bracket}")
-                    # writer.write(f"  {code_file.name}: [BINARY - Zeilen übersprungen]")
                 except Exception as e:
                     writer.write(f"  {code_file.name}: [FEHLER]")
-                
-                # Rekursiv-Info NUR für NON-BINARY + korrekte Ordner
+
                 if args.recursive:
                     rel_path = code_file.relative_to(input_dir)
-                    if rel_path.parent.name != '.':
+                    if rel_path.parent.name != ".":
                         folder = rel_path.parent.name
                         writer.write(f" [{folder}]")
-                
+
                 writer.write("\n")
                 writer.write(f"----- {code_file.name} -----\n")
-                
-                # Inhalt
+
                 try:
                     with open(code_file, "r", encoding="utf-8") as f:
                         writer.writelines(f.readlines())
@@ -369,43 +371,6 @@ def run_copycat(args):
                 except Exception:
                     writer.write("(Fehler beim Lesen)\n")
                 writer.write("\n\n")
-        
-        # if process_all or "code" in selected_types:
-        #     writer.write("CODE-Details:\n")
-        #     for code_file in files["code"]:
-        #         try:
-        #             lines = sum(
-        #                 1 for line in open(code_file, encoding="utf-8") if line.strip()
-        #             )
-        #             writer.write(f"  {code_file.name}: {lines} Zeilen")
-        #         except UnicodeDecodeError:
-        #             lines = 1
-        #             rel_path = code_file.relative_to(args.input)
-        #             folder = rel_path.parent.name if rel_path.parent.name != "." else ""
-        #             bracket = (
-        #                 f" [{folder}]"
-        #                 if folder and args.recursive
-        #                 else f" [{folder}]" if folder else ""
-        #             )
-        #             writer.write(f"  {code_file.name}: {lines} Zeilen{bracket}")
-        #         except Exception as e:
-        #             lines = 0
-        #             writer.write(f"  {code_file.name}: [FEHLER]")
-
-        #         if args.recursive:
-        #             rel_path = code_file.relative_to(args.input)
-        #             folder = rel_path.parent.name if rel_path.parent.name != "." else ""
-        #             writer.write(f" [{folder}]")
-
-        #         writer.write("\n")
-        #         writer.write(f"----- {code_file.name} -----\n")
-
-        #         try:
-        #             with open(code_file, "r", encoding="utf-8") as f:
-        #                 writer.writelines(f.readlines())
-        #         except UnicodeDecodeError:
-        #             writer.write("(Binary oder ungültiges Encoding - übersprungen)\n")
-        #         writer.write("\n\n")
 
         types_to_process = [
             t for t in (["all"] if process_all else selected_types) if t in TYPE_FILTERS

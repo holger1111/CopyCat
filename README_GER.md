@@ -12,7 +12,6 @@
 [![Coverage](https://codecov.io/gh/holger1111/CopyCat/branch/main/graph/badge.svg)](https://codecov.io/gh/holger1111/CopyCat)
 
 
-
 ### Hauptfunktionen
 
 
