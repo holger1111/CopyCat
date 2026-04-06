@@ -1,4 +1,4 @@
-name: CopyCat CI
+name: CopyCat CI v2.7
 on: [push, pull_request]
 
 jobs:
@@ -9,13 +9,13 @@ jobs:
     
     - uses: actions/setup-python@v5
       with:
-        python-version: '3.11'
+        python-version: '3.13'
     
-    - name: Install pytest
+    - name: Install pytest + cov
       run: pip install pytest pytest-cov
     
     - name: Run Tests with Coverage
-      run: pytest test_copycat.py -v --cov --cov-report=xml --cov-report=term-missing
+      run: pytest test_copycat.py -v --cov=CopyCat.py --cov-report=xml --cov-report=term-missing
     
     - name: Upload Coverage to Codecov
       uses: codecov/codecov-action@v4
@@ -24,10 +24,3 @@ jobs:
         file: coverage.xml
         verbose: true
     
-    # JUnit für Codecov Test Results (optional)
-    - name: Upload test results to Codecov
-      if: always()
-      uses: codecov/test-results-action@v1
-      with:
-        token: ${{ secrets.CODECOV_TOKEN }}
-        files: junit.xml
