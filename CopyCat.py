@@ -8,12 +8,8 @@ import shutil
 import re
 import logging
 import struct
-import zipfile
-import zlib
-import base64
 import subprocess
 import fnmatch
-import urllib.parse
 from pathlib import Path
 from datetime import datetime
 
@@ -125,11 +121,8 @@ def list_binary_file(writer, bin_file):
             rate = struct.unpack("<I", data[24:28])[0]
             duration = f"{frames / rate:.2f}s"
 
-        writer.write(f"[BINARY: {bin_file.name}] [MIME: {mime}] [SIZE: {size} bytes]")
-        if "audio" in mime:
-            writer.write(f" [DUR: {duration}]\n")
-        else:
-            writer.write("\n")
+        dur_info = f" [DUR: {duration}]" if "audio" in mime else ""
+        writer.write(f"[BINARY: {bin_file.name}] [MIME: {mime}] [SIZE: {size} bytes]{dur_info}\n")
     except UnicodeDecodeError:
         writer.write(f"[BINARY SKIPPED: {bin_file.name} - Ungültiges Text-Encoding]\n")
     except (struct.error, OSError) as e:
@@ -208,8 +201,6 @@ def should_skip_gitignore(input_dir: Path, file_path: Path) -> bool:
                 if rule.startswith("#") or not rule:
                     continue
                 if "*" in rule:
-                    import fnmatch
-
                     if fnmatch.fnmatch(rel_path, rule):
                         return True
                 elif rule.endswith("/"):
@@ -275,11 +266,9 @@ def run_copycat(args):
 
     selected_types = args.types if args.types else ["all"]
     process_all = "all" in selected_types
-    limit_bytes = args.max_size * 1024 * 1024
-
     search_method = input_dir.rglob if args.recursive else input_dir.glob
     use_filter = args.recursive or args.max_size != float("inf")
-    limit_bytes = args.max_size * 1024 * 1024 if use_filter else float("inf")
+    limit_bytes = args.max_size * 1024 * 1024
 
     print(f"Suche {'rekursiv' if args.recursive else 'flach'} in {input_dir}")
     if use_filter:
@@ -342,28 +331,16 @@ def run_copycat(args):
             for code_file in files["code"]:
                 rel_path = code_file.relative_to(input_dir)
                 folder = rel_path.parent.name if rel_path.parent.name != "." else ""
-                bracket = (
-                    f" [{folder}]"
-                    if folder and args.recursive
-                    else f" [{folder}]" if folder else ""
-                )
-                lines = 0
+                bracket = f" [{folder}]" if folder else ""
                 try:
                     lines = sum(
                         1 for line in open(code_file, encoding="utf-8") if line.strip()
                     )
                     writer.write(f"  {code_file.name}: {lines} Zeilen{bracket}")
                 except UnicodeDecodeError:
-                    lines = 1
-                    writer.write(f"  {code_file.name}: {lines} Zeilen{bracket}")
-                except Exception as e:
+                    writer.write(f"  {code_file.name}: 1 Zeilen{bracket}")
+                except Exception:
                     writer.write(f"  {code_file.name}: [FEHLER]")
-
-                if args.recursive:
-                    rel_path = code_file.relative_to(input_dir)
-                    if rel_path.parent.name != ".":
-                        folder = rel_path.parent.name
-                        writer.write(f" [{folder}]")
 
                 writer.write("\n")
                 writer.write(f"----- {code_file.name} -----\n")
@@ -383,15 +360,14 @@ def run_copycat(args):
         for t in types_to_process:
             if t == "code" or not files[t]:
                 continue
-            if files[t]:
-                writer.write(f"\n{'='*20} {t.upper()} {'='*20}\n")
-                for bfile in files[t]:
-                    if t == "diagram" and bfile.suffix.lower() in [".drawio", ".dia"]:
-                        extract_drawio(writer, bfile)
-                    else:
-                        list_binary_file(writer, bfile)
-                        if args.recursive:
-                            writer.write(f"  Pfad: {bfile.parent.name}/{bfile.name}\n")
+            writer.write(f"\n{'='*20} {t.upper()} {'='*20}\n")
+            for bfile in files[t]:
+                if t == "diagram" and bfile.suffix.lower() in [".drawio", ".dia"]:
+                    extract_drawio(writer, bfile)
+                else:
+                    list_binary_file(writer, bfile)
+                    if args.recursive:
+                        writer.write(f"  Pfad: {bfile.parent.name}/{bfile.name}\n")
 
     print(f"Erstellt: {new_file}")
 
