@@ -20,7 +20,7 @@ from datetime import datetime
 
 def parse_arguments():
     parser = argparse.ArgumentParser(
-        description="CopyCat: Kombiniert Dateien zu Textdatei"
+        description="CopyCat v2.7 - Projekt-Dokumentierer"
     )
     parser.add_argument(
         "--input", "-i", default=None, help="Eingabeordner (default: Skriptordner)"
@@ -48,7 +48,12 @@ def parse_arguments():
         default=float("inf"),
         help="Max Dateigröße in MB (default: keine Grenze)",
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+    
+    if args.types and len(args.types) == 1 and ',' in args.types[0]:
+        args.types = [t.strip() for t in args.types[0].split(',')]
+    
+    return args
 
 
 def is_valid_serial_filename(filename: str) -> bool:
