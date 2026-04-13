@@ -1,337 +1,261 @@
 # CopyCat v2.7 - Project Documenter
 
-\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_
 
-## Automates Code + Diagrams + Media into Text Report
-
-\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_
-
-
+## Automates Code + Diagrams + Media into Text Reports
 
 [![Tests](https://github.com/holger1111/CopyCat/workflows/CI/badge.svg?branch=main)](https://github.com/holger1111/CopyCat/actions)
 [![Coverage](https://codecov.io/gh/holger1111/CopyCat/branch/main/graph/badge.svg)](https://codecov.io/gh/holger1111/CopyCat)
 
 
-
 ### Main Features
 
 
+| Feature		| Description						|
 
-| Feature 	  | Description 			   |
+|-----------------------|-------------------------------------------------------|
 
-|-----------------|----------------------------------------|
+| Code Analysis		| Line count + source code (Java/Python/C++/etc.)	|
 
-| Code Analysis   | Line count + source code (Java/Python) |
+| Draw.io		| 100% extraction of all cells (ID, text, position)	|
 
-| Draw.io         | ZIP + Compressed + Edge-Cases 	   |
+| Media			| MIME type, size, audio duration (WAV/MP3/FLAC)	|
 
-| Media 	  | MIME-Type, size, audio duration        |
+| Self-Protection	| Ignores CopyCat.py & old reports			|
 
-| Serial System   | Automatic archiving 		   |
+| Serial System		| Automatic archive (CopyCat_Archive)			|
 
-| Self-Protection | Ignores CopyCat.py 			   |
+| Git Integration	| Branch + commit hash					|
 
+| Performance		| Recursive/flat, size filter + progress		|
 
 
 ### Console Commands
 
 
-
-python CopyCat.py                     # Standard
-
-python CopyCat.py -i "C:\\Projects"    # Input folder
-
-python CopyCat.py -o "docs"           # Output folder
-
-python CopyCat.py -t code drawio      # Code+Diagrams only
-
-python CopyCat.py --help              # Help
+python CopyCat.py                    # Default (flat, all types)
+python CopyCat.py -i C:\Project      # Input folder
+python CopyCat.py -o docs            # Output folder
+python CopyCat.py -t code,diagram    # Code + diagrams only
+python CopyCat.py -r -s 5            # Recursive, max 5MB
+python CopyCat.py --help             # Help
 
 
+### Parameters
 
-### Parameter
 
-| Flag | Beschreibung | Default |
-|------|--------------|---------|
-| `-i,--input` | Input folder | script folder |
-| `-o,--output` | Output folder | input folder |
-| `-t,--types` | Types: `code web db config docs deps img audio diagram` or `all` | `all` |
-| `-r,--recursive` | Recursive search | flat |
-| `-s,--max-size` | Max size MB | ∞ (no limit) |
+| Flag				| Beschreibung								| Default	|
+|-------------------------------|-----------------------------------------------------------------------|---------------|
+| -i,--input			| Input folder								| Script folder	|
+| -o,--output | Output folder 	| Input folder								|		|
+| -t,--types			| Types: 'ode web db config docs deps img audio diagram' oder 'all'	| 'all'		|
+| -r,--recursive		| Recursive search in subfolders					| false (flat)	|
+| -s,--max-size			| Max file size in MB							| Unlimited	|
 
 
 ### Flat vs Recursive
 
-| Mode          | Flag       | Behavior             | Performance      |
-|---------------|------------|---------------------:|-----------------|
-| **Flat (Default)** | -       | Main folder only     | Fast            |
-| **Recursive** | `-r`       | All subfolders       | Slower @ 1000+ files |
+
+| Mode		| Flag		| Behavior		| Performance		|
+|---------------|---------------|-----------------------|-----------------------|
+| **Flat**	| (default)	| Main folder only	| Lightning fast	|
+| **Recursive**	| '-r'		| All subfolders	| Optimal w/ -s		|
 
 
-
-### Draw.io-Extraktion (v2.2)
-
+### File Types
 
 
-\- All cells: ID, Text/HTML, Position (x,y)
+| Category	| Files								| Tests		|
 
-\- ZIP-Fallback: drawio.zip → XML
+|---------------|---------------------------------------------------------------|---------------|
 
-\- Compressed: Base64+zlib+unquote (Standard)
+| code		| \*.java, \*.py, \*.spec, \*.cpp, \*.c				| 5 files	|
 
-\- Edge-Cases:
+| web		| \*.html, \*.css, \*.js, \*.ts, \*.jsx				| 5 empty	|
 
-&#x20; - Empty → "\[LEERES MODELL]"
+| db		| \*.sql, \*.db, \*.sqlite					| 3 files	|
 
-&#x20; - Corrupt → "\[XML PARSE ERROR]"
+| config	| \*.json, \*.yaml, \*.xml, \*.properties, \*.env		| 8 files	|
 
-&#x20; - Binary → "\[ENCODING ERROR]"
+| docs		| \*.md, \*.txt, \*.log, \*.docx				| 8 files	|
 
-\- Limits: <1MB, keine Bilder extrahiert
+| deps		| requirements.txt, package.json, pom.xml, go.mod		| Defined	|
 
-\- Statistik: Cells/Texte/Unique
+| img		| \*.png, \*.jpg, \*.gif, \*.bmp, \*.webp, \*.svg, \*.ico       | 7 files	|
 
+| audio		| \*.mp3, \*.wav, \*.ogg, \*.m4a, \*.flac			| 5 files	|
 
-
-#### Beispiel:
-
-
-
-VOLLSTÄNDIGES DIAGRAMM: komplex.drawio
-
-MODEL 1: dx=586
-
-CELL 1 \[ID=col...] 'Start' | GEOM: x=320,y=400
-
-STATISTIK: 152 Cells | 45 Texte | 23 Unique
+| diagram	| \*.drawio, \*.dia, \*.puml					| 6 edge cases	|
 
 
-
-#### File Types:
-
+#### CLI Examples:
 
 
-| category  | file                                            | tests	    |
-
-|-----------|-------------------------------------------------|-------------|
-
-| code      | \*.java, \*.py, \*.spec, \*.cpp, \*.c                | 5 files     |
-
-| web       | \*.html, \*.css, \*.js, \*.ts, \*.jsx                | 5 empty     |
-
-| db        | \*.sql, \*.db, \*.sqlite                           | 3 files     |
-
-| config    | \*.json, \*.yaml, \*.xml, \*.properties, \*.env      | 8 files     |
-
-| docs      | \*.md, \*.txt, \*.log, \*.docx                      | 8 files     |
-
-| deps      | requirements.txt, package.json, pom.xml, go.mod | defined     |
-
-| img       | \*.png, \*.jpg, \*.gif, \*.bmp, \*.webp, \*.svg       | 7 files     |
-
-| audio     | \*.mp3, \*.wav, \*.ogg, \*.m4a, \*.flac              | 5 files     |
-
-| diagram   | \*.drawio, \*.dia, \*.puml                         | 6 Edge-cases|
+CopyCat.py -t code,diagram     # Code + diagrams only
+CopyCat.py -t web,db,config    # 3 specific categories
+CopyCat.py -t all              # All 9 categories
+CopyCat.py -i tests -r         # Recursive
+CopyCat.py -s 1                # Max 1MB
 
 
-
-1000+ test files -> CopyCat v2.6 Serial #4 (performance tested)
-
-
-
-#### CLI Example:
-
-
-
-CopyCat.py -t code diagram      # Only code and diagrams
-
-CopyCat.py -t web db config     # 3 specific categories
-
-CopyCat.py -t all               # All 9 categories
-
-CopyCat.py -i tests/            # Flat: 47 files
-
-CopyCat.py -i tests/ -r         # Recursive: includes subfolders
-
-CopyCat.py -s, --max-size 1 	# max file size 1 MB
-
-
-### Output Example
-
+#### Output Example (v2.7)
 
 
 ============================================================
-CopyCat v2.7 | 05.04.2026 15:05 | REKURSIV
-c:\Projekte\Test
-Limit: <5.0MB (5242880 Bytes)
-→ 1274 geprüft, Filter OK
-
+CopyCat v2.7 | 13.04.2026 20:41 | REKURSIV
+/projekt
+GIT: Branch: main | Last Commit: a1b2c3d
 Gesamt: 47 Dateien
 Serial #4
 ============================================================
-
-CODE: 2 Dateien
-
-IMG: 5 Dateien
-
-AUDIO: 5 Dateien
-
-DRAWIO: 1 Datei
-
-
+CODE: 2 Dateien    IMG: 5 Dateien   AUDIO: 5 Dateien  DIAGRAM: 1 Datei
 
 CODE-Details:
+  code.py: 42 Zeilen [sub]
+----- code.py -----
+def hello(): pass
+...
 
-code.py: 42 Zeilen [subfolder]
+==================== IMG ====================
+[BINARY: image.png] [MIME: image/png] [SIZE: 12345 bytes]
+  Pfad: sub/image.png
 
+==================== DIAGRAM ====================
+DIAGRAM test.drawio: 152 Cells, 45 Texte
+  [cell-2] Test Node...
+
+
+### Draw.io-Extraction 
+
+
+- ALL Cells: ID, text/HTML, position (x,y)
+
+- ZIP Fallback: drawio.zip → XML
+
+- Compressed: Base64/zlib/unquote (standard)
+
+- Edge Cases (20+ tests):
+
+	- Empty: [EMPTY: test.drawio]
+
+	- Corrupt: [XML PARSE ERROR]
+
+	- Binary: [ENCODING ERROR]
+
+- Limits: <1MB (no images extracted)
+
+- Stats: Cells/Texts/Unique
+
+#####Example komplex.drawio:
+
+DIAGRAMM Test_komplex.drawio: 152 Cells, 45 Texte, 23 Unique
 
 
 ### Use Cases
 
 
+1. #####Exam Portfolio: git init && CopyCat.py && git commit -m "Portfolio"
 
-#### 1\. Exam Portfolio:
+2. #####Git Backup: CopyCat.py -i C:\Project -o Reports
 
+3. #####Daily Report: Cron/PS: 1 text file instead of 50+ files
 
-
-Trainer: "Show me code + UML!"
-
-CopyCat.py -> 1 text file instead of 50+
-
-
-
-#### 2\. Git Backup:
-
-
-
-git init \&\& python CopyCat.py \&\& git commit
-
-
-
-#### 3\. Daily Report:
-
-
-
-python CopyCat.py -i "C:\\Projects" -o "Reports"
-
+#####Trainer: "Show code+UML!" → CopyCat.py -t code,diagram
 
 
 ### Technology
 
 
+- pathlib: Glob/rglob (recursive optimized)
 
-Draw.io: 101 cells extracted
+- argparse: CLI (comma-split, nargs="*")
 
-WAV: Header analysis (struct.unpack)
+- ElementTree: XML parsing
 
-Serial: combined\_copycat\_26.txt
+- struct.unpack: WAV duration (header)
 
-Archive: CopyCat\_Archive/
+- .gitignore: Skip rules (fnmatch)
 
-Recursiv: `glob()` vs `rglob()` recursive search
-
-
-
-### Error Handling (v2.2)
+- Serial: Regex validation + archive rotation
 
 
-
-\- UnicodeDecodeError: "Binary skipped"
-
-\- ET.ParseError: "Invalid XML"
-
-\- 0-Byte: "\[EMPTY:...]"
-
-\- Rest: Silent Logging (no spam)
+### Error Handling
 
 
+UnicodeDecodeError	→ [BINARY SKIPPED]
+ET.ParseError		→ [XML PARSE ERROR]
+0-Byte			→ [EMPTY]
+OSError			→ Silent skip + logging
+Others			→ [ERROR: file]
 
-Example: 'DIAGRAMM INVALID XML: test.drawio'
+Example: DIAGRAMM INVALID XML: test.drawio
 
 
-## ⚡ Performance-Tuning (v2.6)
+### Performance Tuning (v2.7)
 
-**For larger projects (1000+ Files):**
 
-| Szenario | Flags | Filter | Progress | Performance |
-|----------|-------|--------|----------|-------------|
-| Standard | - | ❌ | ❌ | lightning fast |
-| Limit | `--max-size 10` | ✅ <10MB | ❌ | fast |
-| Rekursiv | `-r` | ✅ auto | ✅ Live | 3x faster |
-| Full | `-r --max-size 1` | ✅ <1MB | ✅ Live | optimal |
+**For large projects (1000+ files):**
 
-**Example:**
+| Scenario	| Flags			| Progress	| Speed		|
+|---------------|-----------------------|---------------|---------------|
+| Standard	| -			| No 		| Lightning	|
+| Limit		| --max-size 10		| No		| Fast		|
+| Recursive	| -r			| Auto		| 3x slower	|
+| Optimal	| -r --max-size 1	| Live		| Optimal	|
+
+**Examples:**
 ```bash
-CopyCat.py -r --max-size 1      # recursiv + <1MB + progress ✓
-CopyCat.py --max-size 10        # flat + <10MB (no progress)
-CopyCat.py -r                   # recursiv + auto-filter (progress)
-CopyCat.py                      # flat + no filter ✓
+CopyCat.py -r --max-size 1     # Recursive + progress
+CopyCat.py --max-size 10       # Flat, no progress
 ```
-
-### GitHub Setup
-
+Filter output: → 1274 geprüft, Filter OK
 
 
-.gitignore:
-
-CopyCat\_Archive/
-
-combined\_copycat\*.txt
-
-\_\_pycache\_\_/
+### GitHub-Setup
 
 
+#.gitignore:
 
-Commit contains:
+CopyCat_Archive/
+combined_copycat*.txt
+__pycache__/
+
+
+Commit includes:
 
 CopyCat.py
 
 README.md
 
-.gitignore
+README_GER.md
 
+.gitignore
 
 
 ### Developer Guide
 
 
+**Before every commit (100% sync):**
 
-**Test: 100% Core-Coverage (CLI, Serial, Draw.io, max-size)**
+1. pytest test_copycat.py -v --cov → 100% PASSED
 
+2. README.md + README_GER.md + Code SYNCHRONIZED
 
+3. git commit -m "feat: X | Tests 100%"
 
-```bash
-py -m pytest test_copycat.py -v --cov  # 150/150 PASSED | 100%
-```
+#Tests: 100% coverage (CLI, serial, gitignore, Draw.io, max-size, 1000+ edge cases)
 
+CI: GitHub Actions → pytest + coverage badges
 
+Question: Is CopyCat now easier to understand/maintain?
 
-**Before every commit:**
-
-1\. `pytest test\\\_copycat.py` ✅
-
-2\. README.md + README\_GER.md + Code SYNCHRON
-
-3\. `git commit -m "feat: X | Tests: 100%"`
-
-
-
-**CI runs automatically:** \[Actions](https://github.com/holger1111/CopyCat/actions)
+- ✓ pathlib filesystem
+- ✓ argparse CLI
+- ✓ ElementTree XML parsing
+- ✓ Targeted exception handling
+- ✓ Binary analysis (struct)
+- ✓ Glob vs rglob (performance)
 
 
+### IT Specialist Demo
 
-### Demo for IT Specialists
-
-
-
-\- \[x] pathlib filesystem
-
-\- \[x] argparse CLI
-
-\- \[x] XML-Parsing ElementTree
-
-\- \[x] Exception handling
-
-\- \[x] Binary analysis struct
-
-\- \[x] pathlib: `glob()` vs `rglob()` recursive search
+1 text report = Code + UML + Media ✓
