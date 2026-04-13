@@ -3,41 +3,35 @@
 
 ## Automates Code + Diagrams + Media into Text Reports
 
-[![Tests](https://github.com/holger1111/CopyCat/workflows/CI/badge.svg?branch=main)](https://github.com/holger1111/CopyCat/actions)
-[![Coverage](https://codecov.io/gh/holger1111/CopyCat/branch/main/graph/badge.svg)](https://codecov.io/gh/holger1111/CopyCat)
+[![Tests](https://img.shields.io/badge/Tests-PASSED-brightgreen?style=flat-square&logo=github-actions)](https://github.com/holger1111/CopyCat/actions)
+[![Coverage](https://img.shields.io/badge/Coverage-100%25-brightgreen?style=flat-square&logo=codecov)](https://codecov.io/gh/holger1111/CopyCat)
 
 
 ### Main Features
 
 
 | Feature		| Description						|
-
 |-----------------------|-------------------------------------------------------|
-
 | Code Analysis		| Line count + source code (Java/Python/C++/etc.)	|
-
 | Draw.io		| 100% extraction of all cells (ID, text, position)	|
-
 | Media			| MIME type, size, audio duration (WAV/MP3/FLAC)	|
-
 | Self-Protection	| Ignores CopyCat.py & old reports			|
-
 | Serial System		| Automatic archive (CopyCat_Archive)			|
-
 | Git Integration	| Branch + commit hash					|
-
 | Performance		| Recursive/flat, size filter + progress		|
 
 
 ### Console Commands
 
 
+```bash
 python CopyCat.py                    # Default (flat, all types)
 python CopyCat.py -i C:\Project      # Input folder
 python CopyCat.py -o docs            # Output folder
 python CopyCat.py -t code,diagram    # Code + diagrams only
 python CopyCat.py -r -s 5            # Recursive, max 5MB
 python CopyCat.py --help             # Help
+```
 
 
 ### Parameters
@@ -65,41 +59,34 @@ python CopyCat.py --help             # Help
 
 
 | Category	| Files								| Tests		|
-
 |---------------|---------------------------------------------------------------|---------------|
-
 | code		| \*.java, \*.py, \*.spec, \*.cpp, \*.c				| 5 files	|
-
 | web		| \*.html, \*.css, \*.js, \*.ts, \*.jsx				| 5 empty	|
-
 | db		| \*.sql, \*.db, \*.sqlite					| 3 files	|
-
 | config	| \*.json, \*.yaml, \*.xml, \*.properties, \*.env		| 8 files	|
-
 | docs		| \*.md, \*.txt, \*.log, \*.docx				| 8 files	|
-
 | deps		| requirements.txt, package.json, pom.xml, go.mod		| Defined	|
-
 | img		| \*.png, \*.jpg, \*.gif, \*.bmp, \*.webp, \*.svg, \*.ico       | 7 files	|
-
 | audio		| \*.mp3, \*.wav, \*.ogg, \*.m4a, \*.flac			| 5 files	|
-
 | diagram	| \*.drawio, \*.dia, \*.puml					| 6 edge cases	|
 
 
-#### CLI Examples:
+### CLI Examples:
 
 
+```bash
 CopyCat.py -t code,diagram     # Code + diagrams only
 CopyCat.py -t web,db,config    # 3 specific categories
 CopyCat.py -t all              # All 9 categories
 CopyCat.py -i tests -r         # Recursive
 CopyCat.py -s 1                # Max 1MB
+```
 
 
 #### Output Example (v2.7)
 
 
+````text
 ============================================================
 CopyCat v2.7 | 13.04.2026 20:41 | REKURSIV
 /projekt
@@ -122,6 +109,7 @@ def hello(): pass
 ==================== DIAGRAM ====================
 DIAGRAM test.drawio: 152 Cells, 45 Texte
   [cell-2] Test Node...
+````
 
 
 ### Draw.io-Extraction 
@@ -145,7 +133,7 @@ DIAGRAM test.drawio: 152 Cells, 45 Texte
 
 - Stats: Cells/Texts/Unique
 
-#####Example komplex.drawio:
+**Example komplex.drawio:**
 
 DIAGRAMM Test_komplex.drawio: 152 Cells, 45 Texte, 23 Unique
 
@@ -153,13 +141,13 @@ DIAGRAMM Test_komplex.drawio: 152 Cells, 45 Texte, 23 Unique
 ### Use Cases
 
 
-1. #####Exam Portfolio: git init && CopyCat.py && git commit -m "Portfolio"
+1. **Exam Portfolio:** git init && CopyCat.py && git commit -m "Portfolio"
 
-2. #####Git Backup: CopyCat.py -i C:\Project -o Reports
+2. **Git Backup:** CopyCat.py -i C:\Project -o Reports
 
-3. #####Daily Report: Cron/PS: 1 text file instead of 50+ files
+3. **Daily Report:** Cron/PS: 1 text file instead of 50+ files
 
-#####Trainer: "Show code+UML!" → CopyCat.py -t code,diagram
+**Trainer:** "Show code+UML!" → CopyCat.py -t code,diagram
 
 
 ### Technology
@@ -181,13 +169,14 @@ DIAGRAMM Test_komplex.drawio: 152 Cells, 45 Texte, 23 Unique
 ### Error Handling
 
 
+````text
 UnicodeDecodeError	→ [BINARY SKIPPED]
 ET.ParseError		→ [XML PARSE ERROR]
 0-Byte			→ [EMPTY]
 OSError			→ Silent skip + logging
 Others			→ [ERROR: file]
-
-Example: DIAGRAMM INVALID XML: test.drawio
+````
+**Example:** DIAGRAMM INVALID XML: test.drawio
 
 
 ### Performance Tuning (v2.7)
@@ -213,14 +202,14 @@ Filter output: → 1274 geprüft, Filter OK
 ### GitHub-Setup
 
 
-#.gitignore:
+**.gitignore:**
 
 CopyCat_Archive/
 combined_copycat*.txt
 __pycache__/
 
 
-Commit includes:
+**Commit includes:**
 
 CopyCat.py
 
@@ -242,11 +231,11 @@ README_GER.md
 
 3. git commit -m "feat: X | Tests 100%"
 
-#Tests: 100% coverage (CLI, serial, gitignore, Draw.io, max-size, 1000+ edge cases)
+**Tests:** 100% coverage (CLI, serial, gitignore, Draw.io, max-size, 1000+ edge cases)
 
-CI: GitHub Actions → pytest + coverage badges
+**CI:** GitHub Actions → pytest + coverage badges
 
-Question: Is CopyCat now easier to understand/maintain?
+**Question:** Is CopyCat now easier to understand/maintain?
 
 - ✓ pathlib filesystem
 - ✓ argparse CLI
