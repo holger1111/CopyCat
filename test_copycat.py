@@ -1,6 +1,7 @@
 ﻿"""CopyCat v2.7 - Pytest Suite (Refactored & Optimized)"""
 
 import subprocess
+import struct
 import re
 from pathlib import Path
 from unittest.mock import patch, MagicMock, Mock
@@ -73,6 +74,7 @@ def tmp_test_dir(tmp_path):
     (["test_copycat.py"], {"types": ["all"], "recursive": False, "max_size": float("inf")}),
     (["test_copycat.py", "-r"], {"types": ["all"], "recursive": True}),
     (["test_copycat.py", "-t", "code", "diagram"], {"types": ["code", "diagram"]}),
+    (["test_copycat.py", "-t", "code,diagram"], {"types": ["code", "diagram"]}),
     (["test_copycat.py", "-s", "5"], {"max_size": 5.0}),
     (["test_copycat.py", "-r", "-t", "code"], {"recursive": True, "types": ["code"]}),
 ])
@@ -195,6 +197,8 @@ def test_get_git_info_edge_cases(tmp_path):
     (None, "test.py", False),
     ("*.pyc\n", "dummy.pyc", True),
     ("*.pyc\n*.tmp\n", "file.tmp", True),
+    ("*.py\n!important.py\n", "important.py", False),
+    ("*.py\n!important.py\n", "test.py", True),
 ])
 def test_should_skip_gitignore(tmp_path, gitignore_content, file_name, should_skip):
     """Test gitignore handling."""
@@ -209,12 +213,11 @@ def test_should_skip_gitignore(tmp_path, gitignore_content, file_name, should_sk
 
 
 def test_gitignore_pattern_matching(tmp_path):
-    """Test complex gitignore pattern matching."""
-    (tmp_path / ".gitignore").write_text("build/\n*.tmp\n!important.py\n")
-    
+    """Test complex gitignore pattern matching including negation."""
+    (tmp_path / ".gitignore").write_text("*.py\nbuild/\n!important.py\n")
+
     (tmp_path / "build").mkdir()
-    (tmp_path / "build.py").touch()
-    (tmp_path / "temp.tmp").touch()
+    (tmp_path / "build" / "generated.py").touch()
     (tmp_path / "important.py").touch()
     (tmp_path / "test.py").touch()
 
@@ -228,16 +231,17 @@ def test_gitignore_pattern_matching(tmp_path):
 
     report = next(tmp_path.glob("combined_copycat_*.txt"))
     report_text = report.read_text()
-    assert "test.py" in report_text
-    assert "important.py" in report_text
+    assert "test.py" not in report_text        # blocked by *.py
+    assert "important.py" in report_text       # negation un-ignores it
 
 
 def test_gitignore_recursive(tmp_path):
-    """Test gitignore with recursive file search."""
+    """Test that subdirectory .gitignore files are respected."""
     (tmp_path / "sub").mkdir()
-    (tmp_path / "sub" / ".gitignore").write_text("*.pyc")
-    (tmp_path / "sub" / "test.py").touch()
-    
+    (tmp_path / "sub" / ".gitignore").write_text("*.py\n")
+    (tmp_path / "sub" / "ignored.py").touch()
+    (tmp_path / "visible.py").touch()
+
     run_copycat(Namespace(
         input=str(tmp_path),
         output=str(tmp_path),
@@ -245,9 +249,49 @@ def test_gitignore_recursive(tmp_path):
         recursive=True,
         max_size=float("inf"),
     ))
-    
+
     report = next(tmp_path.glob("combined_copycat_*.txt"))
-    assert "test.py" in report.read_text()
+    report_text = report.read_text()
+    assert "visible.py" in report_text
+    assert "ignored.py" not in report_text
+
+
+def test_gitignore_flat_mode(tmp_path):
+    """Test that gitignore is applied in non-recursive flat mode."""
+    (tmp_path / ".gitignore").write_text("ignored.py\n")
+    (tmp_path / "visible.py").touch()
+    (tmp_path / "ignored.py").touch()
+
+    run_copycat(Namespace(
+        input=str(tmp_path),
+        output=str(tmp_path),
+        types=["code"],
+        recursive=False,
+        max_size=float("inf"),
+    ))
+
+    report = next(tmp_path.glob("combined_copycat_*.txt"))
+    report_text = report.read_text()
+    assert "visible.py" in report_text
+    assert "ignored.py" not in report_text
+
+
+def test_should_skip_gitignore_outside_dir(tmp_path):
+    """Test should_skip_gitignore when file is outside input_dir (ValueError)."""
+    outside = tmp_path.parent / "outside.py"
+    outside.touch()
+    assert should_skip_gitignore(tmp_path, outside) is False
+
+
+def test_should_skip_gitignore_read_error(tmp_path):
+    """Test should_skip_gitignore when .gitignore cannot be read."""
+    gi = tmp_path / ".gitignore"
+    gi.write_text("*.py")
+    test_file = tmp_path / "test.py"
+    test_file.touch()
+    with patch("builtins.open", side_effect=OSError("permission denied")):
+        result = should_skip_gitignore(tmp_path, test_file)
+    assert result is False
 
 
 # ==================== SIZE FILTERED GLOB TESTS ====================
@@ -311,15 +355,16 @@ def test_size_filtered_glob_oserror_safe(tmp_path):
 
 def test_size_filtered_glob_self_protection():
     """Test that CopyCat.py is not included in its own output."""
+    script_path = Path("CopyCat.py").resolve()
     mock_self = MagicMock(spec=Path)
     mock_self.name = "CopyCat.py"
-    mock_self.resolve.return_value = Path("CopyCat.py").resolve()
+    mock_self.resolve.return_value = script_path
     mock_self.stat.return_value = MagicMock(st_size=1000)
     mock_search = MagicMock()
     mock_search.rglob.return_value = [mock_self]
-    
+
     gen = list(size_filtered_glob(
-        mock_search.rglob, ["*.py"], float("inf"), Path("CopyCat.py"), Path(".")
+        mock_search.rglob, ["*.py"], float("inf"), script_path, Path(".")
     ))
     assert len(gen) == 0
 
@@ -361,6 +406,39 @@ def test_list_binary_file_unicode_error(tmp_path, mock_writer):
     )
 
 
+def test_list_binary_file_struct_error(tmp_path, mock_writer):
+    """Test list_binary_file with OSError on file read (struct.error/OSError handler)."""
+    f = tmp_path / "test.bin"
+    f.write_bytes(b"\x00" * 50)  # size > 0, stat() works
+    with patch("builtins.open", side_effect=OSError("permission denied")):
+        list_binary_file(mock_writer, f)
+    assert "[BINARY ERROR: test.bin" in mock_writer.write.call_args[0][0]
+
+
+def test_list_binary_file_wav_duration(tmp_path, mock_writer):
+    """Test WAV duration calculation branch (size > 44 bytes)."""
+    # Bytes 4-7: frames=44100, bytes 24-27: rate=44100 → duration=1.00s
+    data = bytearray(52)
+    data[4:8] = b"\x44\xAC\x00\x00"   # frames = 44100
+    data[24:28] = b"\x44\xAC\x00\x00"  # rate  = 44100
+    wav = tmp_path / "audio.wav"
+    wav.write_bytes(bytes(data))
+    list_binary_file(mock_writer, wav)
+    written = mock_writer.write.call_args[0][0]
+    assert "[BINARY: audio.wav]" in written
+    assert "[DUR: 1.00s]" in written
+
+
+def test_list_binary_file_generic_error(mock_writer):
+    """Test list_binary_file with unexpected exception (not OSError/struct.error)."""
+    bad_file = MagicMock()
+    bad_file.name = "surprise.bin"
+    bad_file.stat.side_effect = RuntimeError("unexpected")
+    list_binary_file(mock_writer, bad_file)
+    written = mock_writer.write.call_args[0][0]
+    assert "[ERROR: surprise.bin]" in written
+
+
 # ==================== EXTRACT DRAWIO TESTS ====================
 
 @pytest.mark.parametrize("content,has_cells", [
@@ -394,6 +472,23 @@ def test_extract_drawio_full_parser(tmp_path, mock_writer):
     </mxfile>""")
     extract_drawio(mock_writer, drawio_file)
     assert mock_writer.write.called
+
+
+def test_extract_drawio_unicode_error(tmp_path, mock_writer):
+    """Test extract_drawio with invalid UTF-8 encoding."""
+    drawio = tmp_path / "binary.drawio"
+    drawio.write_bytes(b"\x01")  # size > 0 so stat() passes
+    with patch("builtins.open", side_effect=UnicodeDecodeError("utf-8", b"", 0, 1, "invalid")):
+        extract_drawio(mock_writer, drawio)
+    mock_writer.write.assert_called_with("[BINARY: binary.drawio - Invalid Encoding]\n")
+
+
+def test_extract_drawio_parse_error(tmp_path, mock_writer):
+    """Test extract_drawio with invalid XML (ET.ParseError handler)."""
+    drawio = tmp_path / "broken.drawio"
+    drawio.write_text("not valid xml <<<", encoding="utf-8")
+    extract_drawio(mock_writer, drawio)
+    assert "[XML PARSE ERROR: broken.drawio" in mock_writer.write.call_args[0][0]
 
 
 def test_extract_drawio_compressed_coverage(tmp_path):
@@ -613,6 +708,15 @@ def test_run_copycat_line_counting(tmp_path, run_args):
     assert "test.py" in report.read_text()
 
 
+def test_run_copycat_flat_skips_combined_output(tmp_path, run_args):
+    """Test that files named 'combined_copycat...' are skipped in flat mode."""
+    (tmp_path / "combined_copycat_prev.txt").write_text("old output")
+    (tmp_path / "notes.txt").write_text("notes")
+    run_copycat(run_args(types=["docs"]))
+    report = next(tmp_path.glob("combined_copycat_*.txt"))
+    assert "combined_copycat_prev" not in report.read_text()
+
+
 # ==================== ARCHIVE TESTS ====================
 
 def test_move_to_archive(tmp_path):
@@ -636,3 +740,22 @@ def test_move_to_archive_permission(tmp_path, monkeypatch):
     
     monkeypatch.setattr("shutil.move", mock_move)
     move_to_archive(tmp_path, "combined_copycat_1.txt")
+
+
+def test_move_to_archive_no_op(tmp_path):
+    """Test archive when file doesn't exist is a no-op."""
+    move_to_archive(tmp_path, "combined_copycat_99.txt")  # file does not exist
+    assert not (tmp_path / "CopyCat_Archive" / "combined_copycat_99.txt").exists()
+
+
+# ==================== MAIN ENTRYPOINT TEST ====================
+
+def test_main_entrypoint(tmp_path):
+    """Test __main__ block execution."""
+    import runpy
+    with patch("sys.argv", ["CopyCat.py", "-i", str(tmp_path), "-o", str(tmp_path)]):
+        runpy.run_path(
+            str(Path(__file__).parent / "CopyCat.py"),
+            run_name="__main__",
+        )
+    assert list(tmp_path.glob("combined_copycat_*.txt"))

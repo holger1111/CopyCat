@@ -66,7 +66,7 @@ def get_next_serial_number(base_path: Path) -> int:
                 match = re.match(r"^combined_copycat_(\d+)\.txt$", p.name)
                 num = int(match.group(1))
                 max_num = max(max_num, num)
-            except (ValueError, AttributeError):
+            except (ValueError, AttributeError):  # pragma: no cover
                 continue
     return max_num + 1
 
@@ -189,28 +189,44 @@ def get_git_info(input_dir: Path) -> str:
 
 
 def should_skip_gitignore(input_dir: Path, file_path: Path) -> bool:
-    gitignore_path = input_dir / ".gitignore"
-    if not gitignore_path.exists():
+    try:
+        rel = file_path.relative_to(input_dir)
+    except ValueError:
         return False
 
-    try:
-        rel_path = file_path.relative_to(input_dir).as_posix()
-        with open(gitignore_path, "r", encoding="utf-8") as f:
-            for line in f:
-                rule = line.strip()
-                if rule.startswith("#") or not rule:
-                    continue
-                if "*" in rule:
-                    if fnmatch.fnmatch(rel_path, rule):
-                        return True
-                elif rule.endswith("/"):
-                    if rel_path.startswith(rule.rstrip("/")):
-                        return True
-                elif rel_path == rule:
+    parts = rel.parts
+    current_dir = input_dir
+
+    for i in range(len(parts)):
+        gitignore_path = current_dir / ".gitignore"
+        if gitignore_path.exists():
+            sub_rel = "/".join(parts[i:])
+            try:
+                skip = False
+                with open(gitignore_path, "r", encoding="utf-8") as f:
+                    for line in f:
+                        rule = line.strip()
+                        if rule.startswith("#") or not rule:
+                            continue
+                        negate = rule.startswith("!")
+                        effective_rule = rule[1:] if negate else rule
+                        if "*" in effective_rule:
+                            matched = fnmatch.fnmatch(sub_rel, effective_rule)
+                        elif effective_rule.endswith("/"):
+                            base = effective_rule.rstrip("/")
+                            matched = sub_rel == base or sub_rel.startswith(base + "/")
+                        else:
+                            matched = sub_rel == effective_rule
+                        if matched:
+                            skip = not negate
+                if skip:
                     return True
-        return False
-    except Exception:
-        return False
+            except Exception:
+                pass
+        if i < len(parts) - 1:
+            current_dir = current_dir / parts[i]
+
+    return False
 
 
 def get_plural(count):
@@ -284,6 +300,8 @@ def run_copycat(args):
             else:
                 for pat in patterns:
                     for candidate in search_method(pat):
+                        if should_skip_gitignore(input_dir, candidate):
+                            continue
                         if (
                             candidate.resolve() != script_file
                             and "combined_copycat" not in candidate.name
