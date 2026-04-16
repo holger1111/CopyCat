@@ -1,4 +1,4 @@
-# CopyCat v2.8 - Projekt-Dokumentierer
+# CopyCat v2.9 - Projekt-Dokumentierer
 
 
 ## Automatisiert Code + Diagramme + Medien zu Text-Report
@@ -19,6 +19,7 @@
 | Serial-System		| Automatisches Archiv (CopyCat_Archive)		|
 | Git-Integration	| Branch + Commit-Hash					|
 | Ausgabeformate	| TXT / JSON / Markdown (`--format`)			|
+| Inhaltssuche		| Regex-Suche über Dateiinhalte (`--search`)		|
 | Performance		| Rekursiv/Flach, Size-Filter + Progress		|
 
 
@@ -33,6 +34,7 @@ python CopyCat.py -t code,diagram    # Nur Code+Diagramme
 python CopyCat.py -r -s 5            # Rekursiv, max 5MB
 python CopyCat.py -f json            # JSON-Ausgabe
 python CopyCat.py -f md              # Markdown-Ausgabe
+python CopyCat.py -S "TODO|FIXME"    # Nach TODOs suchen
 python CopyCat.py --help             # Hilfe
 ```
 
@@ -47,6 +49,7 @@ python CopyCat.py --help             # Hilfe
 | -t,--types			| Typen: 'ode web db config docs deps img audio diagram' oder 'all'	| 'all'		|
 | -r,--recursive		| Rekursive Suche  in Unterordnern					| false (flach)	|
 | -s,--max-size			| Max Größe MB								| unbegrenzt	|| -f,--format			| Ausgabeformat: txt, json, md					| txt		|
+| -S,--search			| Regex-Suchmuster (z.B. 'TODO\|FIXME', 'def ')			| None		|
 
 ### Flach vs Rekursiv
 
@@ -85,17 +88,18 @@ CopyCat.py -s 1			# Max Dateigröße 1 MB
 ```
 
 
-### Ausgabe-Beispiel (v2.8)
+### Ausgabe-Beispiel (v2.9)
 
 
 ````text
 ============================================================
-CopyCat v2.8 | 13.04.2026 20:41 | REKURSIV
+CopyCat v2.9 | 13.04.2026 20:41 | REKURSIV
 /projekt
 GIT: Branch: main | Last Commit: a1b2c3d
 
 Gesamt: 47 Dateien
 Serial #4
+SUCHE: "TODO" → 3 Treffer in 2 Dateien
 ============================================================
 CODE: 2 Dateien    IMG: 5 Dateien   AUDIO: 5 Dateien  DIAGRAM: 1 Datei
 
@@ -182,7 +186,7 @@ Rest			→ [ERROR: datei]
 **Beispiel:** DIAGRAMM INVALID XML: test.drawio
 
 
-###  Performance-Tuning (v2.8)
+###  Performance-Tuning (v2.9)
 
 
 **Für große Projekte (1000+ Files):**
@@ -205,7 +209,7 @@ Ausgabe bei Filter: → 1274 geprüft, Filter OK
 ### Ausgabeformate
 
 
-CopyCat v2.8 unterstützt drei Ausgabeformate über das `-f` / `--format`-Flag:
+CopyCat v2.9 unterstützt drei Ausgabeformate über das `-f` / `--format`-Flag:
 
 
 | Format | Flag | Ausgabedatei | Beschreibung |
@@ -219,7 +223,7 @@ CopyCat v2.8 unterstützt drei Ausgabeformate über das `-f` / `--format`-Flag:
 
 ````json
 {
-  "version": "2.8",
+  "version": "2.9",
   "generated": "13.04.2026 20:41",
   "mode": "recursive",
   "input": "/projekt",
@@ -227,9 +231,11 @@ CopyCat v2.8 unterstützt drei Ausgabeformate über das `-f` / `--format`-Flag:
   "git": { "branch": "main", "commit": "a1b2c3d" },
   "files": 47,
   "types": { "code": 5, "img": 3 },
+  "search": { "pattern": "TODO", "total_matches": 3, "files_matched": 2 },
   "details": {
     "code": [
-      { "name": "main.15:40 16.04.2026py", "path": "src/main.py", "size": 1234, "lines": 42 }
+      { "name": "main.py", "path": "src/main.py", "size": 1234, "lines": 42,
+        "matches": [{"line": 7, "text": "# TODO: beheben"}] }
     ]
   }
 }
@@ -248,6 +254,50 @@ python CopyCat.py                          # Standard TXT (unverändert)
 
 
 Alle drei Formate verwenden dasselbe Serial-System und die Archiv-Rotation.
+
+
+### Inhaltssuche
+
+
+CopyCat v2.9 unterstützt Regex-basierte Inhaltssuche über alle Textdateien via `--search` / `-S`:
+
+
+```bash
+python CopyCat.py -S "TODO|FIXME"          # Alle TODOs und FIXMEs finden
+python CopyCat.py -S "def " -t code        # Alle Funktionsdefinitionen
+python CopyCat.py -S "class " -f json      # Klassendefinitionen als JSON
+python CopyCat.py -r -S "import " -t code  # Alle Imports (rekursiv)
+```
+
+
+**TXT-Ausgabe** — Suchzusammenfassung im Header + `SUCHERGEBNISSE`-Abschnitt:
+
+````text
+SUCHE: "TODO" → 3 Treffer in 2 Dateien
+...
+==================== SUCHERGEBNISSE ====================
+Muster: "TODO" → 3 Treffer in 2 Dateien
+
+  main.py:
+    L7: # TODO: beheben
+    L42: # TODO: Tests hinzufügen
+  utils.py:
+    L15: # TODO: refaktorieren
+````
+
+
+**Durchsuchbare Typen:** `code`, `web`, `db`, `config`, `docs`, `deps`
+
+**Nicht durchsucht:** `img`, `audio`, `diagram` (Binärinhalte)
+
+**Verhalten:**
+
+| Situation | Ergebnis |
+|---|---|
+| Muster gefunden | Zeilennummer + Snippet je Treffer |
+| Keine Treffer | Zusammenfassungszeile, kein Abschnitt |
+| Ungültiges Regex | Report wird ohne Suchabschnitt erstellt |
+| Binärdatei | Wird lautlos übersprungen |
 
 
 ### Git-Support
@@ -289,7 +339,7 @@ build/          → übersprungen
 Unterordner-`.gitignore`-Dateien werden ebenfalls auf Dateien in diesem Unterordner angewendet:
 
 ````text
-src/.gitignore  →  gilt für alle Dateien unter src/15:20 16.04.2026
+src/.gitignore  →  gilt für alle Dateien unter src/
 ````
 
 

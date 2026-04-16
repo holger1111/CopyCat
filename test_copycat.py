@@ -1,9 +1,10 @@
-﻿"""CopyCat v2.8 - Pytest Suite (Refactored & Optimized)"""
+﻿"""CopyCat v2.9 - Pytest Suite (Refactored & Optimized)"""
 
 import subprocess
 import struct
 import json
 import re
+from io import StringIO
 from pathlib import Path
 from unittest.mock import patch, MagicMock, Mock
 from argparse import Namespace
@@ -22,15 +23,13 @@ from CopyCat import (
     get_plural,
     size_filtered_glob,
     run_copycat,
+    search_in_file,
+    _build_search_results,
     _write_json,
     _write_md,
+    _write_txt,
     TYPE_FILTERS,
 )
-
-
-# ==================== HELPER FUNCTIONS ====================
-
-# is_valid_serial_filename is now imported directly from CopyCat
 
 
 # ==================== FIXTURES ====================
@@ -46,7 +45,7 @@ def mock_writer():
 @pytest.fixture
 def run_args(tmp_path):
     """Factory fixture for Namespace args."""
-    def _make_args(types=None, recursive=False, max_size=None, input_path=None, output_path=None, fmt="txt"):
+    def _make_args(types=None, recursive=False, max_size=None, input_path=None, output_path=None, fmt="txt", search=None):
         return Namespace(
             input=str(input_path or tmp_path),
             output=str(output_path or tmp_path),
@@ -54,6 +53,7 @@ def run_args(tmp_path):
             recursive=recursive,
             max_size=max_size or float("inf"),
             format=fmt,
+            search=search,
         )
     return _make_args
 
@@ -186,18 +186,11 @@ def test_get_git_info_timeout(tmp_path):
         assert "No Git" in get_git_info(tmp_path)
 
 
-def test_get_git_info_edge_cases(tmp_path):
+def test_get_git_info_edge_cases(tmp_path, run_args):
     """Test git info with edge cases in copycat integration."""
-    args = Namespace(
-        input=str(tmp_path),
-        output=str(tmp_path),
-        types=["code"],
-        recursive=False,
-        max_size=float("inf"),
-    )
     with patch("subprocess.check_output") as mock_subprocess:
         mock_subprocess.side_effect = FileNotFoundError
-        run_copycat(args)
+        run_copycat(run_args())
         report = next(tmp_path.glob("combined_copycat_*.txt"))
         assert "GIT: No Git" in report.read_text()
 
@@ -223,7 +216,7 @@ def test_should_skip_gitignore(tmp_path, gitignore_content, file_name, should_sk
     assert result == should_skip
 
 
-def test_gitignore_pattern_matching(tmp_path):
+def test_gitignore_pattern_matching(tmp_path, run_args):
     """Test complex gitignore pattern matching including negation."""
     (tmp_path / ".gitignore").write_text("*.py\nbuild/\n!important.py\n")
 
@@ -232,13 +225,7 @@ def test_gitignore_pattern_matching(tmp_path):
     (tmp_path / "important.py").touch()
     (tmp_path / "test.py").touch()
 
-    run_copycat(Namespace(
-        input=str(tmp_path),
-        output=str(tmp_path),
-        types=["code"],
-        recursive=True,
-        max_size=float("inf"),
-    ))
+    run_copycat(run_args(types=["code"], recursive=True))
 
     report = next(tmp_path.glob("combined_copycat_*.txt"))
     report_text = report.read_text()
@@ -246,20 +233,14 @@ def test_gitignore_pattern_matching(tmp_path):
     assert "important.py" in report_text       # negation un-ignores it
 
 
-def test_gitignore_recursive(tmp_path):
+def test_gitignore_recursive(tmp_path, run_args):
     """Test that subdirectory .gitignore files are respected."""
     (tmp_path / "sub").mkdir()
     (tmp_path / "sub" / ".gitignore").write_text("*.py\n")
     (tmp_path / "sub" / "ignored.py").touch()
     (tmp_path / "visible.py").touch()
 
-    run_copycat(Namespace(
-        input=str(tmp_path),
-        output=str(tmp_path),
-        types=["code"],
-        recursive=True,
-        max_size=float("inf"),
-    ))
+    run_copycat(run_args(types=["code"], recursive=True))
 
     report = next(tmp_path.glob("combined_copycat_*.txt"))
     report_text = report.read_text()
@@ -267,19 +248,13 @@ def test_gitignore_recursive(tmp_path):
     assert "ignored.py" not in report_text
 
 
-def test_gitignore_flat_mode(tmp_path):
+def test_gitignore_flat_mode(tmp_path, run_args):
     """Test that gitignore is applied in non-recursive flat mode."""
     (tmp_path / ".gitignore").write_text("ignored.py\n")
     (tmp_path / "visible.py").touch()
     (tmp_path / "ignored.py").touch()
 
-    run_copycat(Namespace(
-        input=str(tmp_path),
-        output=str(tmp_path),
-        types=["code"],
-        recursive=False,
-        max_size=float("inf"),
-    ))
+    run_copycat(run_args(types=["code"]))
 
     report = next(tmp_path.glob("combined_copycat_*.txt"))
     report_text = report.read_text()
@@ -774,18 +749,10 @@ def test_main_entrypoint(tmp_path):
 
 # ==================== FORMAT TESTS (MILESTONE 10) ====================
 
-def test_run_copycat_format_json_basic(tmp_path):
+def test_run_copycat_format_json_basic(tmp_path, run_args):
     """Test JSON output format: valid JSON with required keys."""
     (tmp_path / "main.py").write_text("def hello(): pass\n")
-    args = Namespace(
-        input=str(tmp_path),
-        output=str(tmp_path),
-        types=["code"],
-        recursive=False,
-        max_size=float("inf"),
-        format="json",
-    )
-    run_copycat(args)
+    run_copycat(run_args(fmt="json"))
 
     reports = list(tmp_path.glob("combined_copycat_*.json"))
     assert len(reports) == 1
@@ -793,43 +760,27 @@ def test_run_copycat_format_json_basic(tmp_path):
     assert "files" in data
     assert "types" in data
     assert "version" in data
-    assert data["version"] == "2.8"
+    assert data["version"] == "2.9"
     assert data["files"] >= 1
     assert "code" in data["types"]
 
 
-def test_run_copycat_format_json_no_git(tmp_path):
+def test_run_copycat_format_json_no_git(tmp_path, run_args):
     """Test JSON output: git is None when no repo."""
     (tmp_path / "app.py").write_text("x = 1\n")
-    args = Namespace(
-        input=str(tmp_path),
-        output=str(tmp_path),
-        types=["code"],
-        recursive=False,
-        max_size=float("inf"),
-        format="json",
-    )
-    run_copycat(args)
+    run_copycat(run_args(fmt="json"))
     data = json.loads(next(tmp_path.glob("combined_copycat_*.json")).read_text())
     assert data["git"] is None
 
 
-def test_run_copycat_format_json_with_git(tmp_path):
+def test_run_copycat_format_json_with_git(tmp_path, run_args):
     """Test JSON output: git dict populated when repo present."""
     (tmp_path / ".git").mkdir()
     (tmp_path / "app.py").write_text("x = 1\n")
     with patch("subprocess.run") as mock_run:
         mock_run.return_value.stdout = "main\n"
         mock_run.return_value.returncode = 0
-        args = Namespace(
-            input=str(tmp_path),
-            output=str(tmp_path),
-            types=["code"],
-            recursive=False,
-            max_size=float("inf"),
-            format="json",
-        )
-        run_copycat(args)
+        run_copycat(run_args(fmt="json"))
     data = json.loads(next(tmp_path.glob("combined_copycat_*.json")).read_text())
     assert data["git"] is not None
     assert "branch" in data["git"]
@@ -837,7 +788,6 @@ def test_run_copycat_format_json_with_git(tmp_path):
 
 def test_run_copycat_format_json_code_lines_error(tmp_path):
     """Test JSON output: lines=None when file read fails during line counting."""
-    import json as json_lib
     code_file = tmp_path / "bad.py"
     code_file.write_text("x = 1\n")
 
@@ -857,78 +807,46 @@ def test_run_copycat_format_json_code_lines_error(tmp_path):
     with patch("builtins.open", side_effect=patched_open):
         _write_json(out_path, files, args, tmp_path, "No Git", 1)
 
-    data = json_lib.loads(out_path.read_text())
+    data = json.loads(out_path.read_text())
     assert data["details"]["code"][0]["lines"] is None
 
 
-def test_run_copycat_format_md_basic(tmp_path):
+def test_run_copycat_format_md_basic(tmp_path, run_args):
     """Test Markdown output format: contains headers and table."""
     (tmp_path / "script.py").write_text("print('hi')\n")
-    args = Namespace(
-        input=str(tmp_path),
-        output=str(tmp_path),
-        types=["code"],
-        recursive=False,
-        max_size=float("inf"),
-        format="md",
-    )
-    run_copycat(args)
+    run_copycat(run_args(fmt="md"))
 
     reports = list(tmp_path.glob("combined_copycat_*.md"))
     assert len(reports) == 1
     content = reports[0].read_text(encoding="utf-8")
-    assert "# CopyCat v2.8 Report" in content
+    assert "# CopyCat v2.9 Report" in content
     assert "## Übersicht" in content
     assert "## Code-Details" in content
     assert "script.py" in content
 
 
-def test_run_copycat_format_md_binary_section(tmp_path):
+def test_run_copycat_format_md_binary_section(tmp_path, run_args):
     """Test Markdown output: binary type section (non-code)."""
     (tmp_path / "image.png").write_bytes(b"PNG")
-    args = Namespace(
-        input=str(tmp_path),
-        output=str(tmp_path),
-        types=["img"],
-        recursive=False,
-        max_size=float("inf"),
-        format="md",
-    )
-    run_copycat(args)
+    run_copycat(run_args(types=["img"], fmt="md"))
     content = next(tmp_path.glob("combined_copycat_*.md")).read_text()
     assert "## IMG" in content
     assert "image.png" in content
 
 
-def test_run_copycat_format_md_unicode_error(tmp_path):
+def test_run_copycat_format_md_unicode_error(tmp_path, run_args):
     """Test Markdown code block: UnicodeDecodeError handled."""
     bad = tmp_path / "bad.py"
     bad.write_bytes(b"\xff\x00")
-    args = Namespace(
-        input=str(tmp_path),
-        output=str(tmp_path),
-        types=["code"],
-        recursive=False,
-        max_size=float("inf"),
-        format="md",
-    )
-    run_copycat(args)
+    run_copycat(run_args(fmt="md"))
     content = next(tmp_path.glob("combined_copycat_*.md")).read_text(encoding="utf-8")
     assert "übersprungen" in content
 
 
-def test_run_copycat_format_md_read_exception(tmp_path):
+def test_run_copycat_format_md_read_exception(tmp_path, run_args):
     """Test Markdown code block: generic read exception handled."""
     code = tmp_path / "test.py"
     code.write_text("x = 1")
-    args = Namespace(
-        input=str(tmp_path),
-        output=str(tmp_path),
-        types=["code"],
-        recursive=False,
-        max_size=float("inf"),
-        format="md",
-    )
     real_open = open
 
     def patched_open(f, *a, **kw):
@@ -937,42 +855,26 @@ def test_run_copycat_format_md_read_exception(tmp_path):
         return real_open(f, *a, **kw)
 
     with patch("builtins.open", side_effect=patched_open):
-        run_copycat(args)
+        run_copycat(run_args(fmt="md"))
     content = next(tmp_path.glob("combined_copycat_*.md")).read_text()
     assert "Fehler beim Lesen" in content
 
 
-def test_run_copycat_format_txt_default_unchanged(tmp_path):
+def test_run_copycat_format_txt_default_unchanged(tmp_path, run_args):
     """Test that default format=txt still produces .txt report."""
     (tmp_path / "test.py").write_text("pass\n")
-    args = Namespace(
-        input=str(tmp_path),
-        output=str(tmp_path),
-        types=["code"],
-        recursive=False,
-        max_size=float("inf"),
-        format="txt",
-    )
-    run_copycat(args)
+    run_copycat(run_args())
     reports = list(tmp_path.glob("combined_copycat_*.txt"))
     assert len(reports) == 1
-    assert "CopyCat v2.8" in reports[0].read_text()
+    assert "CopyCat v2.9" in reports[0].read_text()
 
 
-def test_run_copycat_archive_cross_format(tmp_path):
+def test_run_copycat_archive_cross_format(tmp_path, run_args):
     """Test that archive picks up files of all extensions."""
     (tmp_path / "combined_copycat_1.txt").write_text("old txt")
     (tmp_path / "combined_copycat_2.json").write_text("{}")
     (tmp_path / "test.py").write_text("pass")
-    args = Namespace(
-        input=str(tmp_path),
-        output=str(tmp_path),
-        types=["code"],
-        recursive=False,
-        max_size=float("inf"),
-        format="md",
-    )
-    run_copycat(args)
+    run_copycat(run_args(fmt="md"))
     archive = tmp_path / "CopyCat_Archive"
     assert (archive / "combined_copycat_1.txt").exists()
     assert (archive / "combined_copycat_2.json").exists()
@@ -982,7 +884,6 @@ def test_run_copycat_archive_cross_format(tmp_path):
 
 def test_write_json_direct(tmp_path):
     """Direct test of _write_json helper (code + non-code types)."""
-    import json as json_lib
     files = {k: [] for k in TYPE_FILTERS}
     code_file = tmp_path / "sample.py"
     code_file.write_text("x = 1\n")
@@ -995,7 +896,7 @@ def test_write_json_direct(tmp_path):
     args = Namespace(recursive=False, types=["code", "img"], max_size=float("inf"), format="json")
     _write_json(out_path, files, args, tmp_path, "Branch: dev | Last Commit: abc123", 7)
 
-    data = json_lib.loads(out_path.read_text())
+    data = json.loads(out_path.read_text())
     assert data["git"]["branch"] == "dev"
     assert data["git"]["commit"] == "abc123"
     assert data["serial"] == 7
@@ -1008,7 +909,6 @@ def test_write_json_direct(tmp_path):
 
 def test_write_md_direct(tmp_path):
     """Direct test of _write_md helper."""
-    from io import StringIO
     files = {k: [] for k in TYPE_FILTERS}
     code_file = tmp_path / "hello.py"
     code_file.write_text("print('hello')\n")
@@ -1022,8 +922,262 @@ def test_write_md_direct(tmp_path):
     _write_md(buf, files, args, tmp_path, "No Git", 3)
 
     out = buf.getvalue()
-    assert "# CopyCat v2.8 Report" in out
+    assert "# CopyCat v2.9 Report" in out
     assert "hello.py" in out
     assert "## IMG" in out
     assert "| **Serial** | #3 |" in out
+
+
+# ==================== SEARCH TESTS (MILESTONE 11) ====================
+
+def test_search_in_file_found(tmp_path):
+    """search_in_file returns matching lines with line numbers."""
+    f = tmp_path / "code.py"
+    f.write_text("x = 1\n# TODO: fix\ndef hello(): pass\n")
+    hits = search_in_file(f, "TODO")
+    assert len(hits) == 1
+    assert hits[0][0] == 2
+    assert "TODO" in hits[0][1]
+
+
+def test_search_in_file_multiple_matches(tmp_path):
+    """search_in_file finds multiple matching lines."""
+    f = tmp_path / "code.py"
+    f.write_text("# TODO: a\nx = 1\n# TODO: b\n")
+    hits = search_in_file(f, "TODO")
+    assert len(hits) == 2
+    assert hits[0][0] == 1
+    assert hits[1][0] == 3
+
+
+def test_search_in_file_no_match(tmp_path):
+    """search_in_file returns empty list when pattern not found."""
+    f = tmp_path / "code.py"
+    f.write_text("x = 1\ndef hello(): pass\n")
+    assert search_in_file(f, "TODO") == []
+
+
+def test_search_in_file_invalid_regex(tmp_path):
+    """search_in_file returns empty list for invalid regex."""
+    f = tmp_path / "code.py"
+    f.write_text("x = 1\n")
+    assert search_in_file(f, "[invalid(") == []
+
+
+def test_search_in_file_unicode_error(tmp_path):
+    """search_in_file returns empty list on UnicodeDecodeError."""
+    f = tmp_path / "bad.py"
+    f.write_bytes(b"\xff\x00\xab")
+    assert search_in_file(f, "TODO") == []
+
+
+def test_search_in_file_os_error(tmp_path):
+    """search_in_file returns empty list on OSError."""
+    f = tmp_path / "locked.py"
+    f.write_text("x = 1")
+    with patch("builtins.open", side_effect=OSError("denied")):
+        assert search_in_file(f, "TODO") == []
+
+
+def test_search_in_file_regex_pattern(tmp_path):
+    """search_in_file supports full regex patterns."""
+    f = tmp_path / "code.py"
+    f.write_text("def foo():\ndef bar():\nx = 1\n")
+    hits = search_in_file(f, r"^def ")
+    assert len(hits) == 2
+
+
+def test_build_search_results_basic(tmp_path):
+    """_build_search_results finds matches in searchable types only."""
+    files = {k: [] for k in TYPE_FILTERS}
+    py = tmp_path / "app.py"
+    py.write_text("# TODO: fix this\nx = 1\n")
+    files["code"] = [py]
+    img = tmp_path / "logo.png"
+    img.write_bytes(b"PNG")
+    files["img"] = [img]
+
+    results = _build_search_results(files, "TODO")
+    assert py in results
+    assert img not in results
+    assert results[py][0][1].strip() == "# TODO: fix this"
+
+
+def test_build_search_results_no_matches(tmp_path):
+    """_build_search_results returns empty dict when nothing matches."""
+    files = {k: [] for k in TYPE_FILTERS}
+    py = tmp_path / "clean.py"
+    py.write_text("x = 1\n")
+    files["code"] = [py]
+
+    results = _build_search_results(files, "FIXME")
+    assert results == {}
+
+
+def test_build_search_results_skips_non_searchable(tmp_path):
+    """_build_search_results skips img, audio, diagram types."""
+    files = {k: [] for k in TYPE_FILTERS}
+    img = tmp_path / "logo.png"
+    img.write_bytes(b"TODO")
+    files["img"] = [img]
+    audio = tmp_path / "song.mp3"
+    audio.write_bytes(b"TODO")
+    files["audio"] = [audio]
+
+    results = _build_search_results(files, "TODO")
+    assert results == {}
+
+
+def test_build_search_results_multiple_types(tmp_path):
+    """_build_search_results searches code, web, docs, etc."""
+    files = {k: [] for k in TYPE_FILTERS}
+    py = tmp_path / "app.py"
+    py.write_text("# TODO in code\n")
+    html = tmp_path / "index.html"
+    html.write_text("<!-- TODO in web -->\n")
+    files["code"] = [py]
+    files["web"] = [html]
+
+    results = _build_search_results(files, "TODO")
+    assert py in results
+    assert html in results
+
+
+@pytest.mark.parametrize("argv,expected_search", [
+    (["test_copycat.py"], None),
+    (["test_copycat.py", "-S", "TODO"], "TODO"),
+    (["test_copycat.py", "--search", "def |class "], "def |class "),
+    (["test_copycat.py", "-S", r"TODO|FIXME"], "TODO|FIXME"),
+])
+def test_parse_arguments_search(argv, expected_search):
+    """Test --search / -S argument parsing."""
+    with patch("sys.argv", argv):
+        args = parse_arguments()
+        assert args.search == expected_search
+
+
+def test_run_copycat_search_txt_integration(tmp_path, run_args):
+    """Integration: TXT report contains SUCHERGEBNISSE section with matches."""
+    (tmp_path / "main.py").write_text("# TODO: fix this\nx = 1\n# TODO: add tests\n")
+    (tmp_path / "clean.py").write_text("x = 1\ny = 2\n")
+    run_copycat(run_args(search="TODO"))
+    content = next(tmp_path.glob("combined_copycat_*.txt")).read_text(encoding="utf-8")
+    assert "SUCHERGEBNISSE" in content
+    assert "TODO" in content
+    assert "main.py" in content
+    assert 'SUCHE: "TODO"' in content
+
+
+@pytest.mark.parametrize("fmt,present,absent", [
+    ("txt", ['SUCHE: "FIXME"'], ["SUCHERGEBNISSE"]),
+    ("md", [], ["Suchergebnisse"]),
+])
+def test_run_copycat_search_no_matches(tmp_path, run_args, fmt, present, absent):
+    """Integration: report with search but no matches (no results section)."""
+    (tmp_path / "main.py").write_text("x = 1\n")
+    run_copycat(run_args(fmt=fmt, search="FIXME"))
+    content = next(tmp_path.glob(f"combined_copycat_*.{fmt}")).read_text(encoding="utf-8")
+    for s in present:
+        assert s in content
+    for s in absent:
+        assert s not in content
+
+
+def test_run_copycat_search_json_integration(tmp_path, run_args):
+    """Integration: JSON report contains search key and matches in details."""
+    (tmp_path / "app.py").write_text("def hello(): pass\ndef world(): pass\n")
+    run_copycat(run_args(fmt="json", search="def "))
+    data = json.loads(next(tmp_path.glob("combined_copycat_*.json")).read_text())
+    assert data["search"] is not None
+    assert data["search"]["pattern"] == "def "
+    assert data["search"]["total_matches"] >= 2
+    assert data["search"]["files_matched"] == 1
+    code_entry = data["details"]["code"][0]
+    assert "matches" in code_entry
+    assert len(code_entry["matches"]) >= 2
+    assert code_entry["matches"][0]["line"] == 1
+
+
+def test_run_copycat_search_json_no_search(tmp_path, run_args):
+    """Integration: JSON report has search=None when --search not provided."""
+    (tmp_path / "app.py").write_text("x = 1\n")
+    run_copycat(run_args(fmt="json"))
+    data = json.loads(next(tmp_path.glob("combined_copycat_*.json")).read_text())
+    assert data["search"] is None
+    # no "matches" key when search is None
+    assert "matches" not in data["details"]["code"][0]
+
+
+def test_run_copycat_search_md_integration(tmp_path, run_args):
+    """Integration: MD report contains Suchergebnisse table."""
+    (tmp_path / "utils.py").write_text("# FIXME: broken\nx = 1\n")
+    run_copycat(run_args(fmt="md", search="FIXME"))
+    content = next(tmp_path.glob("combined_copycat_*.md")).read_text(encoding="utf-8")
+    assert "## Suchergebnisse: `FIXME`" in content
+    assert "utils.py" in content
+    assert "FIXME" in content
+
+
+def test_run_copycat_search_invalid_regex(tmp_path, run_args):
+    """Integration: invalid regex produces report without crash."""
+    (tmp_path / "app.py").write_text("x = 1\n")
+    run_copycat(run_args(search="[invalid("))
+    reports = list(tmp_path.glob("combined_copycat_*.txt"))
+    assert len(reports) == 1
+    content = reports[0].read_text(encoding="utf-8")
+    assert "SUCHERGEBNISSE" not in content
+
+
+def test_write_txt_search_direct(tmp_path):
+    """Direct _write_txt: search section appears with matches."""
+    files = {k: [] for k in TYPE_FILTERS}
+    py = tmp_path / "mod.py"
+    py.write_text("# TODO: fix\nx = 1\n")
+    files["code"] = [py]
+    search_results = {py: [(1, "# TODO: fix")]}
+
+    buf = StringIO()
+    args = Namespace(recursive=False, types=["code"], max_size=float("inf"), format="txt", search="TODO")
+    _write_txt(buf, files, args, tmp_path, "No Git", 1, search_pattern="TODO", search_results=search_results)
+    out = buf.getvalue()
+    assert "SUCHERGEBNISSE" in out
+    assert "mod.py" in out
+    assert "L1: # TODO: fix" in out
+    assert 'SUCHE: "TODO"' in out
+
+
+def test_write_md_search_direct(tmp_path):
+    """Direct _write_md: Suchergebnisse table with pipe-escaped text."""
+    files = {k: [] for k in TYPE_FILTERS}
+    py = tmp_path / "mod.py"
+    py.write_text("x = 1\n")
+    files["code"] = [py]
+    search_results = {py: [(1, "x | y")]}
+
+    buf = StringIO()
+    args = Namespace(recursive=False, types=["code"], max_size=float("inf"), format="md", search="x")
+    _write_md(buf, files, args, tmp_path, "No Git", 1, search_pattern="x", search_results=search_results)
+    out = buf.getvalue()
+    assert "## Suchergebnisse: `x`" in out
+    assert r"x \| y" in out
+    assert "| **Suche** |" in out
+
+
+def test_write_json_search_direct(tmp_path):
+    """Direct _write_json: search key + matches in entries."""
+    files = {k: [] for k in TYPE_FILTERS}
+    py = tmp_path / "mod.py"
+    py.write_text("# TODO\n")
+    files["code"] = [py]
+    sr = {py: [(1, "# TODO")]}
+
+    out_path = tmp_path / "out.json"
+    args = Namespace(recursive=False, types=["code"], max_size=float("inf"), format="json", search="TODO")
+    _write_json(out_path, files, args, tmp_path, "No Git", 2, search_pattern="TODO", search_results=sr)
+
+    data = json.loads(out_path.read_text())
+    assert data["search"]["pattern"] == "TODO"
+    assert data["search"]["total_matches"] == 1
+    assert data["search"]["files_matched"] == 1
+    assert data["details"]["code"][0]["matches"] == [{"line": 1, "text": "# TODO"}]
 

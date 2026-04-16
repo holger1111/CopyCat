@@ -1,5 +1,5 @@
 """
-CopyCat v2.8
+CopyCat v2.9
 """
 
 import argparse
@@ -17,7 +17,7 @@ from datetime import datetime
 
 def parse_arguments():
     parser = argparse.ArgumentParser(
-        description="CopyCat v2.8 - Projekt-Dokumentierer"
+        description="CopyCat v2.9 - Projekt-Dokumentierer"
     )
     parser.add_argument(
         "--input", "-i", default=None, help="Eingabeordner (default: Skriptordner)"
@@ -51,6 +51,12 @@ def parse_arguments():
         choices=["txt", "json", "md"],
         default="txt",
         help="Ausgabeformat: txt (default), json, md",
+    )
+    parser.add_argument(
+        "--search",
+        "-S",
+        default=None,
+        help="Regex-Suchmuster für Inhaltssuche (z.B. 'TODO|FIXME', 'def ')",
     )
     args = parser.parse_args()
 
@@ -262,6 +268,37 @@ def size_filtered_glob(search_method, patterns, max_bytes, script_file, input_di
     print(f"\n→ {total_checked} geprüft, Filter OK")
 
 
+def search_in_file(file_path, pattern):
+    """Search regex pattern in a text file. Returns list of (lineno, text) tuples."""
+    try:
+        compiled = re.compile(pattern)
+    except re.error:
+        return []
+    matches = []
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
+            for lineno, line in enumerate(f, 1):
+                if compiled.search(line):
+                    matches.append((lineno, line.rstrip()))
+    except (UnicodeDecodeError, OSError):
+        pass
+    return matches
+
+
+def _build_search_results(files, pattern):
+    """Search pattern in all text-based files. Returns {Path: [(lineno, text)]}."""
+    SEARCHABLE = {"code", "web", "db", "config", "docs", "deps"}
+    results = {}
+    for t, flist in files.items():
+        if t not in SEARCHABLE:
+            continue
+        for f in flist:
+            hits = search_in_file(f, pattern)
+            if hits:
+                results[f] = hits
+    return results
+
+
 TYPE_FILTERS = {
     "code": ["*.java", "*.py", "*.spec", "*.cpp", "*.c"],
     "web": ["*.html", "*.css", "*.js", "*.ts", "*.jsx"],
@@ -308,18 +345,24 @@ def _collect_files(args, input_dir, script_file):
     return files
 
 
-def _write_txt(writer, files, args, input_dir, git_info, serial):
+def _write_txt(writer, files, args, input_dir, git_info, serial, search_pattern=None, search_results=None):
     """Write TXT report."""
     mode_text = "REKURSIV" if args.recursive else "FLACH (Default)"
     writer.write(
         "=" * 60
-        + f"\nCopyCat v2.8 | {datetime.now().strftime('%d.%m.%Y %H:%M')} | {mode_text}\n"
+        + f"\nCopyCat v2.9 | {datetime.now().strftime('%d.%m.%Y %H:%M')} | {mode_text}\n"
         + f"{input_dir}\n"
         + f"GIT: {git_info}\n\n"
     )
     total_files = sum(len(files[t]) for t in files)
+    search_results = search_results or {}
+    search_line = ""
+    if search_pattern:
+        total_hits = sum(len(v) for v in search_results.values())
+        search_line = f'SUCHE: "{search_pattern}" \u2192 {total_hits} Treffer in {len(search_results)} {get_plural(len(search_results))}\n'
     writer.write(
         f"Gesamt: {total_files} {get_plural(total_files)}\nSerial #{serial}\n"
+        + search_line
         + "=" * 60
         + "\n"
     )
@@ -377,8 +420,17 @@ def _write_txt(writer, files, args, input_dir, git_info, serial):
                 if args.recursive:
                     writer.write(f"  Pfad: {bfile.parent.name}/{bfile.name}\n")
 
+    if search_pattern and search_results:
+        total_hits = sum(len(v) for v in search_results.values())
+        writer.write(f"\n{'='*20} SUCHERGEBNISSE {'='*20}\n")
+        writer.write(f'Muster: "{search_pattern}" \u2192 {total_hits} Treffer in {len(search_results)} {get_plural(len(search_results))}\n\n')
+        for f_path, hits in search_results.items():
+            writer.write(f"  {f_path.name}:\n")
+            for lineno, text in hits:
+                writer.write(f"    L{lineno}: {text}\n")
 
-def _write_json(path, files, args, input_dir, git_info, serial):
+
+def _write_json(path, files, args, input_dir, git_info, serial, search_pattern=None, search_results=None):
     """Write JSON report."""
     selected_types = args.types if args.types else ["all"]
     process_all = "all" in selected_types
@@ -405,11 +457,24 @@ def _write_json(path, files, args, input_dir, git_info, serial):
                     )
                 except Exception:
                     entry["lines"] = None
+            if search_pattern is not None:
+                hits = (search_results or {}).get(f, [])
+                entry["matches"] = [{"line": ln, "text": txt} for ln, txt in hits]
             file_entries.append(entry)
         types_out[t] = file_entries
 
+    sr = search_results or {}
+    search_out = (
+        {
+            "pattern": search_pattern,
+            "total_matches": sum(len(v) for v in sr.values()),
+            "files_matched": len(sr),
+        }
+        if search_pattern is not None
+        else None
+    )
     report = {
-        "version": "2.8",
+        "version": "2.9",
         "generated": datetime.now().strftime("%d.%m.%Y %H:%M"),
         "mode": "recursive" if args.recursive else "flat",
         "input": str(input_dir),
@@ -417,6 +482,7 @@ def _write_json(path, files, args, input_dir, git_info, serial):
         "git": {"branch": branch, "commit": commit} if branch else None,
         "files": sum(len(v) for v in types_out.values()),
         "types": {t: len(v) for t, v in types_out.items()},
+        "search": search_out,
         "details": types_out,
     }
 
@@ -424,21 +490,26 @@ def _write_json(path, files, args, input_dir, git_info, serial):
         json.dump(report, f, ensure_ascii=False, indent=2)
 
 
-def _write_md(writer, files, args, input_dir, git_info, serial):
+def _write_md(writer, files, args, input_dir, git_info, serial, search_pattern=None, search_results=None):
     """Write Markdown report."""
     mode_text = "Rekursiv" if args.recursive else "Flach"
     total_files = sum(len(files[t]) for t in files)
     selected_types = args.types if args.types else ["all"]
     process_all = "all" in selected_types
 
-    writer.write(f"# CopyCat v2.8 Report\n\n")
+    writer.write(f"# CopyCat v2.9 Report\n\n")
     writer.write(f"| | |\n|---|---|\n")
     writer.write(f"| **Datum** | {datetime.now().strftime('%d.%m.%Y %H:%M')} |\n")
     writer.write(f"| **Modus** | {mode_text} |\n")
     writer.write(f"| **Pfad** | `{input_dir}` |\n")
     writer.write(f"| **Git** | {git_info} |\n")
     writer.write(f"| **Gesamt** | {total_files} {get_plural(total_files)} |\n")
-    writer.write(f"| **Serial** | #{serial} |\n\n")
+    writer.write(f"| **Serial** | #{serial} |\n")
+    if search_pattern:
+        sr = search_results or {}
+        total_hits = sum(len(v) for v in sr.values())
+        writer.write(f'| **Suche** | `{search_pattern}` \u2192 {total_hits} Treffer in {len(sr)} {get_plural(len(sr))} |\n')
+    writer.write("\n")
 
     writer.write("## Übersicht\n\n")
     writer.write("| Typ | Anzahl |\n|---|---|\n")
@@ -481,6 +552,15 @@ def _write_md(writer, files, args, input_dir, git_info, serial):
             writer.write(f"| `{bfile.name}` | {size} bytes |\n")
         writer.write("\n")
 
+    if search_pattern and search_results:
+        writer.write(f'## Suchergebnisse: `{search_pattern}`\n\n')
+        writer.write("| Datei | Zeile | Treffer |\n|---|---|---|\n")
+        for f_path, hits in search_results.items():
+            for lineno, text in hits:
+                safe_text = text.replace("|", "\\|").strip()
+                writer.write(f"| `{f_path.name}` | {lineno} | `{safe_text}` |\n")
+        writer.write("\n")
+
 
 def run_copycat(args):
     script_file = Path(__file__).resolve()
@@ -509,14 +589,19 @@ def run_copycat(args):
 
     git_info = get_git_info(input_dir)
 
+    search_pattern = getattr(args, "search", None)
+    if search_pattern:
+        print(f'Suche nach Muster: "{search_pattern}"')
+    search_results = _build_search_results(files, search_pattern) if search_pattern else {}
+
     if fmt == "json":
-        _write_json(new_file, files, args, input_dir, git_info, serial)
+        _write_json(new_file, files, args, input_dir, git_info, serial, search_pattern, search_results)
     elif fmt == "md":
         with open(new_file, "w", encoding="utf-8") as writer:
-            _write_md(writer, files, args, input_dir, git_info, serial)
+            _write_md(writer, files, args, input_dir, git_info, serial, search_pattern, search_results)
     else:
         with open(new_file, "w", encoding="utf-8") as writer:
-            _write_txt(writer, files, args, input_dir, git_info, serial)
+            _write_txt(writer, files, args, input_dir, git_info, serial, search_pattern, search_results)
 
     print(f"Erstellt: {new_file}")
 

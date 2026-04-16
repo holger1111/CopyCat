@@ -1,4 +1,4 @@
-# CopyCat v2.8 - Project Documenter
+# CopyCat v2.9 - Project Documenter
 
 
 ## Automates Code + Diagrams + Media into Text Reports
@@ -19,6 +19,7 @@
 | Serial System		| Automatic archive (CopyCat_Archive)			|
 | Git Integration	| Branch + commit hash					|
 | Output Formats	| TXT / JSON / Markdown (`--format`)			|
+| Content Search	| Regex search across files (`--search`)		|
 | Performance		| Recursive/flat, size filter + progress		|
 
 
@@ -33,6 +34,7 @@ python CopyCat.py -t code,diagram    # Code + diagrams only
 python CopyCat.py -r -s 5            # Recursive, max 5MB
 python CopyCat.py -f json            # JSON output
 python CopyCat.py -f md              # Markdown output
+python CopyCat.py -S "TODO|FIXME"    # Search for TODOs
 python CopyCat.py --help             # Help
 ```
 
@@ -47,6 +49,7 @@ python CopyCat.py --help             # Help
 | -t,--types			| Types: 'ode web db config docs deps img audio diagram' oder 'all'	| 'all'		|
 | -r,--recursive		| Recursive search in subfolders					| false (flat)	|
 | -s,--max-size			| Max file size in MB							| Unlimited	|| -f,--format			| Output format: txt, json, md					| txt		|
+| -S,--search			| Regex search pattern (e.g. 'TODO\|FIXME', 'def ')		| None		|
 
 ### Flat vs Recursive
 
@@ -85,17 +88,18 @@ CopyCat.py -s 1                # Max 1MB
 ```
 
 
-#### Output Example (v2.8)
+#### Output Example (v2.9)
 
 
 ````text
 ============================================================
-CopyCat v2.8 | 13.04.2026 20:41 | REKURSIV
+CopyCat v2.9 | 13.04.2026 20:41 | REKURSIV
 /projekt
 GIT: Branch: main | Last Commit: a1b2c3d
 
 Gesamt: 47 Dateien
 Serial #4
+SUCHE: "TODO" → 3 Treffer in 2 Dateien
 ============================================================
 CODE: 2 Dateien    IMG: 5 Dateien   AUDIO: 5 Dateien  DIAGRAM: 1 Datei
 
@@ -182,7 +186,7 @@ Others			→ [ERROR: file]
 **Example:** DIAGRAMM INVALID XML: test.drawio
 
 
-### Performance Tuning (v2.8)
+### Performance Tuning (v2.9)
 
 
 **For large projects (1000+ files):**
@@ -205,7 +209,7 @@ Filter output: → 1274 geprüft, Filter OK
 ### Output Formats
 
 
-CopyCat v2.8 supports three output formats via the `-f` / `--format` flag:
+CopyCat v2.9 supports three output formats via the `-f` / `--format` flag:
 
 
 | Format | Flag | Output File | Description |
@@ -219,7 +223,7 @@ CopyCat v2.8 supports three output formats via the `-f` / `--format` flag:
 
 ````json
 {
-  "version": "2.8",
+  "version": "2.9",
   "generated": "13.04.2026 20:41",
   "mode": "recursive",
   "input": "/projekt",
@@ -227,9 +231,11 @@ CopyCat v2.8 supports three output formats via the `-f` / `--format` flag:
   "git": { "branch": "main", "commit": "a1b2c3d" },
   "files": 47,
   "types": { "code": 5, "img": 3 },
+  "search": { "pattern": "TODO", "total_matches": 3, "files_matched": 2 },
   "details": {
     "code": [
-      { "name": "main.py", "path": "src/main.py", "size": 1234, "lines": 42 }
+      { "name": "main.py", "path": "src/main.py", "size": 1234, "lines": 42,
+        "matches": [{"line": 7, "text": "# TODO: fix this"}] }
     ]
   }
 }
@@ -248,6 +254,50 @@ python CopyCat.py                          # Default TXT (unchanged)
 
 
 All three formats use the same serial number system and archive rotation.
+
+
+### Content Search
+
+
+CopyCat v2.9 supports regex-based content search across all text files via `--search` / `-S`:
+
+
+```bash
+python CopyCat.py -S "TODO|FIXME"          # Find all TODOs and FIXMEs
+python CopyCat.py -S "def " -t code        # All function definitions
+python CopyCat.py -S "class " -f json      # Class definitions as JSON
+python CopyCat.py -r -S "import " -t code  # All imports (recursive)
+```
+
+
+**TXT output** — search summary in header + `SUCHERGEBNISSE` section:
+
+````text
+SUCHE: "TODO" → 3 Treffer in 2 Dateien
+...
+==================== SUCHERGEBNISSE ====================
+Muster: "TODO" → 3 Treffer in 2 Dateien
+
+  main.py:
+    L7: # TODO: fix this
+    L42: # TODO: add tests
+  utils.py:
+    L15: # TODO: refactor
+````
+
+
+**Searchable types:** `code`, `web`, `db`, `config`, `docs`, `deps`
+
+**Not searched:** `img`, `audio`, `diagram` (binary content)
+
+**Behavior details:**
+
+| Situation | Result |
+|---|---|
+| Pattern found | Line number + trimmed snippet per match |
+| No matches | Summary line shown, no results section |
+| Invalid regex | Report created without search section |
+| Binary file | Silently skipped |
 
 
 ### Git Support
