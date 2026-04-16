@@ -1,7 +1,8 @@
-﻿"""CopyCat v2.7 - Pytest Suite (Refactored & Optimized)"""
+﻿"""CopyCat v2.8 - Pytest Suite (Refactored & Optimized)"""
 
 import subprocess
 import struct
+import json
 import re
 from pathlib import Path
 from unittest.mock import patch, MagicMock, Mock
@@ -12,6 +13,7 @@ import pytest
 from CopyCat import (
     parse_arguments,
     get_next_serial_number,
+    is_valid_serial_filename,
     move_to_archive,
     list_binary_file,
     extract_drawio,
@@ -20,16 +22,15 @@ from CopyCat import (
     get_plural,
     size_filtered_glob,
     run_copycat,
+    _write_json,
+    _write_md,
     TYPE_FILTERS,
 )
 
 
 # ==================== HELPER FUNCTIONS ====================
 
-def is_valid_serial_filename(filename: str) -> bool:
-    """Validate serial filename format."""
-    pattern = r"^combined_copycat_(\d+)\.txt$"
-    return bool(re.match(pattern, filename))
+# is_valid_serial_filename is now imported directly from CopyCat
 
 
 # ==================== FIXTURES ====================
@@ -45,13 +46,14 @@ def mock_writer():
 @pytest.fixture
 def run_args(tmp_path):
     """Factory fixture for Namespace args."""
-    def _make_args(types=None, recursive=False, max_size=None, input_path=None, output_path=None):
+    def _make_args(types=None, recursive=False, max_size=None, input_path=None, output_path=None, fmt="txt"):
         return Namespace(
             input=str(input_path or tmp_path),
             output=str(output_path or tmp_path),
             types=types or ["code"],
             recursive=recursive,
             max_size=max_size or float("inf"),
+            format=fmt,
         )
     return _make_args
 
@@ -71,12 +73,15 @@ def tmp_test_dir(tmp_path):
 # ==================== ARGUMENT PARSING TESTS ====================
 
 @pytest.mark.parametrize("argv,expected", [
-    (["test_copycat.py"], {"types": ["all"], "recursive": False, "max_size": float("inf")}),
+    (["test_copycat.py"], {"types": ["all"], "recursive": False, "max_size": float("inf"), "format": "txt"}),
     (["test_copycat.py", "-r"], {"types": ["all"], "recursive": True}),
     (["test_copycat.py", "-t", "code", "diagram"], {"types": ["code", "diagram"]}),
     (["test_copycat.py", "-t", "code,diagram"], {"types": ["code", "diagram"]}),
     (["test_copycat.py", "-s", "5"], {"max_size": 5.0}),
     (["test_copycat.py", "-r", "-t", "code"], {"recursive": True, "types": ["code"]}),
+    (["test_copycat.py", "-f", "json"], {"format": "json"}),
+    (["test_copycat.py", "-f", "md"], {"format": "md"}),
+    (["test_copycat.py", "--format", "txt"], {"format": "txt"}),
 ])
 def test_parse_arguments(argv, expected):
     """Test argument parsing with various combinations."""
@@ -93,6 +98,9 @@ def test_parse_arguments(argv, expected):
     (["combined_copycat_3.txt"], 4),
     (["combined_copycat_1.txt", "combined_copycat_5.txt", "invalid.txt"], 6),
     (["combined_copycat.txt", "combined_copycat_abc.txt"], 1),
+    (["combined_copycat_2.json"], 3),
+    (["combined_copycat_4.md"], 5),
+    (["combined_copycat_3.txt", "combined_copycat_7.json", "combined_copycat_2.md"], 8),
 ])
 def test_get_next_serial_number(tmp_path, files, expected):
     """Test serial number generation."""
@@ -102,10 +110,13 @@ def test_get_next_serial_number(tmp_path, files, expected):
 
 
 def test_is_valid_serial_filename():
-    """Test serial filename validation."""
+    """Test serial filename validation (imported from CopyCat)."""
     assert is_valid_serial_filename("combined_copycat_1.txt") is True
+    assert is_valid_serial_filename("combined_copycat_5.json") is True
+    assert is_valid_serial_filename("combined_copycat_3.md") is True
     assert is_valid_serial_filename("combined_copycat.txt") is False
     assert is_valid_serial_filename("other_file.txt") is False
+    assert is_valid_serial_filename("combined_copycat_1.csv") is False
 
 
 # ==================== PLURAL TESTS ====================
@@ -759,3 +770,260 @@ def test_main_entrypoint(tmp_path):
             run_name="__main__",
         )
     assert list(tmp_path.glob("combined_copycat_*.txt"))
+
+
+# ==================== FORMAT TESTS (MILESTONE 10) ====================
+
+def test_run_copycat_format_json_basic(tmp_path):
+    """Test JSON output format: valid JSON with required keys."""
+    (tmp_path / "main.py").write_text("def hello(): pass\n")
+    args = Namespace(
+        input=str(tmp_path),
+        output=str(tmp_path),
+        types=["code"],
+        recursive=False,
+        max_size=float("inf"),
+        format="json",
+    )
+    run_copycat(args)
+
+    reports = list(tmp_path.glob("combined_copycat_*.json"))
+    assert len(reports) == 1
+    data = json.loads(reports[0].read_text(encoding="utf-8"))
+    assert "files" in data
+    assert "types" in data
+    assert "version" in data
+    assert data["version"] == "2.8"
+    assert data["files"] >= 1
+    assert "code" in data["types"]
+
+
+def test_run_copycat_format_json_no_git(tmp_path):
+    """Test JSON output: git is None when no repo."""
+    (tmp_path / "app.py").write_text("x = 1\n")
+    args = Namespace(
+        input=str(tmp_path),
+        output=str(tmp_path),
+        types=["code"],
+        recursive=False,
+        max_size=float("inf"),
+        format="json",
+    )
+    run_copycat(args)
+    data = json.loads(next(tmp_path.glob("combined_copycat_*.json")).read_text())
+    assert data["git"] is None
+
+
+def test_run_copycat_format_json_with_git(tmp_path):
+    """Test JSON output: git dict populated when repo present."""
+    (tmp_path / ".git").mkdir()
+    (tmp_path / "app.py").write_text("x = 1\n")
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value.stdout = "main\n"
+        mock_run.return_value.returncode = 0
+        args = Namespace(
+            input=str(tmp_path),
+            output=str(tmp_path),
+            types=["code"],
+            recursive=False,
+            max_size=float("inf"),
+            format="json",
+        )
+        run_copycat(args)
+    data = json.loads(next(tmp_path.glob("combined_copycat_*.json")).read_text())
+    assert data["git"] is not None
+    assert "branch" in data["git"]
+
+
+def test_run_copycat_format_json_code_lines_error(tmp_path):
+    """Test JSON output: lines=None when file read fails during line counting."""
+    import json as json_lib
+    code_file = tmp_path / "bad.py"
+    code_file.write_text("x = 1\n")
+
+    files = {k: [] for k in TYPE_FILTERS}
+    files["code"] = [code_file]
+    out_path = tmp_path / "out.json"
+    args = Namespace(recursive=False, types=["code"], max_size=float("inf"), format="json")
+
+    real_open = open
+
+    def patched_open(f, *a, **kw):
+        # Block reading the code file for line counting (no mode arg = "r")
+        if Path(f) == code_file and ("r" in (a[0] if a else kw.get("mode", "r"))):
+            raise OSError("denied")
+        return real_open(f, *a, **kw)
+
+    with patch("builtins.open", side_effect=patched_open):
+        _write_json(out_path, files, args, tmp_path, "No Git", 1)
+
+    data = json_lib.loads(out_path.read_text())
+    assert data["details"]["code"][0]["lines"] is None
+
+
+def test_run_copycat_format_md_basic(tmp_path):
+    """Test Markdown output format: contains headers and table."""
+    (tmp_path / "script.py").write_text("print('hi')\n")
+    args = Namespace(
+        input=str(tmp_path),
+        output=str(tmp_path),
+        types=["code"],
+        recursive=False,
+        max_size=float("inf"),
+        format="md",
+    )
+    run_copycat(args)
+
+    reports = list(tmp_path.glob("combined_copycat_*.md"))
+    assert len(reports) == 1
+    content = reports[0].read_text(encoding="utf-8")
+    assert "# CopyCat v2.8 Report" in content
+    assert "## Übersicht" in content
+    assert "## Code-Details" in content
+    assert "script.py" in content
+
+
+def test_run_copycat_format_md_binary_section(tmp_path):
+    """Test Markdown output: binary type section (non-code)."""
+    (tmp_path / "image.png").write_bytes(b"PNG")
+    args = Namespace(
+        input=str(tmp_path),
+        output=str(tmp_path),
+        types=["img"],
+        recursive=False,
+        max_size=float("inf"),
+        format="md",
+    )
+    run_copycat(args)
+    content = next(tmp_path.glob("combined_copycat_*.md")).read_text()
+    assert "## IMG" in content
+    assert "image.png" in content
+
+
+def test_run_copycat_format_md_unicode_error(tmp_path):
+    """Test Markdown code block: UnicodeDecodeError handled."""
+    bad = tmp_path / "bad.py"
+    bad.write_bytes(b"\xff\x00")
+    args = Namespace(
+        input=str(tmp_path),
+        output=str(tmp_path),
+        types=["code"],
+        recursive=False,
+        max_size=float("inf"),
+        format="md",
+    )
+    run_copycat(args)
+    content = next(tmp_path.glob("combined_copycat_*.md")).read_text(encoding="utf-8")
+    assert "übersprungen" in content
+
+
+def test_run_copycat_format_md_read_exception(tmp_path):
+    """Test Markdown code block: generic read exception handled."""
+    code = tmp_path / "test.py"
+    code.write_text("x = 1")
+    args = Namespace(
+        input=str(tmp_path),
+        output=str(tmp_path),
+        types=["code"],
+        recursive=False,
+        max_size=float("inf"),
+        format="md",
+    )
+    real_open = open
+
+    def patched_open(f, *a, **kw):
+        if Path(f) == code and "r" in (a[0] if a else kw.get("mode", "r")):
+            raise OSError("denied")
+        return real_open(f, *a, **kw)
+
+    with patch("builtins.open", side_effect=patched_open):
+        run_copycat(args)
+    content = next(tmp_path.glob("combined_copycat_*.md")).read_text()
+    assert "Fehler beim Lesen" in content
+
+
+def test_run_copycat_format_txt_default_unchanged(tmp_path):
+    """Test that default format=txt still produces .txt report."""
+    (tmp_path / "test.py").write_text("pass\n")
+    args = Namespace(
+        input=str(tmp_path),
+        output=str(tmp_path),
+        types=["code"],
+        recursive=False,
+        max_size=float("inf"),
+        format="txt",
+    )
+    run_copycat(args)
+    reports = list(tmp_path.glob("combined_copycat_*.txt"))
+    assert len(reports) == 1
+    assert "CopyCat v2.8" in reports[0].read_text()
+
+
+def test_run_copycat_archive_cross_format(tmp_path):
+    """Test that archive picks up files of all extensions."""
+    (tmp_path / "combined_copycat_1.txt").write_text("old txt")
+    (tmp_path / "combined_copycat_2.json").write_text("{}")
+    (tmp_path / "test.py").write_text("pass")
+    args = Namespace(
+        input=str(tmp_path),
+        output=str(tmp_path),
+        types=["code"],
+        recursive=False,
+        max_size=float("inf"),
+        format="md",
+    )
+    run_copycat(args)
+    archive = tmp_path / "CopyCat_Archive"
+    assert (archive / "combined_copycat_1.txt").exists()
+    assert (archive / "combined_copycat_2.json").exists()
+    md_reports = list(tmp_path.glob("combined_copycat_*.md"))
+    assert len(md_reports) == 1
+
+
+def test_write_json_direct(tmp_path):
+    """Direct test of _write_json helper (code + non-code types)."""
+    import json as json_lib
+    files = {k: [] for k in TYPE_FILTERS}
+    code_file = tmp_path / "sample.py"
+    code_file.write_text("x = 1\n")
+    files["code"] = [code_file]
+    img_file = tmp_path / "logo.png"
+    img_file.write_bytes(b"PNG")
+    files["img"] = [img_file]
+
+    out_path = tmp_path / "out.json"
+    args = Namespace(recursive=False, types=["code", "img"], max_size=float("inf"), format="json")
+    _write_json(out_path, files, args, tmp_path, "Branch: dev | Last Commit: abc123", 7)
+
+    data = json_lib.loads(out_path.read_text())
+    assert data["git"]["branch"] == "dev"
+    assert data["git"]["commit"] == "abc123"
+    assert data["serial"] == 7
+    assert "code" in data["details"]
+    assert data["details"]["code"][0]["lines"] is not None
+    # non-code type should not have "lines" key
+    assert "img" in data["details"]
+    assert "lines" not in data["details"]["img"][0]
+
+
+def test_write_md_direct(tmp_path):
+    """Direct test of _write_md helper."""
+    from io import StringIO
+    files = {k: [] for k in TYPE_FILTERS}
+    code_file = tmp_path / "hello.py"
+    code_file.write_text("print('hello')\n")
+    files["code"] = [code_file]
+    img_file = tmp_path / "logo.png"
+    img_file.write_bytes(b"PNG")
+    files["img"] = [img_file]
+
+    buf = StringIO()
+    args = Namespace(recursive=False, types=["code", "img"], max_size=float("inf"), format="md")
+    _write_md(buf, files, args, tmp_path, "No Git", 3)
+
+    out = buf.getvalue()
+    assert "# CopyCat v2.8 Report" in out
+    assert "hello.py" in out
+    assert "## IMG" in out
+    assert "| **Serial** | #3 |" in out
+

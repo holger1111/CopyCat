@@ -1,8 +1,9 @@
 """
-CopyCat v2.7
+CopyCat v2.8
 """
 
 import argparse
+import json
 import xml.etree.ElementTree as ET
 import shutil
 import re
@@ -16,7 +17,7 @@ from datetime import datetime
 
 def parse_arguments():
     parser = argparse.ArgumentParser(
-        description="CopyCat v2.7 - Projekt-Dokumentierer"
+        description="CopyCat v2.8 - Projekt-Dokumentierer"
     )
     parser.add_argument(
         "--input", "-i", default=None, help="Eingabeordner (default: Skriptordner)"
@@ -44,26 +45,33 @@ def parse_arguments():
         default=float("inf"),
         help="Max Dateigröße in MB (default: keine Grenze)",
     )
+    parser.add_argument(
+        "--format",
+        "-f",
+        choices=["txt", "json", "md"],
+        default="txt",
+        help="Ausgabeformat: txt (default), json, md",
+    )
     args = parser.parse_args()
-    
+
     if args.types and len(args.types) == 1 and ',' in args.types[0]:
         args.types = [t.strip() for t in args.types[0].split(',')]
-    
+
     return args
 
 
 def is_valid_serial_filename(filename: str) -> bool:
-    pattern = r"^combined_copycat_(\d+)\.txt$"
+    pattern = r"^combined_copycat_(\d+)\.(txt|json|md)$"
     return bool(re.match(pattern, filename))
 
 
 def get_next_serial_number(base_path: Path) -> int:
-    existing = list(base_path.glob("combined_copycat*.txt"))
+    existing = list(base_path.glob("combined_copycat*"))
     max_num = 0
     for p in existing:
         if is_valid_serial_filename(p.name):
             try:
-                match = re.match(r"^combined_copycat_(\d+)\.txt$", p.name)
+                match = re.match(r"^combined_copycat_(\d+)\.(txt|json|md)$", p.name)
                 num = int(match.group(1))
                 max_num = max(max_num, num)
             except (ValueError, AttributeError):  # pragma: no cover
@@ -267,19 +275,9 @@ TYPE_FILTERS = {
 }
 
 
-def run_copycat(args):
-    script_file = Path(__file__).resolve()
-    script_dir = Path(__file__).parent
-    input_dir = Path(args.input or str(script_dir))
-    output_dir = Path(args.output or str(input_dir))
-    output_dir.mkdir(exist_ok=True)
-
-    if not input_dir.is_dir():
-        print(f"Fehler: {input_dir} ist kein Ordner")
-        return
-
+def _collect_files(args, input_dir, script_file):
+    """Collect and return files dict based on args."""
     files = {k: [] for k in TYPE_FILTERS}
-
     selected_types = args.types if args.types else ["all"]
     process_all = "all" in selected_types
     search_method = input_dir.rglob if args.recursive else input_dir.glob
@@ -307,90 +305,223 @@ def run_copycat(args):
                             and "combined_copycat" not in candidate.name
                         ):
                             files[t].append(candidate)
+    return files
+
+
+def _write_txt(writer, files, args, input_dir, git_info, serial):
+    """Write TXT report."""
+    mode_text = "REKURSIV" if args.recursive else "FLACH (Default)"
+    writer.write(
+        "=" * 60
+        + f"\nCopyCat v2.8 | {datetime.now().strftime('%d.%m.%Y %H:%M')} | {mode_text}\n"
+        + f"{input_dir}\n"
+        + f"GIT: {git_info}\n\n"
+    )
+    total_files = sum(len(files[t]) for t in files)
+    writer.write(
+        f"Gesamt: {total_files} {get_plural(total_files)}\nSerial #{serial}\n"
+        + "=" * 60
+        + "\n"
+    )
+
+    for t, flist in files.items():
+        if flist:
+            count = len(flist)
+            writer.write(f"{t.upper()}: {count} {get_plural(count)}\n")
+
+    writer.write("\n")
+
+    selected_types = args.types if args.types else ["all"]
+    process_all = "all" in selected_types
+
+    if process_all or "code" in selected_types:
+        writer.write("CODE-Details:\n")
+        for code_file in files["code"]:
+            rel_path = code_file.relative_to(input_dir)
+            folder = rel_path.parent.name if rel_path.parent.name != "." else ""
+            bracket = f" [{folder}]" if folder else ""
+            try:
+                lines = sum(
+                    1 for line in open(code_file, encoding="utf-8") if line.strip()
+                )
+                writer.write(f"  {code_file.name}: {lines} Zeilen{bracket}")
+            except UnicodeDecodeError:
+                writer.write(f"  {code_file.name}: 1 Zeilen{bracket}")
+            except Exception:
+                writer.write(f"  {code_file.name}: [FEHLER]")
+
+            writer.write("\n")
+            writer.write(f"----- {code_file.name} -----\n")
+
+            try:
+                with open(code_file, "r", encoding="utf-8") as f:
+                    writer.writelines(f.readlines())
+            except UnicodeDecodeError:
+                writer.write("(Binary oder ungültiges Encoding - übersprungen)\n")
+            except Exception:
+                writer.write("(Fehler beim Lesen)\n")
+            writer.write("\n\n")
+
+    types_to_process = [
+        t for t in (["all"] if process_all else selected_types) if t in TYPE_FILTERS
+    ]
+    for t in types_to_process:
+        if t == "code" or not files[t]:
+            continue
+        writer.write(f"\n{'='*20} {t.upper()} {'='*20}\n")
+        for bfile in files[t]:
+            if t == "diagram" and bfile.suffix.lower() in [".drawio", ".dia"]:
+                extract_drawio(writer, bfile)
+            else:
+                list_binary_file(writer, bfile)
+                if args.recursive:
+                    writer.write(f"  Pfad: {bfile.parent.name}/{bfile.name}\n")
+
+
+def _write_json(path, files, args, input_dir, git_info, serial):
+    """Write JSON report."""
+    selected_types = args.types if args.types else ["all"]
+    process_all = "all" in selected_types
+
+    git_parts = git_info.split(" | ") if git_info != "No Git" else []
+    branch = git_parts[0].replace("Branch: ", "") if len(git_parts) > 0 else None
+    commit = git_parts[1].replace("Last Commit: ", "") if len(git_parts) > 1 else None
+
+    types_out = {}
+    for t, flist in files.items():
+        if not flist:
+            continue
+        file_entries = []
+        for f in flist:
+            entry = {
+                "name": f.name,
+                "path": f.relative_to(input_dir).as_posix(),
+                "size": f.stat().st_size,
+            }
+            if t == "code":
+                try:
+                    entry["lines"] = sum(
+                        1 for line in open(f, encoding="utf-8") if line.strip()
+                    )
+                except Exception:
+                    entry["lines"] = None
+            file_entries.append(entry)
+        types_out[t] = file_entries
+
+    report = {
+        "version": "2.8",
+        "generated": datetime.now().strftime("%d.%m.%Y %H:%M"),
+        "mode": "recursive" if args.recursive else "flat",
+        "input": str(input_dir),
+        "serial": serial,
+        "git": {"branch": branch, "commit": commit} if branch else None,
+        "files": sum(len(v) for v in types_out.values()),
+        "types": {t: len(v) for t, v in types_out.items()},
+        "details": types_out,
+    }
+
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(report, f, ensure_ascii=False, indent=2)
+
+
+def _write_md(writer, files, args, input_dir, git_info, serial):
+    """Write Markdown report."""
+    mode_text = "Rekursiv" if args.recursive else "Flach"
+    total_files = sum(len(files[t]) for t in files)
+    selected_types = args.types if args.types else ["all"]
+    process_all = "all" in selected_types
+
+    writer.write(f"# CopyCat v2.8 Report\n\n")
+    writer.write(f"| | |\n|---|---|\n")
+    writer.write(f"| **Datum** | {datetime.now().strftime('%d.%m.%Y %H:%M')} |\n")
+    writer.write(f"| **Modus** | {mode_text} |\n")
+    writer.write(f"| **Pfad** | `{input_dir}` |\n")
+    writer.write(f"| **Git** | {git_info} |\n")
+    writer.write(f"| **Gesamt** | {total_files} {get_plural(total_files)} |\n")
+    writer.write(f"| **Serial** | #{serial} |\n\n")
+
+    writer.write("## Übersicht\n\n")
+    writer.write("| Typ | Anzahl |\n|---|---|\n")
+    for t, flist in files.items():
+        if flist:
+            writer.write(f"| {t.upper()} | {len(flist)} |\n")
+    writer.write("\n")
+
+    if process_all or "code" in selected_types:
+        writer.write("## Code-Details\n\n")
+        for code_file in files["code"]:
+            rel_path = code_file.relative_to(input_dir)
+            try:
+                lines = sum(
+                    1 for line in open(code_file, encoding="utf-8") if line.strip()
+                )
+            except Exception:
+                lines = "?"
+            writer.write(f"### `{rel_path.as_posix()}` ({lines} Zeilen)\n\n")
+            writer.write(f"```\n")
+            try:
+                with open(code_file, "r", encoding="utf-8") as f:
+                    writer.write(f.read())
+            except UnicodeDecodeError:
+                writer.write("(Binary oder ungültiges Encoding - übersprungen)\n")
+            except Exception:
+                writer.write("(Fehler beim Lesen)\n")
+            writer.write(f"```\n\n")
+
+    types_to_process = [
+        t for t in (["all"] if process_all else selected_types) if t in TYPE_FILTERS
+    ]
+    for t in types_to_process:
+        if t == "code" or not files[t]:
+            continue
+        writer.write(f"## {t.upper()}\n\n")
+        writer.write("| Datei | Größe |\n|---|---|\n")
+        for bfile in files[t]:
+            size = bfile.stat().st_size
+            writer.write(f"| `{bfile.name}` | {size} bytes |\n")
+        writer.write("\n")
+
+
+def run_copycat(args):
+    script_file = Path(__file__).resolve()
+    script_dir = Path(__file__).parent
+    input_dir = Path(args.input or str(script_dir))
+    output_dir = Path(args.output or str(input_dir))
+    output_dir.mkdir(exist_ok=True)
+
+    if not input_dir.is_dir():
+        print(f"Fehler: {input_dir} ist kein Ordner")
+        return
+
+    fmt = getattr(args, "format", "txt")
+    files = _collect_files(args, input_dir, script_file)
 
     serial = get_next_serial_number(output_dir)
-    basename = "combined_copycat"
-    new_file = output_dir / f"{basename}_{serial}.txt"
+    new_file = output_dir / f"combined_copycat_{serial}.{fmt}"
 
-    existing = list(output_dir.glob("combined_copycat*.txt"))
+    existing = list(output_dir.glob("combined_copycat*"))
     to_archive = [
         f for f in existing if f != new_file and is_valid_serial_filename(f.name)
     ]
     print(f"Archiviere {len(to_archive)} Datei(en)")
-
     for old_file in to_archive:
         move_to_archive(output_dir, old_file.name)
 
-    mode_text = "REKURSIV" if args.recursive else "FLACH (Default)"
-    with open(new_file, "w", encoding="utf-8") as writer:
-        git_info = get_git_info(input_dir)
-        writer.write(
-            "=" * 60
-            + f"\nCopyCat v2.7 | {datetime.now().strftime('%d.%m.%Y %H:%M')} | {mode_text}\n"
-            + f"{input_dir}\n"
-            + f"GIT: {git_info}\n\n"
-        )
-        total_files = sum(len(files[t]) for t in files)
-        writer.write(
-            f"Gesamt: {total_files} {get_plural(total_files)}\nSerial #{serial}\n"
-            + "=" * 60
-            + "\n"
-        )
+    git_info = get_git_info(input_dir)
 
-        for t, flist in files.items():
-            if flist:
-                count = len(flist)
-                writer.write(f"{t.upper()}: {count} {get_plural(count)}\n")
-
-        writer.write("\n")
-
-        if process_all or "code" in selected_types:
-            writer.write("CODE-Details:\n")
-            for code_file in files["code"]:
-                rel_path = code_file.relative_to(input_dir)
-                folder = rel_path.parent.name if rel_path.parent.name != "." else ""
-                bracket = f" [{folder}]" if folder else ""
-                try:
-                    lines = sum(
-                        1 for line in open(code_file, encoding="utf-8") if line.strip()
-                    )
-                    writer.write(f"  {code_file.name}: {lines} Zeilen{bracket}")
-                except UnicodeDecodeError:
-                    writer.write(f"  {code_file.name}: 1 Zeilen{bracket}")
-                except Exception:
-                    writer.write(f"  {code_file.name}: [FEHLER]")
-
-                writer.write("\n")
-                writer.write(f"----- {code_file.name} -----\n")
-
-                try:
-                    with open(code_file, "r", encoding="utf-8") as f:
-                        writer.writelines(f.readlines())
-                except UnicodeDecodeError:
-                    writer.write("(Binary oder ungültiges Encoding - übersprungen)\n")
-                except Exception:
-                    writer.write("(Fehler beim Lesen)\n")
-                writer.write("\n\n")
-
-        types_to_process = [
-            t for t in (["all"] if process_all else selected_types) if t in TYPE_FILTERS
-        ]
-        for t in types_to_process:
-            if t == "code" or not files[t]:
-                continue
-            writer.write(f"\n{'='*20} {t.upper()} {'='*20}\n")
-            for bfile in files[t]:
-                if t == "diagram" and bfile.suffix.lower() in [".drawio", ".dia"]:
-                    extract_drawio(writer, bfile)
-                else:
-                    list_binary_file(writer, bfile)
-                    if args.recursive:
-                        writer.write(f"  Pfad: {bfile.parent.name}/{bfile.name}\n")
+    if fmt == "json":
+        _write_json(new_file, files, args, input_dir, git_info, serial)
+    elif fmt == "md":
+        with open(new_file, "w", encoding="utf-8") as writer:
+            _write_md(writer, files, args, input_dir, git_info, serial)
+    else:
+        with open(new_file, "w", encoding="utf-8") as writer:
+            _write_txt(writer, files, args, input_dir, git_info, serial)
 
     print(f"Erstellt: {new_file}")
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     logging.basicConfig(level=logging.ERROR, format="CopyCat ERROR: %(message)s")
     args = parse_arguments()
     run_copycat(args)

@@ -1,10 +1,10 @@
-# CopyCat v2.7 - Project Documenter
+# CopyCat v2.8 - Project Documenter
 
 
 ## Automates Code + Diagrams + Media into Text Reports
 
 [![Tests](https://img.shields.io/badge/Tests-PASSED-brightgreen?style=flat-square&logo=github-actions)](https://github.com/holger1111/CopyCat/actions)
-[![Coverage](https://img.shields.io/badge/Coverage-100%25-brightgreen?style=flat-square&logo=codecov)](https://codecov.io/gh/holger1111/CopyCat)
+[![Coverage](https://img.shields.io/badge/Coverage-15:40 16.04.2026100%25-brightgreen?style=flat-square&logo=codecov)](https://codecov.io/gh/holger1111/CopyCat)
 
 
 ### Main Features
@@ -18,6 +18,7 @@
 | Self-Protection	| Ignores CopyCat.py & old reports			|
 | Serial System		| Automatic archive (CopyCat_Archive)			|
 | Git Integration	| Branch + commit hash					|
+| Output Formats	| TXT / JSON / Markdown (`--format`)			|
 | Performance		| Recursive/flat, size filter + progress		|
 
 
@@ -25,11 +26,13 @@
 
 
 ```bash
-python CopyCat.py                    # Default (flat, all types)
+python CopyCat.py                    # Default (flat, all types, txt)
 python CopyCat.py -i C:\Project      # Input folder
 python CopyCat.py -o docs            # Output folder
 python CopyCat.py -t code,diagram    # Code + diagrams only
 python CopyCat.py -r -s 5            # Recursive, max 5MB
+python CopyCat.py -f json            # JSON output
+python CopyCat.py -f md              # Markdown output
 python CopyCat.py --help             # Help
 ```
 
@@ -43,8 +46,7 @@ python CopyCat.py --help             # Help
 | -o,--output | Output folder 	| Input folder								|		|
 | -t,--types			| Types: 'ode web db config docs deps img audio diagram' oder 'all'	| 'all'		|
 | -r,--recursive		| Recursive search in subfolders					| false (flat)	|
-| -s,--max-size			| Max file size in MB							| Unlimited	|
-
+| -s,--max-size			| Max file size in MB							| Unlimited	|| -f,--format			| Output format: txt, json, md					| txt		|
 
 ### Flat vs Recursive
 
@@ -83,14 +85,15 @@ CopyCat.py -s 1                # Max 1MB
 ```
 
 
-#### Output Example (v2.7)
+#### Output Example (v2.8)
 
 
 ````text
 ============================================================
-CopyCat v2.7 | 13.04.2026 20:41 | REKURSIV
+CopyCat v2.8 | 13.04.2026 20:41 | REKURSIV
 /projekt
 GIT: Branch: main | Last Commit: a1b2c3d
+
 Gesamt: 47 Dateien
 Serial #4
 ============================================================
@@ -179,7 +182,7 @@ Others			→ [ERROR: file]
 **Example:** DIAGRAMM INVALID XML: test.drawio
 
 
-### Performance Tuning (v2.7)
+### Performance Tuning (v2.8)
 
 
 **For large projects (1000+ files):**
@@ -197,6 +200,54 @@ CopyCat.py -r --max-size 1     # Recursive + progress
 CopyCat.py --max-size 10       # Flat, no progress
 ```
 Filter output: → 1274 geprüft, Filter OK
+
+
+### Output Formats
+
+
+CopyCat v2.8 supports three output formats via the `-f` / `--format` flag:
+
+
+| Format | Flag | Output File | Description |
+|--------|------|-------------|-------------|
+| **TXT** | `-f txt` (default) | `combined_copycat_N.txt` | Human-readable text report |
+| **JSON** | `-f json` | `combined_copycat_N.json` | Structured machine-readable data |
+| **Markdown** | `-f md` | `combined_copycat_N.md` | GitHub-ready documentation |
+
+
+**JSON Schema Example:**
+
+````json
+{
+  "version": "2.8",
+  "generated": "13.04.2026 20:41",
+  "mode": "recursive",
+  "input": "/projekt",
+  "serial": 4,
+  "git": { "branch": "main", "commit": "a1b2c3d" },
+  "files": 47,
+  "types": { "code": 5, "img": 3 },
+  "details": {
+    "code": [
+      { "name": "main.py", "path": "src/main.py", "size": 1234, "lines": 42 }
+    ]
+  }
+}
+````
+
+
+**Markdown output** includes `#` headers, summary tables, fenced code blocks for each source file, and file tables for binary types.
+
+
+```bash
+# Examples
+python CopyCat.py -f json -i C:\Project    # JSON report
+python CopyCat.py -f md -r                 # Recursive Markdown report
+python CopyCat.py                          # Default TXT (unchanged)
+```
+
+
+All three formats use the same serial number system and archive rotation.
 
 
 ### Git Support
@@ -249,6 +300,8 @@ src/.gitignore  →  applies to all files under src/
 
 CopyCat_Archive/
 combined_copycat*.txt
+combined_copycat*.json
+combined_copycat*.md
 __pycache__/
 
 

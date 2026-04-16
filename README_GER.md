@@ -1,4 +1,4 @@
-# CopyCat v2.7 - Projekt-Dokumentierer
+# CopyCat v2.8 - Projekt-Dokumentierer
 
 
 ## Automatisiert Code + Diagramme + Medien zu Text-Report
@@ -18,6 +18,7 @@
 | Selbstschutz		| Ignoriert CopyCat.py & alte Reports			|
 | Serial-System		| Automatisches Archiv (CopyCat_Archive)		|
 | Git-Integration	| Branch + Commit-Hash					|
+| Ausgabeformate	| TXT / JSON / Markdown (`--format`)			|
 | Performance		| Rekursiv/Flach, Size-Filter + Progress		|
 
 
@@ -25,11 +26,13 @@
 
 
 ```bash
-python CopyCat.py                    # Standard (flach, alle Typen)
+python CopyCat.py                    # Standard (flach, alle Typen, txt)
 python CopyCat.py -i C:\Projekt      # Eingabeordner
 python CopyCat.py -o docs            # Ausgabeordner
 python CopyCat.py -t code,diagram    # Nur Code+Diagramme
 python CopyCat.py -r -s 5            # Rekursiv, max 5MB
+python CopyCat.py -f json            # JSON-Ausgabe
+python CopyCat.py -f md              # Markdown-Ausgabe
 python CopyCat.py --help             # Hilfe
 ```
 
@@ -43,8 +46,7 @@ python CopyCat.py --help             # Hilfe
 | -o,--output | Ausgabeordner 	| Eingabeordner								|		|
 | -t,--types			| Typen: 'ode web db config docs deps img audio diagram' oder 'all'	| 'all'		|
 | -r,--recursive		| Rekursive Suche  in Unterordnern					| false (flach)	|
-| -s,--max-size			| Max Größe MB								| unbegrenzt	|
-
+| -s,--max-size			| Max Größe MB								| unbegrenzt	|| -f,--format			| Ausgabeformat: txt, json, md					| txt		|
 
 ### Flach vs Rekursiv
 
@@ -83,14 +85,15 @@ CopyCat.py -s 1			# Max Dateigröße 1 MB
 ```
 
 
-### Ausgabe-Beispiel (v2.7)
+### Ausgabe-Beispiel (v2.8)
 
 
 ````text
 ============================================================
-CopyCat v2.7 | 13.04.2026 20:41 | REKURSIV
+CopyCat v2.8 | 13.04.2026 20:41 | REKURSIV
 /projekt
 GIT: Branch: main | Last Commit: a1b2c3d
+
 Gesamt: 47 Dateien
 Serial #4
 ============================================================
@@ -179,7 +182,7 @@ Rest			→ [ERROR: datei]
 **Beispiel:** DIAGRAMM INVALID XML: test.drawio
 
 
-###  Performance-Tuning (v2.7)
+###  Performance-Tuning (v2.8)
 
 
 **Für große Projekte (1000+ Files):**
@@ -197,6 +200,54 @@ CopyCat.py -r --max-size 1     # Rekursiv + Progress
 CopyCat.py --max-size 10       # Flach, kein Progress
 ```
 Ausgabe bei Filter: → 1274 geprüft, Filter OK
+
+
+### Ausgabeformate
+
+
+CopyCat v2.8 unterstützt drei Ausgabeformate über das `-f` / `--format`-Flag:
+
+
+| Format | Flag | Ausgabedatei | Beschreibung |
+|--------|------|--------------|--------------|
+| **TXT** | `-f txt` (Standard) | `combined_copycat_N.txt` | Menschenlesbarer Text-Report |
+| **JSON** | `-f json` | `combined_copycat_N.json` | Strukturierte maschinenlesbare Daten |
+| **Markdown** | `-f md` | `combined_copycat_N.md` | GitHub-fertige Dokumentation |
+
+
+**JSON-Schema-Beispiel:**
+
+````json
+{
+  "version": "2.8",
+  "generated": "13.04.2026 20:41",
+  "mode": "recursive",
+  "input": "/projekt",
+  "serial": 4,
+  "git": { "branch": "main", "commit": "a1b2c3d" },
+  "files": 47,
+  "types": { "code": 5, "img": 3 },
+  "details": {
+    "code": [
+      { "name": "main.15:40 16.04.2026py", "path": "src/main.py", "size": 1234, "lines": 42 }
+    ]
+  }
+}
+````
+
+
+**Markdown-Ausgabe** enthält `#`-Überschriften, Übersichtstabellen, Fenced-Code-Blöcke für jede Quelldatei sowie Dateitabellen für Binärtypen.
+
+
+```bash
+# Beispiele
+python CopyCat.py -f json -i C:\Projekt    # JSON-Report
+python CopyCat.py -f md -r                 # Rekursiver Markdown-Report
+python CopyCat.py                          # Standard TXT (unverändert)
+```
+
+
+Alle drei Formate verwenden dasselbe Serial-System und die Archiv-Rotation.
 
 
 ### Git-Support
@@ -249,6 +300,8 @@ src/.gitignore  →  gilt für alle Dateien unter src/15:20 16.04.2026
 
 CopyCat_Archive/
 combined_copycat*.txt
+combined_copycat*.json
+combined_copycat*.md
 __pycache__/
 
 
