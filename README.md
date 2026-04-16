@@ -199,6 +199,49 @@ CopyCat.py --max-size 10       # Flat, no progress
 Filter output: → 1274 geprüft, Filter OK
 
 
+### Git Support
+
+
+CopyCat reads branch and commit info automatically from any Git repository and adds it to every report.
+
+
+**Report header example:**
+
+````text
+GIT: Branch: main | Last Commit: a1b2c3d
+````
+
+
+**Behavior:**
+
+| Situation | Output |
+|---|---|
+| Git repo with commits | `Branch: main \| Last Commit: a1b2c3d` |
+| Detached HEAD | `Branch: HEAD \| Last Commit: a1b2c3d` |
+| No `.git` folder | `No Git` |
+| `git` not installed | `No Git` |
+| Timeout (>5s) | `No Git` |
+
+
+**`.gitignore` integration:**
+
+CopyCat respects `.gitignore` rules in every scanned directory — both in flat and recursive mode.
+
+````text
+# Example .gitignore
+*.log           → skipped
+node_modules/   → skipped
+build/          → skipped
+!important.py   → NOT skipped (negation)
+````
+
+Subdirectory `.gitignore` files are also applied to files within that subdirectory:
+
+````text
+src/.gitignore  →  applies to all files under src/
+````
+
+
 ### GitHub-Setup
 
 
