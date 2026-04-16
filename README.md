@@ -4,7 +4,7 @@
 ## Automates Code + Diagrams + Media into Text Reports
 
 [![Tests](https://img.shields.io/badge/Tests-PASSED-brightgreen?style=flat-square&logo=github-actions)](https://github.com/holger1111/CopyCat/actions)
-[![Coverage](https://img.shields.io/badge/Coverage->100%25-brightgreen?style=flat-square&logo=codecov)](https://codecov.io/gh/holger1111/CopyCat)
+[![Coverage](https://img.shields.io/badge/Coverage-100%25-brightgreen?style=flat-square&logo=codecov)](https://codecov.io/gh/holger1111/CopyCat)
 
 
 ### Main Features
