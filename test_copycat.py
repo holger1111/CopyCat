@@ -1509,13 +1509,59 @@ def test_on_run_invalid_max_size_shows_error(gui):
 
 def test_open_output_folder(gui, tmp_path):
     gui._output_var.set(str(tmp_path))
-    with patch("os.startfile") as mock_sf:
+    with patch("os.startfile", create=True) as mock_sf:
         gui._open_output_folder()
     mock_sf.assert_called_once_with(str(tmp_path))
 
 
 def test_open_output_folder_nonexistent(gui):
     gui._output_var.set("/nonexistent/path/xyz")
-    with patch("os.startfile") as mock_sf:
+    with patch("os.startfile", create=True) as mock_sf:
         gui._open_output_folder()
     mock_sf.assert_not_called()
+
+
+def test_clear_output(gui):
+    gui._clear_output()
+    gui._output_text.configure.assert_called()
+    gui._output_text.delete.assert_called_with("1.0", "end")
+
+
+def test_on_run_success(gui, tmp_path):
+    gui._input_var.set(str(tmp_path))
+    after_calls = []
+    gui._root.after = lambda _d, fn: after_calls.append(fn)
+
+    def fake_thread(target=None, daemon=None):
+        m = MagicMock()
+        m.start.side_effect = lambda: target()
+        return m
+
+    with patch("CopyCat_GUI.threading.Thread", side_effect=fake_thread), \
+         patch("CopyCat_GUI.run_copycat"):
+        gui._on_run()
+
+    for fn in after_calls:
+        fn()
+    gui._run_btn.configure.assert_called()
+    gui._open_btn.configure.assert_called_with(state="normal")
+
+
+def test_on_run_exception(gui, tmp_path):
+    gui._input_var.set(str(tmp_path))
+    after_calls = []
+    gui._root.after = lambda _d, fn: after_calls.append(fn)
+
+    def fake_thread(target=None, daemon=None):
+        m = MagicMock()
+        m.start.side_effect = lambda: target()
+        return m
+
+    with patch("CopyCat_GUI.threading.Thread", side_effect=fake_thread), \
+         patch("CopyCat_GUI.run_copycat", side_effect=RuntimeError("boom")), \
+         patch("tkinter.messagebox.showerror") as mock_err:
+        gui._on_run()
+        for fn in after_calls:
+            fn()
+    mock_err.assert_called_once()
+    assert "boom" in mock_err.call_args[0][1]

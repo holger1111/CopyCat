@@ -50,7 +50,7 @@ class CopyCatGUI:
 
     # ── UI-Aufbau ─────────────────────────────────────────────────────────────
 
-    def _build_ui(self):
+    def _build_ui(self):  # pragma: no cover
         pad = {"padx": 8, "pady": 4}
 
         # Eingabeordner
@@ -158,7 +158,7 @@ class CopyCatGUI:
 
     def _open_output_folder(self):
         folder = self._output_var.get() or self._input_var.get()
-        if folder and os.path.isdir(folder):
+        if folder and os.path.isdir(folder) and hasattr(os, "startfile"):
             os.startfile(folder)
 
     # ── Run ───────────────────────────────────────────────────────────────────
@@ -205,9 +205,10 @@ class CopyCatGUI:
                 run_copycat(args)
                 self._root.after(0, lambda: self._open_btn.configure(state="normal"))
             except Exception as exc:
+                msg = str(exc)
                 self._root.after(
                     0,
-                    lambda: messagebox.showerror("Fehler", f"CopyCat Fehler:\n{exc}"),
+                    lambda m=msg: messagebox.showerror("Fehler", f"CopyCat Fehler:\n{m}"),
                 )
             finally:
                 sys.stdout = old_stdout
@@ -216,7 +217,7 @@ class CopyCatGUI:
         threading.Thread(target=task, daemon=True).start()
 
 
-def main():
+def main():  # pragma: no cover
     root = tk.Tk()
     CopyCatGUI(root)
     root.mainloop()
