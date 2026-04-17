@@ -9,7 +9,6 @@
 ### Regeln (für jeden Commit)
 
 
-
 - **Code + README.md + README_GER.md SYNCHRON** halten
 
 - **Fehler vor Features** (CLI-Types, Serial, Encoding)
