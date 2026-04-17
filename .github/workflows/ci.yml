@@ -31,4 +31,3 @@ jobs:
         slug: holger1111/CopyCat
         files: ./coverage.xml
         fail_ci_if_error: true
-        verbose: true
