@@ -1,5 +1,5 @@
 [run]
-source = CopyCat.py
+source = .
 omit = 
     test_copycat.py
     */__pycache__/*

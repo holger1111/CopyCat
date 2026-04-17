@@ -23,9 +23,9 @@ def load_config(config_path=None):
     """Load copycat.conf and return a dict of raw string settings.
 
     Search order (first match wins):
-      1. config_path  – if explicitly given
-      2. CWD / copycat.conf
-      3. Script-dir / copycat.conf
+    1. config_path  – if explicitly given
+    2. CWD / copycat.conf
+    3. Script-dir / copycat.conf
 
     Returns {} when no file is found or on read error.
     Supported keys: types, recursive, max_size_mb, format, search, input, output
