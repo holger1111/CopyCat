@@ -37,7 +37,6 @@ py -m pytest test_copycat.py -v --cov # 100% Core-Coverage
 ```
 
 
-
 ### Test vor Push
 
 
