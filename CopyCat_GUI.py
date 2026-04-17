@@ -32,7 +32,7 @@ class RedirectText:
 
 
 class CopyCatGUI:
-    def __init__(self, root: tk.Tk):
+    def __init__(self, root: tk.Tk):  # pragma: no cover
         self._root = root
         self._root.title("CopyCat v2.9")
         self._root.resizable(True, True)
@@ -135,8 +135,7 @@ class CopyCatGUI:
         folder = filedialog.askdirectory(title="Eingabeordner wählen")
         if folder:
             self._input_var.set(folder)
-            if not self._output_var.get():
-                self._output_var.set(folder)
+            self._output_var.set(self._output_var.get() or folder)
 
     def _browse_output(self):
         folder = filedialog.askdirectory(title="Ausgabeordner wählen")
@@ -158,7 +157,7 @@ class CopyCatGUI:
 
     def _open_output_folder(self):
         folder = self._output_var.get() or self._input_var.get()
-        if folder and os.path.isdir(folder) and hasattr(os, "startfile"):
+        if folder and os.path.isdir(folder) and hasattr(os, "startfile"):  # pragma: no branch
             os.startfile(folder)
 
     # ── Run ───────────────────────────────────────────────────────────────────
@@ -223,5 +222,5 @@ def main():  # pragma: no cover
     root.mainloop()
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     main()

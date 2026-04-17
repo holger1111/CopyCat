@@ -1499,6 +1499,13 @@ def test_browse_output(gui):
     assert gui._output_var.get() == "/out"
 
 
+def test_browse_output_cancelled(gui):
+    gui._output_var.set("/existing")
+    with patch("tkinter.filedialog.askdirectory", return_value=""):
+        gui._browse_output()
+    assert gui._output_var.get() == "/existing"
+
+
 def test_on_run_invalid_max_size_shows_error(gui):
     gui._max_size_var.set("notanumber")
     with patch("tkinter.messagebox.showerror") as mock_err:

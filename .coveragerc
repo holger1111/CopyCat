@@ -4,3 +4,9 @@ omit =
     test_copycat.py
     */__pycache__/*
 branch = True
+
+[report]
+exclude_lines =
+    pragma: no cover
+    pragma: no branch
+    if __name__ == .__main__.
