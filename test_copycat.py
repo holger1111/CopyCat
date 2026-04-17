@@ -1,5 +1,6 @@
 ﻿"""CopyCat v2.9 - Pytest Suite (Refactored & Optimized)"""
 
+import logging
 import subprocess
 import json
 import re
@@ -22,6 +23,7 @@ from CopyCat import (
     move_to_archive,
     list_binary_file,
     extract_drawio,
+    extract_notebook,
     get_git_info,
     should_skip_gitignore,
     get_plural,
@@ -144,7 +146,7 @@ def test_type_filters(type_key, expected_patterns):
 
 def test_type_filters_all_present():
     """Test all required type filters exist."""
-    expected = {"code", "web", "db", "config", "docs", "deps", "img", "audio", "diagram"}
+    expected = {"code", "web", "db", "config", "docs", "deps", "img", "audio", "diagram", "notebook"}
     assert set(TYPE_FILTERS.keys()) == expected
 
 
@@ -279,8 +281,9 @@ def test_size_filtered_glob(tmp_path, file_size, max_size, should_include):
     assert (len(gen) == 1) == should_include
 
 
-@patch("builtins.print")
-def test_size_filtered_glob_progress(mock_print):
+@patch("CopyCat.logging.debug")
+@patch("CopyCat.logging.info")
+def test_size_filtered_glob_progress(mock_info, mock_debug):
     """Test progress reporting in size_filtered_glob."""
     mock_search = MagicMock()
     mock_files = [
@@ -294,13 +297,13 @@ def test_size_filtered_glob_progress(mock_print):
         for _ in range(101)
     ]
     mock_search.rglob.return_value = mock_files
-    
+
     list(size_filtered_glob(
         mock_search.rglob, ["*.py"], float("inf"), Path("CopyCat.py"), Path(".")
     ))
-    
-    mock_print.assert_any_call("\rGeprüft: 100 Dateien...", end="")
-    mock_print.assert_any_call("\n→ 101 geprüft, Filter OK")
+
+    mock_debug.assert_any_call("Geprüft: %d Dateien...", 100)
+    mock_info.assert_any_call("→ %d geprüft, Filter OK", 101)
 
 
 def test_size_filtered_glob_oserror_safe(tmp_path):
@@ -650,19 +653,19 @@ def test_run_copycat_input_validation(tmp_path, run_args, input_exists):
     
     args = run_args(input_path=input_path)
     
-    with patch("builtins.print") as mock_print:
+    with patch("CopyCat.logging.error") as mock_log:
         run_copycat(args)
         if not input_exists:
-            mock_print.assert_called()
+            mock_log.assert_called()
 
 
 def test_run_copycat_binary_encoding_error(tmp_path, run_args):
     """Test handling of binary/encoding errors."""
     binary_code = tmp_path / "fake.py"
     binary_code.write_bytes(b"\xff\x00")
-    
+
     run_copycat(run_args())
-    
+
     report = next(tmp_path.glob("combined_copycat_*.txt"))
     content = report.read_text(encoding="utf-8")
     assert "(Binary oder ungültiges Encoding - übersprungen)" in content
@@ -672,9 +675,9 @@ def test_run_copycat_recursive(tmp_path, run_args):
     """Test recursive file discovery."""
     (tmp_path / "sub" / "test.py").mkdir(parents=True)
     (tmp_path / "sub" / "test.py").touch()
-    
+
     run_copycat(run_args(recursive=True))
-    
+
     report = next(tmp_path.glob("combined_copycat_*.txt"))
     assert "test.py" in report.read_text()
 
@@ -1399,12 +1402,13 @@ def gui():
     instance._run_btn = MagicMock()
     instance._open_btn = MagicMock()
     instance._output_text = MagicMock()
+    instance._progress = MagicMock()
     return instance
 
 
 def test_gui_types_constant():
-    assert GUI_TYPES == ["code", "web", "db", "config", "docs", "deps", "img", "audio", "diagram"]
-    assert len(GUI_TYPES) == 9
+    assert GUI_TYPES == ["code", "web", "db", "config", "docs", "deps", "img", "audio", "diagram", "notebook"]
+    assert len(GUI_TYPES) == 10
 
 
 def test_redirect_text_write():
@@ -1545,7 +1549,9 @@ def test_on_run_success(gui, tmp_path):
         return m
 
     with patch("CopyCat_GUI.threading.Thread", side_effect=fake_thread), \
-         patch("CopyCat_GUI.run_copycat"):
+         patch("CopyCat_GUI.run_copycat"), \
+         patch("CopyCat_GUI.logging.getLogger") as mock_get_logger:
+        mock_get_logger.return_value.level = logging.WARNING
         gui._on_run()
 
     for fn in after_calls:
@@ -1566,9 +1572,248 @@ def test_on_run_exception(gui, tmp_path):
 
     with patch("CopyCat_GUI.threading.Thread", side_effect=fake_thread), \
          patch("CopyCat_GUI.run_copycat", side_effect=RuntimeError("boom")), \
-         patch("tkinter.messagebox.showerror") as mock_err:
+         patch("tkinter.messagebox.showerror") as mock_err, \
+         patch("CopyCat_GUI.logging.getLogger") as mock_get_logger:
+        mock_get_logger.return_value.level = logging.WARNING
         gui._on_run()
         for fn in after_calls:
             fn()
     mock_err.assert_called_once()
     assert "boom" in mock_err.call_args[0][1]
+
+
+# ==================== NEUE TESTS: LOGGING / VERBOSE / QUIET ====================
+
+@pytest.mark.parametrize("argv,expected_attr", [
+    (["CopyCat.py", "--verbose"], "verbose"),
+    (["CopyCat.py", "-v"], "verbose"),
+    (["CopyCat.py", "--quiet"], "quiet"),
+    (["CopyCat.py", "-q"], "quiet"),
+])
+def test_parse_arguments_logging_flags(argv, expected_attr):
+    with patch("sys.argv", argv):
+        args = parse_arguments()
+    assert getattr(args, expected_attr) is True
+
+
+# ==================== NEUE TESTS: EXTRACT NOTEBOOK ====================
+
+def test_extract_notebook_basic(tmp_path):
+    nb = tmp_path / "test.ipynb"
+    nb.write_text(
+        '{"cells": ['
+        '{"cell_type": "code", "source": ["x = 1\\n", "y = 2"]},'
+        '{"cell_type": "markdown", "source": ["# Titel"]}'
+        '], "metadata": {}, "nbformat": 4, "nbformat_minor": 5}',
+        encoding="utf-8",
+    )
+    written = []
+    writer = MagicMock()
+    writer.write = lambda s: written.append(s)
+    extract_notebook(writer, nb)
+    combined = "".join(written)
+    assert "NOTEBOOK test.ipynb: 2 Cells (1 Code, 1 Markdown)" in combined
+    assert "x = 1" in combined
+    assert "# Titel" in combined
+
+
+def test_extract_notebook_empty_cells(tmp_path):
+    nb = tmp_path / "empty.ipynb"
+    nb.write_text('{"cells": [], "metadata": {}, "nbformat": 4, "nbformat_minor": 5}', encoding="utf-8")
+    written = []
+    writer = MagicMock()
+    writer.write = lambda s: written.append(s)
+    extract_notebook(writer, nb)
+    assert "0 Cells" in "".join(written)
+
+
+def test_extract_notebook_invalid_json(tmp_path):
+    nb = tmp_path / "bad.ipynb"
+    nb.write_text("not valid json", encoding="utf-8")
+    written = []
+    writer = MagicMock()
+    writer.write = lambda s: written.append(s)
+    extract_notebook(writer, nb)
+    assert "NOTEBOOK ERROR" in "".join(written)
+
+
+def test_extract_notebook_os_error(tmp_path):
+    nb = tmp_path / "missing.ipynb"
+    written = []
+    writer = MagicMock()
+    writer.write = lambda s: written.append(s)
+    extract_notebook(writer, nb)
+    assert "NOTEBOOK READ ERROR" in "".join(written)
+
+
+def test_notebook_type_in_type_filters():
+    assert "notebook" in TYPE_FILTERS
+    assert "*.ipynb" in TYPE_FILTERS["notebook"]
+
+
+def test_csv_in_db_type_filters():
+    assert "*.csv" in TYPE_FILTERS["db"]
+
+
+# ==================== NEUE TESTS: WRITE_TXT + WRITE_MD MIT NOTEBOOK ====================
+
+def test_write_txt_notebook(tmp_path):
+    nb_file = tmp_path / "test.ipynb"
+    nb_file.write_text(
+        '{"cells": [{"cell_type": "code", "source": ["print(1)"]}], "metadata": {}, "nbformat": 4, "nbformat_minor": 5}',
+        encoding="utf-8",
+    )
+    files = {k: [] for k in TYPE_FILTERS}
+    files["notebook"] = [nb_file]
+    args = Namespace(types=["notebook"], recursive=False, max_size=float("inf"), format="txt", search=None)
+    written = []
+    writer = MagicMock()
+    writer.write = lambda s: written.append(s)
+    _write_txt(writer, files, args, tmp_path, "No Git", 1)
+    assert "NOTEBOOK" in "".join(written)
+
+
+def test_write_md_notebook(tmp_path):
+    nb_file = tmp_path / "test.ipynb"
+    nb_file.write_text(
+        '{"cells": [{"cell_type": "code", "source": ["print(1)"]}], "metadata": {}, "nbformat": 4, "nbformat_minor": 5}',
+        encoding="utf-8",
+    )
+    files = {k: [] for k in TYPE_FILTERS}
+    files["notebook"] = [nb_file]
+    args = Namespace(types=["notebook"], recursive=False, max_size=float("inf"), format="md", search=None)
+    written = []
+    writer = MagicMock()
+    writer.write = lambda s: written.append(s)
+    _write_md(writer, files, args, tmp_path, "No Git", 1)
+    combined = "".join(written)
+    assert "NOTEBOOK" in combined
+    assert "test.ipynb" in combined
+
+
+# ==================== NEUE TESTS: GUI CONFIG LOAD / SAVE ====================
+
+def test_load_config_applies_values(gui, tmp_path):
+    conf = tmp_path / "test.conf"
+    conf.write_text(
+        "input = /my/input\noutput = /my/output\ntypes = code,docs\n"
+        "recursive = true\nmax_size_mb = 10\nformat = json\nsearch = TODO\n",
+        encoding="utf-8",
+    )
+    with patch("tkinter.filedialog.askopenfilename", return_value=str(conf)):
+        gui._load_config()
+    assert gui._input_var.get() == "/my/input"
+    assert gui._output_var.get() == "/my/output"
+    assert gui._recursive_var.get() is True
+    assert gui._max_size_var.get() == "10"
+    assert gui._format_var.get() == "json"
+    assert gui._search_var.get() == "TODO"
+    assert gui._type_vars["code"].get() is True
+    assert gui._type_vars["docs"].get() is True
+    assert gui._type_vars["web"].get() is False
+
+
+def test_load_config_cancelled(gui):
+    with patch("tkinter.filedialog.askopenfilename", return_value=""):
+        gui._load_config()
+    assert gui._input_var.get() == ""  # unveraendert
+
+
+def test_save_config_writes_file(gui, tmp_path):
+    out = tmp_path / "out.conf"
+    gui._input_var.set("/src")
+    gui._output_var.set("/dst")
+    gui._format_var.set("md")
+    gui._max_size_var.set("5")
+    gui._search_var.set("def")
+    with patch("tkinter.filedialog.asksaveasfilename", return_value=str(out)), \
+         patch("tkinter.messagebox.showinfo"):
+        gui._save_config()
+    content = out.read_text(encoding="utf-8")
+    assert "input = /src" in content
+    assert "output = /dst" in content
+    assert "format = md" in content
+    assert "max_size_mb = 5" in content
+    assert "search = def" in content
+
+
+def test_save_config_cancelled(gui):
+    with patch("tkinter.filedialog.asksaveasfilename", return_value=""):
+        gui._save_config()  # darf nicht werfen
+
+
+def test_save_config_os_error(gui, tmp_path):
+    gui._input_var.set("/src")
+    with patch("tkinter.filedialog.asksaveasfilename", return_value="/readonly/out.conf"), \
+         patch("pathlib.Path.write_text", side_effect=OSError("Permission denied")), \
+         patch("tkinter.messagebox.showerror") as mock_err:
+        gui._save_config()
+    mock_err.assert_called_once()
+
+
+# ==================== NEUE TESTS: ON_RUN MIT PROGRESSBAR ====================
+
+def test_on_run_starts_and_stops_progress(gui, tmp_path):
+    gui._input_var.set(str(tmp_path))
+    after_calls = []
+    gui._root.after = lambda _d, fn: after_calls.append(fn)
+
+    def fake_thread(target=None, daemon=None):
+        m = MagicMock()
+        m.start.side_effect = lambda: target()
+        return m
+
+    with patch("CopyCat_GUI.threading.Thread", side_effect=fake_thread), \
+         patch("CopyCat_GUI.run_copycat"), \
+         patch("CopyCat_GUI.logging.getLogger") as mock_get_logger:
+        mock_get_logger.return_value.level = logging.WARNING
+        gui._on_run()
+
+    gui._progress.start.assert_called_once_with(10)
+    for fn in after_calls:
+        fn()
+    gui._progress.stop.assert_called_once()
+
+
+# ==================== NEUE TESTS: COVERAGE-LUECKEN ====================
+
+def test_extract_notebook_cell_with_empty_source(tmp_path):
+    """Cell mit leerem Source-Feld überspringen."""
+    nb = tmp_path / "empty_cell.ipynb"
+    nb.write_text(
+        '{"cells": ['
+        '{"cell_type": "code", "source": []},'
+        '{"cell_type": "code", "source": ["x = 1"]}'
+        '], "metadata": {}, "nbformat": 4, "nbformat_minor": 5}',
+        encoding="utf-8",
+    )
+    written = []
+    writer = MagicMock()
+    writer.write = lambda s: written.append(s)
+    extract_notebook(writer, nb)
+    combined = "".join(written)
+    assert "x = 1" in combined
+    assert "2 Cells" in combined
+
+
+def test_load_config_missing_keys(gui, tmp_path):
+    """Nur 'format' in Config – andere Felder bleiben unverändert."""
+    conf = tmp_path / "partial.conf"
+    conf.write_text("format = json\n", encoding="utf-8")
+    gui._input_var.set("/keep")
+    with patch("tkinter.filedialog.askopenfilename", return_value=str(conf)):
+        gui._load_config()
+    assert gui._input_var.get() == "/keep"  # unverändert
+    assert gui._format_var.get() == "json"  # gesetzt
+
+
+def test_load_config_all_type_via_all_keyword(gui, tmp_path):
+    """types = all setzt alle Checkboxen."""
+    conf = tmp_path / "all.conf"
+    conf.write_text("types = all\n", encoding="utf-8")
+    for var in gui._type_vars.values():
+        var.set(False)
+    with patch("tkinter.filedialog.askopenfilename", return_value=str(conf)):
+        gui._load_config()
+    assert all(var.get() for var in gui._type_vars.values())
+

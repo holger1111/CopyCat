@@ -103,6 +103,18 @@ def parse_arguments(config_path=None):
         default=None,
         help="Regex-Suchmuster für Inhaltssuche (z.B. 'TODO|FIXME', 'def ')",
     )
+    parser.add_argument(
+        "--verbose",
+        "-v",
+        action="store_true",
+        help="Ausführliche Ausgabe (DEBUG-Level)",
+    )
+    parser.add_argument(
+        "--quiet",
+        "-q",
+        action="store_true",
+        help="Nur Fehler anzeigen (WARNING-Level)",
+    )
 
     # ── Config-Datei: Defaults aus copycat.conf (CLI überschreibt) ──────────
     cfg = load_config(config_path)
@@ -169,7 +181,7 @@ def move_to_archive(base_path: Path, filename: str):
         try:
             shutil.move(old_file, archive_path / filename)
         except (shutil.Error, PermissionError, OSError) as e:
-            print(f"Archiv-Fehler {filename}: {e}")
+            logging.warning("Archiv-Fehler %s: %s", filename, e)
 
 
 def list_binary_file(writer, bin_file):
@@ -202,6 +214,7 @@ def list_binary_file(writer, bin_file):
             ".css": "text/css",
             ".md": "text/markdown",
             ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            ".csv": "text/csv",
         }
         mime = mime_types.get(suffix, "application/octet-stream")
         duration = "N/A"
@@ -308,6 +321,32 @@ def extract_drawio(writer, drawio_file):
             writer.write(f"[XML PARSE ERROR: {drawio_file.name} - {str(e)}]\n")
 
 
+def extract_notebook(writer, nb_file):
+    """Extract code and markdown cells from a Jupyter Notebook (.ipynb)."""
+    try:
+        with open(nb_file, "r", encoding="utf-8") as f:
+            nb = json.load(f)
+        cells = nb.get("cells", [])
+        code_cells = [c for c in cells if c.get("cell_type") == "code"]
+        md_cells = [c for c in cells if c.get("cell_type") == "markdown"]
+        writer.write(
+            f"NOTEBOOK {nb_file.name}: {len(cells)} Cells "
+            f"({len(code_cells)} Code, {len(md_cells)} Markdown)\n"
+        )
+        for i, cell in enumerate(cells, 1):
+            ctype = cell.get("cell_type", "unknown")
+            source = "".join(cell.get("source", []))
+            if source.strip():
+                writer.write(f"  [Cell {i} \u2013 {ctype}]\n")
+                for line in source.splitlines():
+                    writer.write(f"  {line}\n")
+                writer.write("\n")
+    except (json.JSONDecodeError, KeyError) as e:
+        writer.write(f"[NOTEBOOK ERROR: {nb_file.name} - {e}]\n")
+    except OSError as e:
+        writer.write(f"[NOTEBOOK READ ERROR: {nb_file.name} - {e}]\n")
+
+
 def get_git_info(input_dir: Path) -> str:
     if not (input_dir / ".git").exists():
         return "No Git"
@@ -395,10 +434,10 @@ def size_filtered_glob(search_method, patterns, max_bytes, script_file, input_di
                     ):
                         yield candidate
                 if total_checked % 100 == 0:
-                    print(f"\rGeprüft: {total_checked} Dateien...", end="")
+                    logging.debug("Geprüft: %d Dateien...", total_checked)
             except OSError:
                 continue
-    print(f"\n→ {total_checked} geprüft, Filter OK")
+    logging.info("→ %d geprüft, Filter OK", total_checked)
 
 
 def search_in_file(file_path, pattern):
@@ -435,13 +474,14 @@ def _build_search_results(files, pattern):
 TYPE_FILTERS = {
     "code": ["*.java", "*.py", "*.spec", "*.cpp", "*.c"],
     "web": ["*.html", "*.css", "*.js", "*.ts", "*.jsx"],
-    "db": ["*.sql", "*.db", "*.sqlite"],
+    "db": ["*.sql", "*.db", "*.sqlite", "*.csv"],
     "config": ["*.json", "*.yaml", "*.xml", "*.properties", "*.env"],
     "docs": ["*.md", "*.txt", "*.log", "*.docx"],
     "deps": ["requirements.txt", "package.json", "pom.xml", "go.mod"],
     "img": ["*.png", "*.jpg", "*.gif", "*.bmp", "*.webp", "*.svg", "*.ico"],
     "audio": ["*.mp3", "*.wav", "*.ogg", "*.m4a", "*.flac"],
     "diagram": ["*.drawio", "*.dia", "*.puml"],
+    "notebook": ["*.ipynb"],
 }
 
 
@@ -454,9 +494,9 @@ def _collect_files(args, input_dir, script_file):
     use_filter = args.recursive or args.max_size != float("inf")
     limit_bytes = args.max_size * 1024 * 1024
 
-    print(f"Suche {'rekursiv' if args.recursive else 'flach'} in {input_dir}")
+    logging.info("Suche %s in %s", "rekursiv" if args.recursive else "flach", input_dir)
     if use_filter:
-        print(f"Limit: <{args.max_size}MB ({limit_bytes/1024/1024:.0f} Bytes)")
+        logging.info("Limit: <%sMB (%.0f Bytes)", args.max_size, limit_bytes)
 
     for t, patterns in TYPE_FILTERS.items():
         if process_all or t in selected_types:
@@ -548,6 +588,8 @@ def _write_txt(writer, files, args, input_dir, git_info, serial, search_pattern=
         for bfile in files[t]:
             if t == "diagram" and bfile.suffix.lower() in [".drawio", ".dia"]:
                 extract_drawio(writer, bfile)
+            elif t == "notebook":
+                extract_notebook(writer, bfile)
             else:
                 list_binary_file(writer, bfile)
                 if args.recursive:
@@ -679,11 +721,17 @@ def _write_md(writer, files, args, input_dir, git_info, serial, search_pattern=N
         if t == "code" or not files[t]:
             continue
         writer.write(f"## {t.upper()}\n\n")
-        writer.write("| Datei | Größe |\n|---|---|\n")
-        for bfile in files[t]:
-            size = bfile.stat().st_size
-            writer.write(f"| `{bfile.name}` | {size} bytes |\n")
-        writer.write("\n")
+        if t == "notebook":
+            for bfile in files[t]:
+                writer.write(f"### {bfile.name}\n\n```\n")
+                extract_notebook(writer, bfile)
+                writer.write("```\n\n")
+        else:
+            writer.write("| Datei | Größe |\n|---|---|\n")
+            for bfile in files[t]:
+                size = bfile.stat().st_size
+                writer.write(f"| `{bfile.name}` | {size} bytes |\n")
+            writer.write("\n")
 
     if search_pattern and search_results:
         writer.write(f'## Suchergebnisse: `{search_pattern}`\n\n')
@@ -703,7 +751,7 @@ def run_copycat(args):
     output_dir.mkdir(exist_ok=True)
 
     if not input_dir.is_dir():
-        print(f"Fehler: {input_dir} ist kein Ordner")
+        logging.error("Fehler: %s ist kein Ordner", input_dir)
         return
 
     fmt = getattr(args, "format", "txt")
@@ -716,7 +764,7 @@ def run_copycat(args):
     to_archive = [
         f for f in existing if f != new_file and is_valid_serial_filename(f.name)
     ]
-    print(f"Archiviere {len(to_archive)} Datei(en)")
+    logging.info("Archiviere %d Datei(en)", len(to_archive))
     for old_file in to_archive:
         move_to_archive(output_dir, old_file.name)
 
@@ -724,7 +772,7 @@ def run_copycat(args):
 
     search_pattern = getattr(args, "search", None)
     if search_pattern:
-        print(f'Suche nach Muster: "{search_pattern}"')
+        logging.info('Suche nach Muster: "%s"', search_pattern)
     search_results = _build_search_results(files, search_pattern) if search_pattern else {}
 
     if fmt == "json":
@@ -736,10 +784,16 @@ def run_copycat(args):
         with open(new_file, "w", encoding="utf-8") as writer:
             _write_txt(writer, files, args, input_dir, git_info, serial, search_pattern, search_results)
 
-    print(f"Erstellt: {new_file}")
+    logging.info("Erstellt: %s", new_file)
 
 
 if __name__ == "__main__":  # pragma: no cover
-    logging.basicConfig(level=logging.ERROR, format="CopyCat ERROR: %(message)s")
-    args = parse_arguments()
-    run_copycat(args)
+    _args = parse_arguments()
+    if getattr(_args, "verbose", False):
+        _log_level = logging.DEBUG
+    elif getattr(_args, "quiet", False):
+        _log_level = logging.WARNING
+    else:
+        _log_level = logging.INFO
+    logging.basicConfig(level=_log_level, format="%(message)s")
+    run_copycat(_args)

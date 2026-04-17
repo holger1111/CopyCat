@@ -1,18 +1,26 @@
 """
-CopyCat GUI v1.0
+CopyCat GUI v1.1
 Grafische Oberfläche für CopyCat v2.9
 """
 
 import argparse
+import logging
 import os
 import sys
 import threading
 import tkinter as tk
+from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
-from CopyCat import run_copycat
+from CopyCat import load_config, run_copycat
 
-TYPES = ["code", "web", "db", "config", "docs", "deps", "img", "audio", "diagram"]
+try:  # pragma: no cover
+    from tkinterdnd2 import DND_FILES, TkinterDnD
+    _DND_AVAILABLE = True
+except ImportError:
+    _DND_AVAILABLE = False
+
+TYPES = ["code", "web", "db", "config", "docs", "deps", "img", "audio", "diagram", "notebook"]
 
 
 class RedirectText:
@@ -58,12 +66,20 @@ class CopyCatGUI:
         frm_io.pack(fill="x", **pad)
 
         ttk.Label(frm_io, text="Eingabe:").grid(row=0, column=0, sticky="w")
-        ttk.Entry(frm_io, textvariable=self._input_var, width=55).grid(row=0, column=1, padx=4)
+        _entry_in = ttk.Entry(frm_io, textvariable=self._input_var, width=55)
+        _entry_in.grid(row=0, column=1, padx=4)
         ttk.Button(frm_io, text="…", width=3, command=self._browse_input).grid(row=0, column=2)
 
         ttk.Label(frm_io, text="Ausgabe:").grid(row=1, column=0, sticky="w", pady=(4, 0))
-        ttk.Entry(frm_io, textvariable=self._output_var, width=55).grid(row=1, column=1, padx=4, pady=(4, 0))
+        _entry_out = ttk.Entry(frm_io, textvariable=self._output_var, width=55)
+        _entry_out.grid(row=1, column=1, padx=4, pady=(4, 0))
         ttk.Button(frm_io, text="…", width=3, command=self._browse_output).grid(row=1, column=2, pady=(4, 0))
+
+        if _DND_AVAILABLE:
+            _entry_in.drop_target_register(DND_FILES)
+            _entry_in.dnd_bind("<<Drop>>", self._on_drop_input)
+            _entry_out.drop_target_register(DND_FILES)
+            _entry_out.dnd_bind("<<Drop>>", self._on_drop_output)
 
         # Dateitypen
         frm_types = ttk.LabelFrame(self._root, text="Dateitypen", padding=6)
@@ -117,7 +133,14 @@ class CopyCatGUI:
         )
         self._open_btn.pack(side="left", padx=4)
 
+        ttk.Button(frm_btn, text="📥  Config laden", command=self._load_config).pack(side="left", padx=4)
+        ttk.Button(frm_btn, text="💾  Config speichern", command=self._save_config).pack(side="left", padx=4)
+
         ttk.Button(frm_btn, text="✖  Ausgabe leeren", command=self._clear_output).pack(side="right", padx=4)
+
+        # Fortschrittsanzeige
+        self._progress = ttk.Progressbar(frm_btn, mode="indeterminate", length=80)
+        self._progress.pack(side="right", padx=8)
 
         # Ausgabe
         frm_out = ttk.LabelFrame(self._root, text="Ausgabe", padding=6)
@@ -160,6 +183,75 @@ class CopyCatGUI:
         if folder and os.path.isdir(folder) and hasattr(os, "startfile"):  # pragma: no branch
             os.startfile(folder)
 
+    # ── Config Load / Save ────────────────────────────────────────────────────
+
+    def _load_config(self):
+        path = filedialog.askopenfilename(
+            title="Konfiguration laden",
+            filetypes=[("Config-Dateien", "*.conf"), ("Alle Dateien", "*.*")],
+        )
+        if not path:
+            return
+        cfg = load_config(path)
+        if "input" in cfg:
+            self._input_var.set(cfg["input"])
+        if "output" in cfg:
+            self._output_var.set(cfg["output"])
+        if "types" in cfg:
+            parts = {t.strip() for t in cfg["types"].replace(",", " ").split()}
+            for t, var in self._type_vars.items():
+                var.set(t in parts or "all" in parts)
+        if "recursive" in cfg:
+            self._recursive_var.set(cfg["recursive"].lower() in ("true", "yes", "1"))
+        if "max_size_mb" in cfg:
+            self._max_size_var.set(cfg["max_size_mb"])
+        if "format" in cfg and cfg["format"] in ("txt", "json", "md"):
+            self._format_var.set(cfg["format"])
+        if "search" in cfg:
+            self._search_var.set(cfg["search"])
+
+    def _save_config(self):
+        path = filedialog.asksaveasfilename(
+            title="Konfiguration speichern",
+            defaultextension=".conf",
+            filetypes=[("Config-Dateien", "*.conf"), ("Alle Dateien", "*.*")],
+        )
+        if not path:
+            return
+        selected = [t for t, var in self._type_vars.items() if var.get()]
+        lines = [
+            "# CopyCat Konfiguration",
+            f"input = {self._input_var.get()}",
+            f"output = {self._output_var.get()}",
+            f"types = {','.join(selected) if selected else 'all'}",
+            f"recursive = {'true' if self._recursive_var.get() else 'false'}",
+            f"format = {self._format_var.get()}",
+        ]
+        max_size = self._max_size_var.get().strip()
+        if max_size:
+            lines.append(f"max_size_mb = {max_size}")
+        search = self._search_var.get().strip()
+        if search:
+            lines.append(f"search = {search}")
+        try:
+            Path(path).write_text("\n".join(lines) + "\n", encoding="utf-8")
+            messagebox.showinfo("Gespeichert", f"Config gespeichert:\n{path}")
+        except OSError as e:
+            messagebox.showerror("Fehler", f"Speichern fehlgeschlagen:\n{e}")
+
+    # ── Drag & Drop ───────────────────────────────────────────────────────────
+
+    def _on_drop_input(self, event):  # pragma: no cover
+        path = event.data.strip().strip("{}")
+        if os.path.isdir(path):
+            self._input_var.set(path)
+            self._output_var.set(self._output_var.get() or path)
+
+    def _on_drop_output(self, event):  # pragma: no cover
+        path = event.data.strip().strip("{}")
+        if os.path.isdir(path):
+            self._output_var.set(path)
+
     # ── Run ───────────────────────────────────────────────────────────────────
 
     def _build_args(self):
@@ -195,9 +287,19 @@ class CopyCatGUI:
         self._run_btn.configure(state="disabled")
         self._open_btn.configure(state="disabled")
         self._clear_output()
+        self._progress.start(10)
 
         old_stdout = sys.stdout
-        sys.stdout = RedirectText(self._output_text)
+        widget_stream = RedirectText(self._output_text)
+        sys.stdout = widget_stream
+
+        _log_handler = logging.StreamHandler(widget_stream)
+        _log_handler.setFormatter(logging.Formatter("%(message)s"))
+        _log_handler.setLevel(logging.INFO)
+        _root_logger = logging.getLogger()
+        _prev_level = _root_logger.level
+        _root_logger.setLevel(logging.INFO)
+        _root_logger.addHandler(_log_handler)
 
         def task():
             try:
@@ -211,13 +313,16 @@ class CopyCatGUI:
                 )
             finally:
                 sys.stdout = old_stdout
+                _root_logger.removeHandler(_log_handler)
+                _root_logger.setLevel(_prev_level)
+                self._root.after(0, self._progress.stop)
                 self._root.after(0, lambda: self._run_btn.configure(state="normal"))
 
         threading.Thread(target=task, daemon=True).start()
 
 
 def main():  # pragma: no cover
-    root = tk.Tk()
+    root = TkinterDnD.Tk() if _DND_AVAILABLE else tk.Tk()
     CopyCatGUI(root)
     root.mainloop()
 
