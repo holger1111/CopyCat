@@ -1,11 +1,11 @@
-name: CopyCat CI v2.7
+name: CopyCat CI v2.9
 on: [push, pull_request]
 
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
     
     - uses: actions/setup-python@v5
       with:
@@ -22,7 +22,7 @@ jobs:
           --cov-report=term-missing
     
     - name: Upload Coverage to Codecov
-      uses: codecov/codecov-action@v4
+      uses: codecov/codecov-action@v5
       if: always()
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
