@@ -22,6 +22,17 @@
 | Content Search	| Regex search across files (`--search`)		|
 | Config File		| `copycat.conf` auto-loaded; CLI overrides		|
 | Performance		| Recursive/flat, size filter + progress		|
+| GUI			| Graphical interface via `CopyCat_GUI.py`		|
+
+
+### GUI
+
+```bash
+python CopyCat_GUI.py    # Opens the graphical interface
+```
+
+All CLI options are available as UI controls. Progress output is displayed live in the window.
+Requires Python with tkinter (included in standard installation).
 
 
 ### Console Commands
@@ -423,6 +434,8 @@ __pycache__/
 
 CopyCat.py
 
+CopyCat_GUI.py
+
 README.md
 
 README_GER.md
@@ -441,9 +454,9 @@ README_GER.md
 
 3. git commit -m "feat: X | Tests 1000%"
 
-**Tests:** 100% coverage (CLI, serial, gitignore, Draw.io, max-size, 1000+ edge cases)
+**Tests:** 100% coverage (CLI, serial, gitignore, Draw.io, max-size, GUI, 1000+ edge cases)
 
-**CI:** GitHub Actions → pytest + coverage badges
+**CI:** GitHub Actions → pytest + coverage badges (Codecov)
 
 **Question:** Is CopyCat now easier to understand/maintain?
 

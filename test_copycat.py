@@ -1368,3 +1368,154 @@ def test_parse_arguments_cli_overrides_config(tmp_path):
     assert args.types == ["code"]
     assert args.format == "json"
     assert args.recursive is True  # config=true, no CLI override
+
+
+# ==================== GUI TESTS ====================
+
+from CopyCat_GUI import CopyCatGUI, RedirectText, TYPES as GUI_TYPES
+
+
+def _make_var(value):
+    """Einfacher Mock für tk.StringVar / tk.BooleanVar."""
+    container = {"v": value}
+    m = MagicMock()
+    m.get = lambda: container["v"]
+    m.set = lambda v: container.update({"v": v})
+    return m
+
+
+@pytest.fixture
+def gui():
+    """CopyCatGUI-Instanz ohne tkinter-Fenster (headless-tauglich)."""
+    instance = object.__new__(CopyCatGUI)
+    instance._root = MagicMock()
+    instance._input_var = _make_var("")
+    instance._output_var = _make_var("")
+    instance._recursive_var = _make_var(False)
+    instance._max_size_var = _make_var("")
+    instance._format_var = _make_var("txt")
+    instance._search_var = _make_var("")
+    instance._type_vars = {t: _make_var(True) for t in GUI_TYPES}
+    instance._run_btn = MagicMock()
+    instance._open_btn = MagicMock()
+    instance._output_text = MagicMock()
+    return instance
+
+
+def test_gui_types_constant():
+    assert GUI_TYPES == ["code", "web", "db", "config", "docs", "deps", "img", "audio", "diagram"]
+    assert len(GUI_TYPES) == 9
+
+
+def test_redirect_text_write():
+    mock_widget = MagicMock()
+    rt = RedirectText(mock_widget)
+    rt.write("hello")
+    mock_widget.configure.assert_called()
+    mock_widget.insert.assert_called_with("end", "hello")
+    mock_widget.see.assert_called_with("end")
+
+
+def test_redirect_text_flush():
+    rt = RedirectText(MagicMock())
+    rt.flush()  # darf nicht werfen
+
+
+def test_build_args_defaults(gui):
+    args = gui._build_args()
+    assert args.input is None
+    assert args.output is None
+    assert args.types == GUI_TYPES
+    assert args.recursive is False
+    assert args.max_size == float("inf")
+    assert args.format == "txt"
+    assert args.search is None
+
+
+def test_build_args_with_values(gui):
+    gui._input_var.set("/some/path")
+    gui._output_var.set("/out/path")
+    gui._recursive_var.set(True)
+    gui._max_size_var.set("5.0")
+    gui._format_var.set("json")
+    gui._search_var.set("TODO")
+    args = gui._build_args()
+    assert args.input == "/some/path"
+    assert args.output == "/out/path"
+    assert args.recursive is True
+    assert args.max_size == 5.0
+    assert args.format == "json"
+    assert args.search == "TODO"
+
+
+def test_build_args_invalid_max_size(gui):
+    gui._max_size_var.set("notanumber")
+    with pytest.raises(ValueError, match="Ungültige Max-Größe"):
+        gui._build_args()
+
+
+def test_build_args_no_types_selected_returns_all(gui):
+    for var in gui._type_vars.values():
+        var.set(False)
+    args = gui._build_args()
+    assert args.types == ["all"]
+
+
+def test_select_all_types(gui):
+    for var in gui._type_vars.values():
+        var.set(False)
+    gui._select_all_types()
+    assert all(var.get() for var in gui._type_vars.values())
+
+
+def test_deselect_all_types(gui):
+    gui._deselect_all_types()
+    assert not any(var.get() for var in gui._type_vars.values())
+
+
+def test_browse_input_sets_output_when_empty(gui):
+    with patch("tkinter.filedialog.askdirectory", return_value="/chosen"):
+        gui._browse_input()
+    assert gui._input_var.get() == "/chosen"
+    assert gui._output_var.get() == "/chosen"
+
+
+def test_browse_input_does_not_overwrite_output(gui):
+    gui._output_var.set("/existing/output")
+    with patch("tkinter.filedialog.askdirectory", return_value="/chosen"):
+        gui._browse_input()
+    assert gui._output_var.get() == "/existing/output"
+
+
+def test_browse_input_cancelled(gui):
+    with patch("tkinter.filedialog.askdirectory", return_value=""):
+        gui._browse_input()
+    assert gui._input_var.get() == ""
+
+
+def test_browse_output(gui):
+    with patch("tkinter.filedialog.askdirectory", return_value="/out"):
+        gui._browse_output()
+    assert gui._output_var.get() == "/out"
+
+
+def test_on_run_invalid_max_size_shows_error(gui):
+    gui._max_size_var.set("notanumber")
+    with patch("tkinter.messagebox.showerror") as mock_err:
+        gui._on_run()
+    mock_err.assert_called_once()
+    assert "Eingabefehler" in mock_err.call_args[0]
+
+
+def test_open_output_folder(gui, tmp_path):
+    gui._output_var.set(str(tmp_path))
+    with patch("os.startfile") as mock_sf:
+        gui._open_output_folder()
+    mock_sf.assert_called_once_with(str(tmp_path))
+
+
+def test_open_output_folder_nonexistent(gui):
+    gui._output_var.set("/nonexistent/path/xyz")
+    with patch("os.startfile") as mock_sf:
+        gui._open_output_folder()
+    mock_sf.assert_not_called()
