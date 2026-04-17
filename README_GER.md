@@ -3,8 +3,8 @@
 
 ## Automatisiert Code + Diagramme + Medien zu Text-Report
 
-[![Tests](https://img.shields.io/badge/Tests-PASSED-brightgreen?style=flat-square&logo=github-actions)](https://github.com/holger1111/CopyCat/actions)
-[![Coverage](https://img.shields.io/badge/Coverage-100%25-brightgreen?style=flat-square&logo=codecov)](https://codecov.io/gh/holger1111/CopyCat)
+[![Tests](https://github.com/holger1111/CopyCat/actions/workflows/ci.yml/badge.svg)](https://github.com/holger1111/CopyCat/actions)
+[![Coverage](https://codecov.io/gh/holger1111/CopyCat/branch/main/graph/badge.svg)](https://codecov.io/gh/holger1111/CopyCat)
 
 
 ### Hauptfunktionen
@@ -13,13 +13,14 @@
 | Feature		| Beschreibung						|
 |-----------------------|-------------------------------------------------------|
 | Code-Analyse		| Zeilenanzahl + Quellcode (Java/Python/C++/etc.)	|
-| Draw.io		| 100% Extraktion aller Cells (ID, Text, Position)	|
+| Draw.io		| Extraktion aller Cells (ID, Text, Position), ZIP + Compressed-Support	|
 | Medien		| MIME-Type, Größe, Audio-Dauer (WAV/MP3/FLAC)		|
 | Selbstschutz		| Ignoriert CopyCat.py & alte Reports			|
 | Serial-System		| Automatisches Archiv (CopyCat_Archive)		|
 | Git-Integration	| Branch + Commit-Hash					|
 | Ausgabeformate	| TXT / JSON / Markdown (`--format`)			|
 | Inhaltssuche		| Regex-Suche über Dateiinhalte (`--search`)		|
+| Konfigurationsdatei	| `copycat.conf` auto-geladen; CLI überschreibt	|
 | Performance		| Rekursiv/Flach, Size-Filter + Progress		|
 
 
@@ -36,6 +37,8 @@ python CopyCat.py -f json            # JSON-Ausgabe
 python CopyCat.py -f md              # Markdown-Ausgabe
 python CopyCat.py -S "TODO|FIXME"    # Nach TODOs suchen
 python CopyCat.py --help             # Hilfe
+# Konfigurationsdatei wird automatisch aus CWD oder Skript-Ordner geladen:
+python CopyCat.py                    # nutzt copycat.conf falls vorhanden
 ```
 
 
@@ -45,10 +48,11 @@ python CopyCat.py --help             # Hilfe
 | Flag				| Beschreibung								| Default	|
 |-------------------------------|-----------------------------------------------------------------------|---------------|
 | -i,--input			| Eingabeordner								| Skriptordner	|
-| -o,--output | Ausgabeordner 	| Eingabeordner								|		|
-| -t,--types			| Typen: 'ode web db config docs deps img audio diagram' oder 'all'	| 'all'		|
+| -o,--output			| Ausgabeordner								| Eingabeordner	|
+| -t,--types			| Typen: 'code web db config docs deps img audio diagram' oder 'all'	| 'all'		|
 | -r,--recursive		| Rekursive Suche  in Unterordnern					| false (flach)	|
-| -s,--max-size			| Max Größe MB								| unbegrenzt	|| -f,--format			| Ausgabeformat: txt, json, md					| txt		|
+| -s,--max-size			| Max Größe MB								| unbegrenzt	|
+| -f,--format			| Ausgabeformat: txt, json, md					| txt		|
 | -S,--search			| Regex-Suchmuster (z.B. 'TODO\|FIXME', 'def ')			| None		|
 
 ### Flach vs Rekursiv
@@ -114,8 +118,8 @@ def hello(): pass
   Pfad: sub/image.png
 
 ==================== DIAGRAM ====================
-DIAGRAM test.drawio: 152 Cells, 45 Texte
-  [cell-2] Test Node...
+DIAGRAM test.drawio: 152 Cells, 45 Texte, 23 Unique
+  [cell-2] Test Node... (x=160, y=120)
 ````
 
 
@@ -124,9 +128,9 @@ DIAGRAM test.drawio: 152 Cells, 45 Texte
 
 - ALLE Cells: ID, Text/HTML, Position (x,y)
 
-- ZIP-Fallback: drawio.zip → XML
+- ZIP-Fallback: Binäre .drawio (ZIP) → XML-Eintrag extrahieren → parsen
 
-- Compressed: Base64/zlib/unquote (Standard)
+- Compressed: Base64/zlib (raw deflate)/URL-unquote (draw.io Standardformat)
 
 - Edge-Cases (20+ Tests):
 
@@ -134,15 +138,21 @@ DIAGRAM test.drawio: 152 Cells, 45 Texte
 
 	- Corrupt: [XML PARSE ERROR]
 
-	- Binary: [ENCODING ERROR]
+	- Binär (kein ZIP): [BINARY: name - Invalid Encoding]
 
-- Limits: <1MB (keine Bilder extrahiert)
+	- Leeres ZIP: [ZIP EMPTY: name]
+
+	- Ungültiger Compressed-Inhalt: 0 Cells, 0 Texte, 0 Unique (kein Crash)
+
+	- Zu groß (>1MB): [SKIPPED: name - exceeds 1MB limit]
+
+- Limits: <1MB
 
 - Statistik: Cells/Texte/Unique
 
 **Beispiel komplex.drawio:**
 
-DIAGRAMM Test_komplex.drawio: 152 Cells, 45 Texte, 23 Unique
+DIAGRAM Test_komplex.drawio: 152 Cells, 45 Texte, 23 Unique
 
 
 ### Einsatzmöglichkeiten
@@ -172,6 +182,12 @@ DIAGRAMM Test_komplex.drawio: 152 Cells, 45 Texte, 23 Unique
 
 - Serial: Regex-Validierung + Archiv-Rotation
 
+- zipfile: ZIP-komprimierte .drawio-Dateien (Fallback)
+
+- base64 + zlib + urllib.parse.unquote: Dekodierung komprimierter draw.io-Diagramme
+
+- configparser (stdlib): `copycat.conf` Key=Value Config-Loader
+
 
 ### Fehlerbehandlung
 
@@ -183,7 +199,7 @@ ET.ParseError		→ [XML PARSE ERROR]
 OSError			→ Silent Skip + Logging
 Rest			→ [ERROR: datei]
 ````
-**Beispiel:** DIAGRAMM INVALID XML: test.drawio
+**Beispiel:** DIAGRAM INVALID XML: test.drawio
 
 
 ###  Performance-Tuning (v2.9)
@@ -201,7 +217,7 @@ Rest			→ [ERROR: datei]
 **Beispiele:**
 ```bash
 CopyCat.py -r --max-size 1     # Rekursiv + Progress
-CopyCat.py --max-size 10       # Flach, kein Progress
+CopyCat.py --max-size 10       # Flach, kein Progress12:58 17.04.2026
 ```
 Ausgabe bei Filter: → 1274 geprüft, Filter OK
 
@@ -298,6 +314,54 @@ Muster: "TODO" → 3 Treffer in 2 Dateien
 | Keine Treffer | Zusammenfassungszeile, kein Abschnitt |
 | Ungültiges Regex | Report wird ohne Suchabschnitt erstellt |
 | Binärdatei | Wird lautlos übersprungen |
+
+
+### Konfigurationsdatei
+
+
+Erstelle `copycat.conf` im Projektordner (oder dem Ordner, von dem aus du das Skript startest). CopyCat lädt die Datei automatisch — **CLI-Argumente überschreiben immer die Config-Werte**.
+
+
+**Beispiel `copycat.conf`:**
+
+```ini
+# copycat.conf
+types = code, diagram
+recursive = true
+max_size_mb = 5
+format = md
+# search = TODO|FIXME
+# input = src
+# output = reports
+```
+
+
+**Unterstützte Schlüssel:**
+
+| Schlüssel | Typ | Beispiel | Beschreibung |
+|---|---|---|---|
+| `types` | Liste | `code, diagram` | Dateityp-Kategorien (Komma oder Leerzeichen) |
+| `recursive` | bool | `true` | Rekursive Suche (`true`/`false`/`yes`/`no`/`1`/`0`) |
+| `max_size_mb` | float | `5` | Maximale Dateigröße in MB |
+| `format` | string | `md` | Ausgabeformat: `txt`, `json`, `md` |
+| `search` | string | `TODO\|FIXME` | Regex-Suchmuster |
+| `input` | Pfad | `src` | Eingabeordner |
+| `output` | Pfad | `reports` | Ausgabeordner |
+
+
+**Suchreihenfolge:** Aktuelles Verzeichnis → Skript-Verzeichnis. Erste gefundene Datei gewinnt.
+
+**Syntax-Regeln:** Zeilen mit `#` sind Kommentare. Leerzeilen werden ignoriert. Ungültige Werte werden mit Log-Warnung stillschweigend übersprungen.
+
+
+**Ohne Konfigurationsdatei:**
+```bash
+python CopyCat.py -i src -r -t code,diagram -f md -s 5
+```
+**Mit `copycat.conf`:**
+```bash
+python CopyCat.py    # gleiches Ergebnis
+```
 
 
 ### Git-Support

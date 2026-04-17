@@ -11,11 +11,56 @@ import logging
 import struct
 import subprocess
 import fnmatch
+import zipfile
+import base64
+import zlib
+from urllib.parse import unquote
 from pathlib import Path
 from datetime import datetime
 
 
-def parse_arguments():
+def load_config(config_path=None):
+    """Load copycat.conf and return a dict of raw string settings.
+
+    Search order (first match wins):
+      1. config_path  – if explicitly given
+      2. CWD / copycat.conf
+      3. Script-dir / copycat.conf
+
+    Returns {} when no file is found or on read error.
+    Supported keys: types, recursive, max_size_mb, format, search, input, output
+    """
+    if config_path is not None:
+        candidates = [Path(config_path)]
+    else:
+        candidates = [
+            Path.cwd() / "copycat.conf",
+            Path(__file__).parent / "copycat.conf",
+        ]
+
+    for path in candidates:
+        if not path.is_file():
+            continue
+        cfg = {}
+        try:
+            for raw in path.read_text(encoding="utf-8").splitlines():
+                line = raw.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if "=" not in line:
+                    continue
+                key, _, val = line.partition("=")
+                key = key.strip().lower().replace("-", "_")
+                val = val.strip()
+                if val:
+                    cfg[key] = val
+        except OSError:
+            pass
+        return cfg
+    return {}
+
+
+def parse_arguments(config_path=None):
     parser = argparse.ArgumentParser(
         description="CopyCat v2.9 - Projekt-Dokumentierer"
     )
@@ -58,6 +103,36 @@ def parse_arguments():
         default=None,
         help="Regex-Suchmuster für Inhaltssuche (z.B. 'TODO|FIXME', 'def ')",
     )
+
+    # ── Config-Datei: Defaults aus copycat.conf (CLI überschreibt) ──────────
+    cfg = load_config(config_path)
+    overrides = {}
+    if "types" in cfg:
+        parts = [t.strip() for t in cfg["types"].replace(",", " ").split()]
+        if parts:
+            overrides["types"] = parts
+    if "recursive" in cfg:
+        overrides["recursive"] = cfg["recursive"].lower() in ("true", "yes", "1")
+    if "max_size_mb" in cfg:
+        try:
+            overrides["max_size"] = float(cfg["max_size_mb"])
+        except ValueError:
+            logging.warning("copycat.conf: ungültiger max_size_mb-Wert wird ignoriert")
+    if "format" in cfg:
+        if cfg["format"] in ("txt", "json", "md"):
+            overrides["format"] = cfg["format"]
+        else:
+            logging.warning("copycat.conf: ungültiger format-Wert wird ignoriert")
+    if "search" in cfg:
+        overrides["search"] = cfg["search"]
+    if "input" in cfg:
+        overrides["input"] = cfg["input"]
+    if "output" in cfg:
+        overrides["output"] = cfg["output"]
+    if overrides:
+        parser.set_defaults(**overrides)
+    # ────────────────────────────────────────────────────────────────────────
+
     args = parser.parse_args()
 
     if args.types and len(args.types) == 1 and ',' in args.types[0]:
@@ -146,6 +221,54 @@ def list_binary_file(writer, bin_file):
         writer.write(f"[ERROR: {bin_file.name}]\n")
 
 
+def _decode_drawio_compressed(data: str) -> str:
+    """Decode Base64/zlib (raw deflate)/URL-encoded draw.io diagram content."""
+    raw = base64.b64decode(data)
+    xml_bytes = zlib.decompress(raw, wbits=-15)
+    return unquote(xml_bytes.decode("utf-8"))
+
+
+def _collect_cells(tree) -> list:
+    """Collect mxCell elements from tree, decompressing diagram content if needed."""
+    cells = list(tree.iter("mxCell"))
+    if cells:
+        return cells
+    for diagram in tree.iter("diagram"):
+        text = (diagram.text or "").strip()
+        if not text:
+            continue
+        try:
+            inner_xml = _decode_drawio_compressed(text)
+            inner_tree = ET.fromstring(inner_xml)
+            cells.extend(inner_tree.iter("mxCell"))
+        except Exception:
+            pass
+    return cells
+
+
+def _write_cells(writer, drawio_file, tree):
+    """Count and write mxCell entries from tree (compressed or plain)."""
+    cells_list = _collect_cells(tree)
+    cells, texts = 0, 0
+    unique_values = set()
+    for cell in cells_list:
+        cells += 1
+        value = cell.attrib.get("value", "").strip()
+        if value:
+            texts += 1
+            unique_values.add(value)
+            geo = cell.find("mxGeometry")
+            pos = ""
+            if geo is not None:
+                x = geo.attrib.get("x")
+                y = geo.attrib.get("y")
+                if x is not None and y is not None:
+                    pos = f" (x={x}, y={y})"
+            writer.write(f"  [{cell.attrib.get('id','?')}] {value[:50]}...{pos}\n")
+    unique = len(unique_values)
+    writer.write(f"DIAGRAM {drawio_file.name}: {cells} Cells, {texts} Texte, {unique} Unique\n")
+
+
 def extract_drawio(writer, drawio_file):
     try:
         size = drawio_file.stat().st_size
@@ -153,26 +276,36 @@ def extract_drawio(writer, drawio_file):
             writer.write(f"[EMPTY: {drawio_file.name}] [SIZE: 0 bytes]\n")
             return
 
+        LIMIT_BYTES = 1_048_576  # 1MB
+        if size > LIMIT_BYTES:
+            writer.write(f"[SKIPPED: {drawio_file.name} - exceeds 1MB limit]\n")
+            return
+
         with open(drawio_file, "r", encoding="utf-8") as f:
             xml_content = f.read()
 
         tree = ET.fromstring(xml_content)
-        cells, texts = 0, 0
-
-        for cell in tree.iter("mxCell"):
-            cells += 1
-            if "value" in cell.attrib and cell.attrib["value"].strip():
-                texts += 1
-                writer.write(
-                    f"  [{cell.attrib.get('id','?')}] {cell.attrib['value'][:50]}...\n"
-                )
-
-        writer.write(f"DIAGRAM {drawio_file.name}: {cells} Cells, {texts} Texte\n")
+        _write_cells(writer, drawio_file, tree)
 
     except ET.ParseError as e:
         writer.write(f"[XML PARSE ERROR: {drawio_file.name} - {str(e)}]\n")
     except UnicodeDecodeError:
-        writer.write(f"[BINARY: {drawio_file.name} - Invalid Encoding]\n")
+        try:
+            with zipfile.ZipFile(drawio_file, "r") as zf:
+                xml_names = [n for n in zf.namelist() if n.endswith(".xml") or n.endswith(".drawio")]
+                if not xml_names:
+                    xml_names = zf.namelist()
+                if not xml_names:
+                    writer.write(f"[ZIP EMPTY: {drawio_file.name}]\n")
+                    return
+                with zf.open(xml_names[0]) as xf:
+                    xml_content = xf.read().decode("utf-8")
+            tree = ET.fromstring(xml_content)
+            _write_cells(writer, drawio_file, tree)
+        except zipfile.BadZipFile:
+            writer.write(f"[BINARY: {drawio_file.name} - Invalid Encoding]\n")
+        except ET.ParseError as e:
+            writer.write(f"[XML PARSE ERROR: {drawio_file.name} - {str(e)}]\n")
 
 
 def get_git_info(input_dir: Path) -> str:

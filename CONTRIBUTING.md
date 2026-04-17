@@ -10,15 +10,15 @@
 
 
 
-\- **Code + README.md + README\_GER.md SYNCHRON** halten
+- **Code + README.md + README_GER.md SYNCHRON** halten
 
-\- **Fehler vor Features** (CLI-Types, Serial, Encoding)
+- **Fehler vor Features** (CLI-Types, Serial, Encoding)
 
-\- Dateitypen **zentral** in `TYPE\_FILTERS` definieren
+- Dateitypen **zentral** in `TYPE_FILTERS` definieren
 
-\- Jede Änderung: **eindeutiger, robuster, besser dokumentiert**
+- Jede Änderung: **eindeutiger, robuster, besser dokumentiert**
 
-\- CLI-Optionen **rückwärtskompatibel**
+- CLI-Optionen **rückwärtskompatibel**
 
 
 
@@ -32,7 +32,7 @@ git clone https://github.com/holge-l/CopyCat.git
 
 cd CopyCat
 
-py -m pytest test\_copycat.py -v --cov # 100% Core-Coverage
+py -m pytest test_copycat.py -v --cov # 100% Core-Coverage
 
 ```
 
@@ -44,7 +44,7 @@ py -m pytest test\_copycat.py -v --cov # 100% Core-Coverage
 
 ```bash
 
-py -m pytest test\_copycat.py -v --cov-report=term-missing
+py -m pytest test_copycat.py -v --cov-report=term-missing
 
 ```
 

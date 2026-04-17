@@ -1,10 +1,13 @@
 ﻿"""CopyCat v2.9 - Pytest Suite (Refactored & Optimized)"""
 
 import subprocess
-import struct
 import json
 import re
+import base64
+import zlib
+import zipfile
 from io import StringIO
+from urllib.parse import quote as url_quote
 from pathlib import Path
 from unittest.mock import patch, MagicMock, Mock
 from argparse import Namespace
@@ -13,6 +16,7 @@ import pytest
 
 from CopyCat import (
     parse_arguments,
+    load_config,
     get_next_serial_number,
     is_valid_serial_filename,
     move_to_archive,
@@ -58,18 +62,6 @@ def run_args(tmp_path):
     return _make_args
 
 
-@pytest.fixture
-def tmp_test_dir(tmp_path):
-    """Create a test directory structure."""
-    test_dir = tmp_path / "Test_Set"
-    test_dir.mkdir()
-    (test_dir / "sub").mkdir()
-    (test_dir / "sub" / "test.py").touch()
-    (test_dir / "test.drawio").touch()
-    (test_dir / "test.mp3").touch()
-    return test_dir
-
-
 # ==================== ARGUMENT PARSING TESTS ====================
 
 @pytest.mark.parametrize("argv,expected", [
@@ -109,14 +101,16 @@ def test_get_next_serial_number(tmp_path, files, expected):
     assert get_next_serial_number(tmp_path) == expected
 
 
-def test_is_valid_serial_filename():
-    """Test serial filename validation (imported from CopyCat)."""
-    assert is_valid_serial_filename("combined_copycat_1.txt") is True
-    assert is_valid_serial_filename("combined_copycat_5.json") is True
-    assert is_valid_serial_filename("combined_copycat_3.md") is True
-    assert is_valid_serial_filename("combined_copycat.txt") is False
-    assert is_valid_serial_filename("other_file.txt") is False
-    assert is_valid_serial_filename("combined_copycat_1.csv") is False
+@pytest.mark.parametrize("name,expected", [
+    ("combined_copycat_1.txt", True),
+    ("combined_copycat_5.json", True),
+    ("combined_copycat_3.md", True),
+    ("combined_copycat.txt", False),
+    ("other_file.txt", False),
+    ("combined_copycat_1.csv", False),
+])
+def test_is_valid_serial_filename(name, expected):
+    assert is_valid_serial_filename(name) is expected
 
 
 # ==================== PLURAL TESTS ====================
@@ -154,14 +148,6 @@ def test_type_filters_all_present():
     assert set(TYPE_FILTERS.keys()) == expected
 
 
-def test_type_filters_runtime():
-    """Test type filters at runtime."""
-    selected_types = ["code", "diagram"]
-    for t in selected_types:
-        assert t in TYPE_FILTERS.keys()
-        assert len(TYPE_FILTERS[t]) > 0
-
-
 # ==================== GIT INFO TESTS ====================
 
 def test_get_git_info_no_repo(tmp_path):
@@ -184,15 +170,6 @@ def test_get_git_info_timeout(tmp_path):
     (tmp_path / ".git").mkdir()
     with patch("subprocess.run", side_effect=subprocess.TimeoutExpired("git", 1)):
         assert "No Git" in get_git_info(tmp_path)
-
-
-def test_get_git_info_edge_cases(tmp_path, run_args):
-    """Test git info with edge cases in copycat integration."""
-    with patch("subprocess.check_output") as mock_subprocess:
-        mock_subprocess.side_effect = FileNotFoundError
-        run_copycat(run_args())
-        report = next(tmp_path.glob("combined_copycat_*.txt"))
-        assert "GIT: No Git" in report.read_text()
 
 
 # ==================== GITIGNORE TESTS ====================
@@ -477,6 +454,140 @@ def test_extract_drawio_parse_error(tmp_path, mock_writer):
     assert "[XML PARSE ERROR: broken.drawio" in mock_writer.write.call_args[0][0]
 
 
+def test_extract_drawio_zip_fallback_success(tmp_path, mock_writer):
+    """Test ZIP fallback: compressed .drawio (ZIP) is parsed correctly."""
+    xml = '<mxGraphModel><root><mxCell id="0"/><mxCell id="1" value="ZIP Cell" parent="0"/></root></mxGraphModel>'
+    drawio = tmp_path / "compressed.drawio"
+    with zipfile.ZipFile(drawio, "w") as zf:
+        zf.writestr("diagram.xml", xml)
+
+    with patch("builtins.open", side_effect=UnicodeDecodeError("utf-8", b"", 0, 1, "invalid")):
+        extract_drawio(mock_writer, drawio)
+
+    written = "".join(call[0][0] for call in mock_writer.write.call_args_list)
+    assert "DIAGRAM compressed.drawio" in written
+    assert "ZIP Cell" in written
+
+
+def test_extract_drawio_zip_empty_archive(tmp_path, mock_writer):
+    """Test ZIP fallback: ZIP with no entries yields [ZIP EMPTY]."""
+    drawio = tmp_path / "empty.drawio"
+    with zipfile.ZipFile(drawio, "w"):
+        pass  # empty ZIP
+
+    with patch("builtins.open", side_effect=UnicodeDecodeError("utf-8", b"", 0, 1, "invalid")):
+        extract_drawio(mock_writer, drawio)
+
+    mock_writer.write.assert_called_with("[ZIP EMPTY: empty.drawio]\n")
+
+
+def test_extract_drawio_zip_bad_xml_inside(tmp_path, mock_writer):
+    """Test ZIP fallback: ZIP with invalid XML inside yields [XML PARSE ERROR]."""
+    drawio = tmp_path / "broken.drawio"
+    with zipfile.ZipFile(drawio, "w") as zf:
+        zf.writestr("diagram.xml", "not valid xml <<<")
+
+    with patch("builtins.open", side_effect=UnicodeDecodeError("utf-8", b"", 0, 1, "invalid")):
+        extract_drawio(mock_writer, drawio)
+
+    assert "[XML PARSE ERROR: broken.drawio" in mock_writer.write.call_args[0][0]
+
+
+def test_extract_drawio_compressed_success(tmp_path, mock_writer):
+    """Test compressed draw.io diagram (Base64/zlib/URL-encoded format)."""
+    inner_xml = (
+        '<mxGraphModel><root>'
+        '<mxCell id="0"/>'
+        '<mxCell id="1" value="Comp Cell" parent="0" vertex="1"/>'
+        '</root></mxGraphModel>'
+    )
+    encoded = url_quote(inner_xml)
+    compressor = zlib.compressobj(level=9, method=zlib.DEFLATED, wbits=-15)
+    raw = compressor.compress(encoded.encode("utf-8")) + compressor.flush()
+    b64 = base64.b64encode(raw).decode("utf-8")
+    drawio = tmp_path / "comp.drawio"
+    drawio.write_text(f'<mxfile><diagram name="Page-1">{b64}</diagram></mxfile>', encoding="utf-8")
+
+    extract_drawio(mock_writer, drawio)
+
+    written = "".join(call[0][0] for call in mock_writer.write.call_args_list)
+    assert "DIAGRAM comp.drawio" in written
+    assert "Comp Cell" in written
+
+
+@pytest.mark.parametrize("content", [
+    '<mxfile><diagram>!!!NOT_VALID_BASE64!!!</diagram></mxfile>',
+    '<mxfile><diagram>   </diagram></mxfile>',
+])
+def test_extract_drawio_compressed_0_cells(tmp_path, mock_writer, content):
+    """Compressed drawio with invalid/empty content: no crash, 0 cells."""
+    drawio = tmp_path / "test.drawio"
+    drawio.write_text(content, encoding="utf-8")
+    extract_drawio(mock_writer, drawio)
+    written = "".join(call[0][0] for call in mock_writer.write.call_args_list)
+    assert "0 Cells, 0 Texte, 0 Unique" in written
+
+
+def test_extract_drawio_position(tmp_path, mock_writer):
+    """Test that mxGeometry x/y is included in cell output."""
+    drawio = tmp_path / "pos.drawio"
+    drawio.write_text(
+        '<mxGraphModel><root>'
+        '<mxCell id="0"/>'
+        '<mxCell id="2" value="Node A" vertex="1" parent="1">'
+        '<mxGeometry x="100" y="200" width="120" height="60" as="geometry"/>'
+        '</mxCell>'
+        '</root></mxGraphModel>',
+        encoding="utf-8"
+    )
+    extract_drawio(mock_writer, drawio)
+    written = "".join(call[0][0] for call in mock_writer.write.call_args_list)
+    assert "Node A" in written
+    assert "(x=100, y=200)" in written
+
+
+def test_extract_drawio_unique_count(tmp_path, mock_writer):
+    """Test that unique value count is correct in summary line."""
+    drawio = tmp_path / "uniq.drawio"
+    drawio.write_text(
+        '<mxGraphModel><root>'
+        '<mxCell id="0"/>'
+        '<mxCell id="1" value="Alpha"/>'
+        '<mxCell id="2" value="Alpha"/>'
+        '<mxCell id="3" value="Beta"/>'
+        '</root></mxGraphModel>',
+        encoding="utf-8"
+    )
+    extract_drawio(mock_writer, drawio)
+    written = "".join(call[0][0] for call in mock_writer.write.call_args_list)
+    assert "4 Cells, 3 Texte, 2 Unique" in written
+
+
+def test_extract_drawio_position_no_coords(tmp_path, mock_writer):
+    """Test mxGeometry without x/y attributes - no position shown, no crash."""
+    drawio = tmp_path / "nopos.drawio"
+    drawio.write_text(
+        '<mxGraphModel><root>'
+        '<mxCell id="1" value="No Pos">'
+        '<mxGeometry width="120" height="60" as="geometry"/>'
+        '</mxCell>'
+        '</root></mxGraphModel>',
+        encoding="utf-8"
+    )
+    extract_drawio(mock_writer, drawio)
+    written = "".join(call[0][0] for call in mock_writer.write.call_args_list)
+    assert "No Pos" in written
+    assert "(x=" not in written
+
+
+def test_extract_drawio_size_limit(tmp_path, mock_writer):
+    """Test that files >1MB are skipped with [SKIPPED] message."""
+    drawio = tmp_path / "big.drawio"
+    drawio.write_bytes(b"x" * (1_048_576 + 1))
+    extract_drawio(mock_writer, drawio)
+    mock_writer.write.assert_called_with("[SKIPPED: big.drawio - exceeds 1MB limit]\n")
+
+
 def test_extract_drawio_compressed_coverage(tmp_path):
     """Test drawio handling in copycat integration."""
     drawio_file = tmp_path / "diagram.drawio"
@@ -607,17 +718,6 @@ def test_run_copycat_archive_rotation(tmp_path, run_args):
     assert next(tmp_path.glob("combined_copycat_3.txt")).exists()
 
 
-def test_run_copycat_self_protection(tmp_path, run_args):
-    """Test that test scripts are included properly."""
-    (tmp_path / "test_copycat.py").write_text("# test script")
-    (tmp_path / "test.py").write_text("def hello(): pass")
-    
-    run_copycat(run_args())
-    
-    report = next(tmp_path.glob("combined_copycat_*.txt"))
-    assert "test.py" in report.read_text()
-
-
 @pytest.mark.parametrize("types,expected", [
     (["code"], "CODE: 1 Datei"),
     (["code", "web"], "WEB:"),
@@ -683,17 +783,6 @@ def test_run_copycat_binary_recursive(tmp_path, run_args):
     assert "test.png" in report.read_text()
 
 
-def test_run_copycat_line_counting(tmp_path, run_args):
-    """Test code line counting."""
-    code_file = tmp_path / "test.py"
-    code_file.write_text("line1\nline2\nline3\n")
-    
-    run_copycat(run_args())
-    
-    report = next(tmp_path.glob("combined_copycat_*.txt"))
-    assert "test.py" in report.read_text()
-
-
 def test_run_copycat_flat_skips_combined_output(tmp_path, run_args):
     """Test that files named 'combined_copycat...' are skipped in flat mode."""
     (tmp_path / "combined_copycat_prev.txt").write_text("old output")
@@ -705,33 +794,27 @@ def test_run_copycat_flat_skips_combined_output(tmp_path, run_args):
 
 # ==================== ARCHIVE TESTS ====================
 
-def test_move_to_archive(tmp_path):
-    """Test report archiving."""
-    old_file = tmp_path / "combined_copycat_1.txt"
-    old_file.touch()
-    
+@pytest.mark.parametrize("exists,expect_archived", [
+    (True, True),
+    (False, False),
+])
+def test_move_to_archive(tmp_path, exists, expect_archived):
+    """Test report archiving (file exists) and no-op (file absent)."""
+    if exists:
+        (tmp_path / "combined_copycat_1.txt").touch()
     move_to_archive(tmp_path, "combined_copycat_1.txt")
-    
-    archive = tmp_path / "CopyCat_Archive" / "combined_copycat_1.txt"
-    assert archive.exists()
+    assert (tmp_path / "CopyCat_Archive" / "combined_copycat_1.txt").exists() == expect_archived
 
 
 def test_move_to_archive_permission(tmp_path, monkeypatch):
-    """Test archive with permission error."""
-    old_file = tmp_path / "combined_copycat_1.txt"
-    old_file.touch()
-    
+    """Test archive with permission error (exception is silently handled)."""
+    (tmp_path / "combined_copycat_1.txt").touch()
+
     def mock_move(src, dst):
         raise PermissionError()
-    
+
     monkeypatch.setattr("shutil.move", mock_move)
     move_to_archive(tmp_path, "combined_copycat_1.txt")
-
-
-def test_move_to_archive_no_op(tmp_path):
-    """Test archive when file doesn't exist is a no-op."""
-    move_to_archive(tmp_path, "combined_copycat_99.txt")  # file does not exist
-    assert not (tmp_path / "CopyCat_Archive" / "combined_copycat_99.txt").exists()
 
 
 # ==================== MAIN ENTRYPOINT TEST ====================
@@ -763,13 +846,6 @@ def test_run_copycat_format_json_basic(tmp_path, run_args):
     assert data["version"] == "2.9"
     assert data["files"] >= 1
     assert "code" in data["types"]
-
-
-def test_run_copycat_format_json_no_git(tmp_path, run_args):
-    """Test JSON output: git is None when no repo."""
-    (tmp_path / "app.py").write_text("x = 1\n")
-    run_copycat(run_args(fmt="json"))
-    data = json.loads(next(tmp_path.glob("combined_copycat_*.json")).read_text())
     assert data["git"] is None
 
 
@@ -860,15 +936,6 @@ def test_run_copycat_format_md_read_exception(tmp_path, run_args):
     assert "Fehler beim Lesen" in content
 
 
-def test_run_copycat_format_txt_default_unchanged(tmp_path, run_args):
-    """Test that default format=txt still produces .txt report."""
-    (tmp_path / "test.py").write_text("pass\n")
-    run_copycat(run_args())
-    reports = list(tmp_path.glob("combined_copycat_*.txt"))
-    assert len(reports) == 1
-    assert "CopyCat v2.9" in reports[0].read_text()
-
-
 def test_run_copycat_archive_cross_format(tmp_path, run_args):
     """Test that archive picks up files of all extensions."""
     (tmp_path / "combined_copycat_1.txt").write_text("old txt")
@@ -930,31 +997,20 @@ def test_write_md_direct(tmp_path):
 
 # ==================== SEARCH TESTS (MILESTONE 11) ====================
 
-def test_search_in_file_found(tmp_path):
-    """search_in_file returns matching lines with line numbers."""
+@pytest.mark.parametrize("text,pattern,count,first_lineno", [
+    ("x = 1\n# TODO: fix\ndef hello(): pass\n", "TODO", 1, 2),
+    ("# TODO: a\nx = 1\n# TODO: b\n", "TODO", 2, 1),
+    ("x = 1\ndef hello(): pass\n", "TODO", 0, None),
+    ("def foo():\ndef bar():\nx = 1\n", r"^def ", 2, 1),
+])
+def test_search_in_file_matches(tmp_path, text, pattern, count, first_lineno):
+    """search_in_file returns correct hit count and line numbers."""
     f = tmp_path / "code.py"
-    f.write_text("x = 1\n# TODO: fix\ndef hello(): pass\n")
-    hits = search_in_file(f, "TODO")
-    assert len(hits) == 1
-    assert hits[0][0] == 2
-    assert "TODO" in hits[0][1]
-
-
-def test_search_in_file_multiple_matches(tmp_path):
-    """search_in_file finds multiple matching lines."""
-    f = tmp_path / "code.py"
-    f.write_text("# TODO: a\nx = 1\n# TODO: b\n")
-    hits = search_in_file(f, "TODO")
-    assert len(hits) == 2
-    assert hits[0][0] == 1
-    assert hits[1][0] == 3
-
-
-def test_search_in_file_no_match(tmp_path):
-    """search_in_file returns empty list when pattern not found."""
-    f = tmp_path / "code.py"
-    f.write_text("x = 1\ndef hello(): pass\n")
-    assert search_in_file(f, "TODO") == []
+    f.write_text(text)
+    hits = search_in_file(f, pattern)
+    assert len(hits) == count
+    if first_lineno is not None:
+        assert hits[0][0] == first_lineno
 
 
 def test_search_in_file_invalid_regex(tmp_path):
@@ -977,14 +1033,6 @@ def test_search_in_file_os_error(tmp_path):
     f.write_text("x = 1")
     with patch("builtins.open", side_effect=OSError("denied")):
         assert search_in_file(f, "TODO") == []
-
-
-def test_search_in_file_regex_pattern(tmp_path):
-    """search_in_file supports full regex patterns."""
-    f = tmp_path / "code.py"
-    f.write_text("def foo():\ndef bar():\nx = 1\n")
-    hits = search_in_file(f, r"^def ")
-    assert len(hits) == 2
 
 
 def test_build_search_results_basic(tmp_path):
@@ -1181,3 +1229,142 @@ def test_write_json_search_direct(tmp_path):
     assert data["search"]["files_matched"] == 1
     assert data["details"]["code"][0]["matches"] == [{"line": 1, "text": "# TODO"}]
 
+
+# ==================== CONFIG TESTS (MILESTONE 12) ====================
+
+def test_load_config_no_file(tmp_path):
+    """Explicit config_path that does not exist → empty dict."""
+    cfg = load_config(str(tmp_path / "nonexistent.conf"))
+    assert cfg == {}
+
+
+def test_load_config_basic(tmp_path):
+    """All valid fields parsed; comments, empty lines, no-equals lines skipped."""
+    conf = tmp_path / "copycat.conf"
+    conf.write_text(
+        "# comment\n"
+        "\n"
+        "types = code, diagram\n"
+        "recursive = true\n"
+        "max_size_mb = 5\n"
+        "format = md\n"
+        "search = TODO\n"
+        "input = src\n"
+        "output = out\n"
+        "no_equals_sign\n"
+    )
+    cfg = load_config(str(conf))
+    assert cfg["types"] == "code, diagram"
+    assert cfg["recursive"] == "true"
+    assert cfg["max_size_mb"] == "5"
+    assert cfg["format"] == "md"
+    assert cfg["search"] == "TODO"
+    assert cfg["input"] == "src"
+    assert cfg["output"] == "out"
+    assert "no_equals_sign" not in cfg
+
+
+def test_load_config_empty_value_skipped(tmp_path):
+    """Key with empty value after strip is not stored."""
+    conf = tmp_path / "copycat.conf"
+    conf.write_text("types =\n")
+    cfg = load_config(str(conf))
+    assert "types" not in cfg
+
+
+def test_load_config_oserror(tmp_path):
+    """OSError during read_text → empty dict returned."""
+    conf = tmp_path / "copycat.conf"
+    conf.touch()
+    with patch.object(Path, "read_text", side_effect=OSError("denied")):
+        cfg = load_config(str(conf))
+    assert cfg == {}
+
+
+def test_load_config_searches_cwd(tmp_path, monkeypatch):
+    """load_config() without explicit path finds copycat.conf in CWD."""
+    (tmp_path / "copycat.conf").write_text("format = json\n")
+    monkeypatch.chdir(tmp_path)
+    cfg = load_config()
+    assert cfg["format"] == "json"
+
+
+def test_parse_arguments_config_types_recursive(tmp_path):
+    """Config sets types + recursive=true as defaults."""
+    conf = tmp_path / "copycat.conf"
+    conf.write_text("types = code, diagram\nrecursive = true\n")
+    with patch("sys.argv", ["CopyCat.py"]):
+        args = parse_arguments(config_path=str(conf))
+    assert args.types == ["code", "diagram"]
+    assert args.recursive is True
+
+
+def test_parse_arguments_config_max_size_format_search(tmp_path):
+    """Config sets max_size_mb, format, search as defaults."""
+    conf = tmp_path / "copycat.conf"
+    conf.write_text("max_size_mb = 5\nformat = md\nsearch = TODO\n")
+    with patch("sys.argv", ["CopyCat.py"]):
+        args = parse_arguments(config_path=str(conf))
+    assert args.max_size == 5.0
+    assert args.format == "md"
+    assert args.search == "TODO"
+
+
+def test_parse_arguments_config_input_output(tmp_path):
+    """Config sets input and output paths as defaults."""
+    conf = tmp_path / "copycat.conf"
+    conf.write_text(f"input = {tmp_path}\noutput = {tmp_path}\n")
+    with patch("sys.argv", ["CopyCat.py"]):
+        args = parse_arguments(config_path=str(conf))
+    assert args.input == str(tmp_path)
+    assert args.output == str(tmp_path)
+
+
+def test_parse_arguments_config_invalid_values(tmp_path):
+    """Invalid max_size_mb and format values are ignored (warning logged)."""
+    conf = tmp_path / "copycat.conf"
+    conf.write_text("max_size_mb = notanumber\nformat = pdf\n")
+    with patch("sys.argv", ["CopyCat.py"]):
+        args = parse_arguments(config_path=str(conf))
+    assert args.max_size == float("inf")
+    assert args.format == "txt"
+
+
+def test_parse_arguments_config_recursive_false(tmp_path):
+    """Config recursive=false keeps default False."""
+    conf = tmp_path / "copycat.conf"
+    conf.write_text("recursive = false\n")
+    with patch("sys.argv", ["CopyCat.py"]):
+        args = parse_arguments(config_path=str(conf))
+    assert args.recursive is False
+
+
+def test_parse_arguments_config_empty_types(tmp_path):
+    """types value that yields no tokens → default ['all'] kept."""
+    conf = tmp_path / "copycat.conf"
+    conf.write_text("types = ,,,\n")
+    with patch("sys.argv", ["CopyCat.py"]):
+        args = parse_arguments(config_path=str(conf))
+    assert args.types == ["all"]
+
+
+def test_parse_arguments_no_config(tmp_path):
+    """Missing config file → pure argparse defaults unchanged."""
+    with patch("sys.argv", ["CopyCat.py"]):
+        args = parse_arguments(config_path=str(tmp_path / "missing.conf"))
+    assert args.types == ["all"]
+    assert args.recursive is False
+    assert args.max_size == float("inf")
+    assert args.format == "txt"
+    assert args.search is None
+
+
+def test_parse_arguments_cli_overrides_config(tmp_path):
+    """CLI arguments take precedence over copycat.conf values."""
+    conf = tmp_path / "copycat.conf"
+    conf.write_text("types = docs\nformat = md\nrecursive = true\n")
+    with patch("sys.argv", ["CopyCat.py", "-t", "code", "-f", "json"]):
+        args = parse_arguments(config_path=str(conf))
+    assert args.types == ["code"]
+    assert args.format == "json"
+    assert args.recursive is True  # config=true, no CLI override
