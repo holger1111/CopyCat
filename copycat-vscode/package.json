@@ -1,0 +1,88 @@
+{
+  "name": "copycat",
+  "displayName": "CopyCat",
+  "description": "Run CopyCat documentation reports directly from VS Code",
+  "version": "0.1.0",
+  "publisher": "copycat",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-username/CopyCat"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["Other"],
+  "keywords": ["documentation", "code", "report", "python"],
+  "activationEvents": [],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "copycat.run",
+        "title": "CopyCat: Report erstellen",
+        "icon": "$(file-code)"
+      },
+      {
+        "command": "copycat.runRecursive",
+        "title": "CopyCat: Report erstellen (rekursiv)",
+        "icon": "$(file-submodule)"
+      }
+    ],
+    "configuration": {
+      "title": "CopyCat",
+      "properties": {
+        "copycat.pythonPath": {
+          "type": "string",
+          "default": "",
+          "description": "Pfad zum Python-Interpreter. Leer = automatisch erkennen (python.defaultInterpreterPath → 'python' aus PATH)."
+        },
+        "copycat.scriptPath": {
+          "type": "string",
+          "default": "",
+          "description": "Pfad zu CopyCat.py. Leer = automatisch im Workspace-Stammverzeichnis suchen."
+        },
+        "copycat.outputFormat": {
+          "type": "string",
+          "enum": ["txt", "json", "md"],
+          "enumDescriptions": [
+            "Einfaches Textformat",
+            "JSON-Format",
+            "Markdown-Format"
+          ],
+          "default": "txt",
+          "description": "Ausgabeformat für den generierten Report."
+        },
+        "copycat.maxSizeMb": {
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "description": "Maximale Dateigröße in MB (0 = unbegrenzt)."
+        },
+        "copycat.excludePatterns": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Glob-Muster oder Ordner zum Ausschließen, z.B. [\"*.min.js\", \"dist/\", \"node_modules/\"]."
+        },
+        "copycat.extraArgs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Zusätzliche CopyCat-Argumente, z.B. [\"--search\", \"TODO|FIXME\"]."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package --no-dependencies"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^2.24.0",
+    "typescript": "^5.3.0"
+  }
+}

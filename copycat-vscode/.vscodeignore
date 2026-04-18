@@ -1,0 +1,8 @@
+# Nicht in .vsix packagen:
+.vscode/**
+node_modules/**
+src/**
+tsconfig.json
+*.map
+.gitignore
+*.vsix

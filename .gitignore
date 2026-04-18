@@ -44,3 +44,8 @@ ehthumbs.db
 dist/
 build/
 *.egg-info/
+
+# VS Code Extension (copycat-vscode)
+copycat-vscode/out/
+copycat-vscode/node_modules/
+copycat-vscode/*.vsix
