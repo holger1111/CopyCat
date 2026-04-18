@@ -4291,7 +4291,8 @@ def test_gui_stats_save_config(gui, tmp_path):
     from CopyCat_GUI import CopyCatGUI
     gui._stats_var.set(True)
     conf = tmp_path / "copycat.conf"
-    with patch("CopyCat_GUI.filedialog.asksaveasfilename", return_value=str(conf)):
+    with patch("CopyCat_GUI.filedialog.asksaveasfilename", return_value=str(conf)), \
+         patch("CopyCat_GUI.messagebox.showinfo"):
         CopyCatGUI._save_config(gui)
     content = conf.read_text(encoding="utf-8")
     assert "stats = true" in content
