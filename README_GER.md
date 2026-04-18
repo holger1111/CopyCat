@@ -114,7 +114,7 @@ python CopyCat.py                             # nutzt copycat.conf falls vorhand
 | `-t`, `--types`		| Typen: `code web db config docs deps img audio diagram notebook` oder `all`	| `all`	|
 | `-r`, `--recursive`		| Rekursive Suche in Unterordnern					| false		|
 | `-s`, `--max-size`		| Max Größe MB								| unbegrenzt	|
-| `-f`, `--format`		| Ausgabeformat: `txt`, `json`, `md`, `html`					| `txt`		|
+| `-f`, `--format`		| Ausgabeformat: `txt`, `json`, `md`, `html`, `pdf`				| `txt`		|
 | `-S`, `--search`		| Regex-Suchmuster (z.B. `TODO\|FIXME`, `def `)			| None		|
 | `-E`, `--exclude`		| Glob-Muster oder Ordner ausschließen (z.B. `*.min.js` `dist/` `node_modules/`)	| None	|
 | `-I`, `--incremental`	| Inkrementeller Modus: nur geänderte Dateien neu scannen, Cache in `.copycat_cache/`	| aus	|
@@ -129,8 +129,11 @@ python CopyCat.py                             # nutzt copycat.conf falls vorhand
 | `--merge R [R ...]`		| Mehrere CopyCat-Reports zu einem zusammenführen			| —		|
 | `--plugin-dir DIR`		| Plugins aus diesem Verzeichnis laden (Standard: `plugins/` neben CopyCat.py)	| —	|
 | `--list-plugins`		| Geladene Plugins anzeigen und beenden					| aus		|
-| `--install-hook DIR`		| CopyCat als Git pre-commit Hook im angegebenen Projektordner installieren	| —	|
-
+| `--install-hook DIR`		| CopyCat als Git pre-commit Hook im angegebenen Projektordner installieren	| —	|| `--ai-summary`		| KI-Projektsteckbrief via OpenAI-kompatibler API (Key: `COPYCAT_AI_KEY` Umgebungsvariable)	| aus	|
+| `--ai-model MODEL`		| LLM-Modellname für KI-Zusammenfassung						| `gpt-4o-mini`	|
+| `--ai-base-url URL`		| Basis-URL für KI-API (z.B. `http://localhost:11434/v1` für Ollama)		| None		|
+| `--timeline`			| Zeitstrahl aus archivierten Reports erstellen					| aus		|
+| `--timeline-format`		| Timeline-Format: `md`, `ascii`, `html`					| `md`		|
 ### Flach vs Rekursiv
 
 
@@ -362,6 +365,8 @@ pyinstaller CopyCat_Web.spec    # → dist/CopyCat_Web.exe
 - `threading` + `watchdog`: Watch-Modus (automatischer Re-Run bei Änderungen)
 - `jinja2` (optional): benutzerdefinierte Template-Ausgabe (`pip install jinja2`)
 - `tkinterdnd2` (optional): Drag-&-Drop-Unterstützung in der GUI (`pip install tkinterdnd2`)
+- `reportlab` (optional): PDF-Export (`pip install reportlab`)
+- `openai` (optional): KI-Zusammenfassung (`pip install openai`)
 
 
 ### Fehlerbehandlung
@@ -409,6 +414,7 @@ CopyCat v2.9 unterstützt vier Ausgabeformate über das `-f` / `--format`-Flag:
 | **JSON** | `-f json` | `combined_copycat_N.json` | Strukturierte maschinenlesbare Daten |
 | **Markdown** | `-f md` | `combined_copycat_N.md` | GitHub-fertige Dokumentation |
 | **HTML** | `-f html` | `combined_copycat_N.html` | Eigenständiges HTML mit Syntax-Highlighting |
+| **PDF** | `-f pdf` | `combined_copycat_N.pdf` | Strukturiertes PDF mit Meta-Tabelle, Code, Statistiken (`pip install reportlab`) |
 
 
 **JSON-Schema-Beispiel:**
@@ -443,11 +449,108 @@ CopyCat v2.9 unterstützt vier Ausgabeformate über das `-f` / `--format`-Flag:
 # Beispiele
 python CopyCat.py -f json -i C:\Projekt    # JSON-Report
 python CopyCat.py -f md -r                 # Rekursiver Markdown-Report
+python CopyCat.py -f pdf                   # PDF-Report
 python CopyCat.py                          # Standard TXT (unverändert)
 ```
 
 
-Alle drei Formate verwenden dasselbe Serial-System und die Archiv-Rotation.
+Alle Formate verwenden dasselbe Serial-System und die Archiv-Rotation.
+
+
+### PDF-Export
+
+
+CopyCat v2.9 erstellt strukturierte PDF-Reports via `--format pdf`:
+
+```bash
+pip install reportlab
+python CopyCat.py -f pdf                        # PDF-Report
+python CopyCat.py -f pdf -r --stats             # Rekursiv + Code-Statistiken
+```
+
+Das PDF enthält:
+- **Meta-Tabelle**: Datum, Modus, Pfad, Git-Info, Dateianzahl, Suchmuster
+- **Übersichtstabelle**: Dateityp-Anzahl
+- **Code-Statistiken** (bei `--stats`): LOC, Kommentare, Leerzeilen, Komplexität
+- **Code-Details**: Quellcode pro Datei (max. 150 Zeilen je Datei; längere werden mit Hinweis gekürzt)
+- **Suchergebnis-Tabelle** (bei `--search`)
+
+> **Hinweis:** Binärdateien und Dateien mit Encoding-Fehlern werden graceful übersprungen.
+
+
+### KI-Zusammenfassung
+
+
+CopyCat v2.9 kann einen KI-generierten Projektsteckbrief an jeden Report anhängen:
+
+```bash
+pip install openai
+set COPYCAT_AI_KEY=sk-...              # OpenAI-Key (Windows)
+python CopyCat.py --ai-summary         # KI-Steckbrief an TXT anhängen
+python CopyCat.py -f json --ai-summary # KI-Steckbrief als JSON-Feld "ai_summary"
+python CopyCat.py -f html --ai-summary # KI-Steckbrief in HTML injizieren
+```
+
+**Ollama (lokal, keine API-Kosten):**
+```bash
+ollama pull llama3
+set COPYCAT_AI_KEY=ollama
+python CopyCat.py --ai-summary --ai-base-url http://localhost:11434/v1 --ai-model llama3
+```
+
+**Datenschutz:** Es werden ausschließlich Projektmetadaten an die API gesendet (Dateinamen, Counts, Git-Info) — **niemals Quellcode-Inhalte**.
+
+| Option | Beschreibung | Standard |
+|---|---|---|
+| `--ai-summary` | KI-Projektsteckbrief generieren und anhängen | aus |
+| `--ai-model MODEL` | LLM-Modellname | `gpt-4o-mini` |
+| `--ai-base-url URL` | Basis-URL für OpenAI-kompatible API (z.B. Ollama) | None |
+
+Der API-Key wird **ausschließlich** aus der Umgebungsvariable `COPYCAT_AI_KEY` gelesen. Er wird aus Sicherheitsgründen nie in Konfigurationsdateien gespeichert oder per CLI übergeben. Fehlt der Key oder schlägt der API-Aufruf fehl, wird eine Warnung geloggt und der Report trotzdem erstellt.
+
+
+### Report-Timeline
+
+
+CopyCat v2.9 erstellt eine visuelle Historie aus dem `CopyCat_Archive/`-Ordner:
+
+```bash
+python CopyCat.py --timeline                           # Markdown-Tabelle (Standard)
+python CopyCat.py --timeline --timeline-format ascii   # ASCII-Balkendiagramm
+python CopyCat.py --timeline --timeline-format html    # Interaktives Chart.js-HTML
+```
+
+**Beispiel Markdown-Ausgabe:**
+```
+| # | Datum | Dateien | Typen |
+|---|-------|---------|-------|
+| #1 | 01.01.2025 | 12 | CODE: 8, DOCS: 4 |
+| #2 | 15.01.2025 | 20 | CODE: 14, DOCS: 6 |
+```
+
+Die GUI enthält zusätzlich einen **📊 Timeline**-Button, der die Markdown-Timeline im Ausgabebereich anzeigt.
+
+
+### Docker
+
+
+CopyCat ohne Python-Installation betreiben:
+
+```bash
+# Image bauen
+docker build -t copycat .
+
+# Ausführen (aktueller Ordner wird als /project gemountet)
+docker run --rm -v "$(pwd):/project" copycat [OPTIONEN]
+
+# Beispiele
+docker run --rm -v "$(pwd):/project" copycat -r -f json
+docker run --rm -v "C:\MeinProjekt:/project" copycat --stats -f pdf
+```
+
+Das Docker-Image (`python:3.12-slim`) enthält alle optionalen Abhängigkeiten: `reportlab`, `jinja2`, `watchdog`, `pygments`, `openai`.
+
+
 
 
 ### Inhaltssuche
@@ -529,6 +632,8 @@ format = md
 | `incremental` | bool | `true` | Inkrementellen Cache aktivieren (`true`/`false`) |
 | `stats` | bool | `true` | Code-Statistiken aktivieren (`true`/`false`) |
 | `git_url` | string | — | Remote-Git-Repository-URL zum Klonen und Scannen |
+| `ai_model` | string | `gpt-4o-mini` | LLM-Modellname für `--ai-summary` |
+| `ai_base_url` | string | — | Basis-URL für KI-API (z.B. Ollama) |
 
 
 **Suchreihenfolge:** Aktuelles Verzeichnis → Skript-Verzeichnis. Erste gefundene Datei gewinnt.
@@ -625,13 +730,13 @@ README_GER.md
 
 3. `git commit -m "feat/fix/docs/test/ci: Beschreibung"`
 
-**Tests:** 262 Tests, 100 % Branch-Coverage (CLI, Serial, Gitignore, Draw.io, GUI, Watch, Templates, Diff, Merge, Hook, Plugins, …)
+**Tests:** 442 Tests, 100 % Branch-Coverage (CLI, Serial, Gitignore, Draw.io, GUI, Watch, Templates, Diff, Merge, Hook, Plugins, PDF, KI, Timeline, …)
 
 **CI:** GitHub Actions → pytest + Coverage-Badges (Codecov)
 
 **Optionale Abhängigkeiten installieren:**
 ```bash
-pip install jinja2 watchdog tkinterdnd2
+pip install jinja2 watchdog tkinterdnd2 reportlab openai
 ```
 
 - ✓ pathlib Dateisystem
