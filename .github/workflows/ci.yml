@@ -18,7 +18,7 @@ jobs:
       run: sudo apt-get install -y python3-tk
 
     - name: Install pytest + cov
-      run: pip install pytest pytest-cov jinja2 watchdog flask pygments
+      run: pip install pytest pytest-cov jinja2 watchdog flask pygments reportlab
     
     - name: Run Tests with Coverage  
       run: |
