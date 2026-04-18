@@ -1,0 +1,17 @@
+# Docker ignore – hält das Image klein
+CopyCat_Archive/
+.copycat_cache/
+combined_copycat_*.txt
+combined_copycat_*.json
+combined_copycat_*.md
+combined_copycat_*.html
+combined_copycat_*.pdf
+__pycache__/
+*.pyc
+*.pyo
+.git/
+.gitignore
+Test_Set/
+copycat-vscode/
+Information/
+*.spec

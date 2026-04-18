@@ -118,7 +118,7 @@ _TEMPLATE = """<!DOCTYPE html>
           <div>
             <label for="fmt">Ausgabeformat</label>
             <select id="fmt" name="fmt">
-              {% for f in ['txt', 'json', 'md', 'html'] %}
+              {% for f in ['txt', 'json', 'md', 'html', 'pdf'] %}
               <option value="{{ f }}" {% if form.fmt == f %}selected{% endif %}>{{ f }}</option>
               {% endfor %}
             </select>
@@ -372,11 +372,12 @@ def download():
     p = Path(path_str)
     if not p.is_file():
         return "Datei nicht gefunden.", 404
-    # Sicherheitscheck: nur combined_copycat_*.{txt,json,md,html} erlaubt
-    if not re.fullmatch(r"combined_copycat_\d+\.(txt|json|md|html)", p.name):
+    # Sicherheitscheck: nur combined_copycat_*.{txt,json,md,html,pdf} erlaubt
+    if not re.fullmatch(r"combined_copycat_\d+\.(txt|json|md|html|pdf)", p.name):
         return "Nicht erlaubt.", 403
     content = p.read_bytes()
-    mime = {"txt": "text/plain", "json": "application/json", "md": "text/markdown", "html": "text/html"}.get(
+    mime = {"txt": "text/plain", "json": "application/json", "md": "text/markdown",
+            "html": "text/html", "pdf": "application/pdf"}.get(
         p.suffix.lstrip("."), "application/octet-stream"
     )
     return Response(

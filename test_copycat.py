@@ -50,6 +50,12 @@ from CopyCat import (
     _write_html,
     _analyse_file,
     _build_stats,
+    _write_pdf,
+    _generate_ai_summary,
+    build_timeline,
+    _timeline_md,
+    _timeline_ascii,
+    _timeline_html,
 )
 
 
@@ -1422,11 +1428,20 @@ def test_parse_arguments_config_input_output(tmp_path):
 def test_parse_arguments_config_invalid_values(tmp_path):
     """Invalid max_size_mb and format values are ignored (warning logged)."""
     conf = tmp_path / "copycat.conf"
-    conf.write_text("max_size_mb = notanumber\nformat = pdf\n")
+    conf.write_text("max_size_mb = notanumber\nformat = xlsx\n")
     with patch("sys.argv", ["CopyCat.py"]):
         args = parse_arguments(config_path=str(conf))
     assert args.max_size == float("inf")
     assert args.format == "txt"
+
+
+def test_parse_arguments_config_format_pdf(tmp_path):
+    """Config format=pdf is now valid and accepted."""
+    conf = tmp_path / "copycat.conf"
+    conf.write_text("format = pdf\n")
+    with patch("sys.argv", ["CopyCat.py"]):
+        args = parse_arguments(config_path=str(conf))
+    assert args.format == "pdf"
 
 
 def test_parse_arguments_config_recursive_false(tmp_path):
@@ -4527,3 +4542,284 @@ def test_web_api_run_with_git_url(web_client):
     assert resp.status_code == 200
     data = resp.get_json()
     assert data["status"] == "ok"
+
+
+# ==================== M33: PDF-Export ====================
+
+def test_write_pdf_requires_reportlab(tmp_path, run_args):
+    """_write_pdf wirft ImportError wenn reportlab fehlt."""
+    args = run_args()
+    files = {k: [] for k in TYPE_FILTERS}
+    out = tmp_path / "test.pdf"
+    import CopyCat
+    original = CopyCat._write_pdf
+    # Simuliere fehlende reportlab durch direkten Patch auf den Import innerhalb der Funktion
+    with patch.object(CopyCat, "_write_pdf",
+                      side_effect=ImportError("reportlab ist nicht installiert")):
+        with pytest.raises(ImportError, match="reportlab"):
+            CopyCat._write_pdf(out, files, args, tmp_path, "No Git", 1)
+
+
+def test_write_pdf_creates_file(tmp_path, run_args):
+    """_write_pdf erstellt eine PDF-Datei (benötigt reportlab)."""
+    pytest.importorskip("reportlab")
+    args = run_args()
+    (tmp_path / "hello.py").write_text("print('hello')\n", encoding="utf-8")
+    import CopyCat
+    files = CopyCat._collect_files(args, tmp_path, CopyCat.Path(__file__).resolve())
+    out = tmp_path / "test.pdf"
+    _write_pdf(out, files, args, tmp_path, "No Git", 1)
+    assert out.exists()
+    assert out.stat().st_size > 0
+    # Ist eine gültige PDF (beginnt mit %PDF)
+    assert out.read_bytes()[:4] == b"%PDF"
+
+
+def test_write_pdf_with_stats(tmp_path, run_args):
+    """_write_pdf mit Stats-Daten schlägt nicht fehl."""
+    pytest.importorskip("reportlab")
+    args = run_args(stats=True)
+    (tmp_path / "code.py").write_text("# comment\nx = 1\n", encoding="utf-8")
+    import CopyCat
+    files = CopyCat._collect_files(args, tmp_path, CopyCat.Path(__file__).resolve())
+    stats = CopyCat._build_stats(files)
+    out = tmp_path / "stats.pdf"
+    _write_pdf(out, files, args, tmp_path, "No Git", 2, stats=stats)
+    assert out.exists()
+
+
+def test_run_copycat_pdf_format(tmp_path, run_args):
+    """run_copycat erzeugt combined_copycat_N.pdf bei --format pdf."""
+    pytest.importorskip("reportlab")
+    args = run_args(fmt="pdf")
+    result = run_copycat(args)
+    assert result is not None
+    assert result.endswith(".pdf")
+    assert Path(result).exists()
+
+
+def test_is_valid_serial_filename_pdf():
+    """is_valid_serial_filename erkennt .pdf als gültig."""
+    assert is_valid_serial_filename("combined_copycat_5.pdf")
+
+
+# ==================== M35: KI-Zusammenfassung ====================
+
+def test_generate_ai_summary_missing_key(tmp_path, run_args):
+    """_generate_ai_summary wirft ValueError wenn COPYCAT_AI_KEY fehlt."""
+    import os
+    files = {k: [] for k in TYPE_FILTERS}
+    env = {k: v for k, v in os.environ.items() if k != "COPYCAT_AI_KEY"}
+    with patch.dict(os.environ, env, clear=True):
+        with pytest.raises(ValueError, match="COPYCAT_AI_KEY"):
+            _generate_ai_summary(files, tmp_path, "No Git")
+
+
+def test_generate_ai_summary_missing_openai(tmp_path):
+    """_generate_ai_summary wirft ImportError wenn openai nicht installiert."""
+    import os
+    files = {k: [] for k in TYPE_FILTERS}
+    with patch.dict(os.environ, {"COPYCAT_AI_KEY": "sk-test"}):
+        with patch.dict("sys.modules", {"openai": None}):
+            with pytest.raises(ImportError, match="openai"):
+                _generate_ai_summary(files, tmp_path, "No Git")
+
+
+def test_generate_ai_summary_success(tmp_path):
+    """_generate_ai_summary liefert Text vom gemockten API-Call."""
+    import os
+    files = {k: [] for k in TYPE_FILTERS}
+    mock_response = MagicMock()
+    mock_response.choices = [MagicMock()]
+    mock_response.choices[0].message.content = "Test-Zusammenfassung"
+
+    mock_client = MagicMock()
+    mock_client.chat.completions.create.return_value = mock_response
+    mock_openai_cls = MagicMock(return_value=mock_client)
+
+    with patch.dict(os.environ, {"COPYCAT_AI_KEY": "sk-test"}):
+        with patch.dict("sys.modules", {"openai": MagicMock(OpenAI=mock_openai_cls)}):
+            # openai muss importierbar sein
+            import sys
+            sys.modules["openai"].OpenAI = mock_openai_cls
+            result = _generate_ai_summary(files, tmp_path, "Branch: main | Last Commit: abc1234")
+    assert result == "Test-Zusammenfassung"
+
+
+def test_generate_ai_summary_api_error(tmp_path):
+    """_generate_ai_summary wandelt API-Exception in ValueError um."""
+    import os
+    files = {k: [] for k in TYPE_FILTERS}
+    mock_client = MagicMock()
+    mock_client.chat.completions.create.side_effect = RuntimeError("connection refused")
+    mock_openai_cls = MagicMock(return_value=mock_client)
+
+    with patch.dict(os.environ, {"COPYCAT_AI_KEY": "sk-test"}):
+        with patch.dict("sys.modules", {"openai": MagicMock(OpenAI=mock_openai_cls)}):
+            import sys
+            sys.modules["openai"].OpenAI = mock_openai_cls
+            with pytest.raises(ValueError, match="AI-API-Fehler"):
+                _generate_ai_summary(files, tmp_path, "No Git")
+
+
+def test_run_copycat_ai_summary_warning_on_failure(tmp_path, run_args, caplog):
+    """run_copycat gibt Warnung aus wenn AI-Summary fehlschlägt (kein Key)."""
+    import os
+    args = run_args()
+    args.ai_summary = True
+    args.ai_model = "gpt-4o-mini"
+    args.ai_base_url = None
+    env = {k: v for k, v in os.environ.items() if k != "COPYCAT_AI_KEY"}
+    with patch.dict(os.environ, env, clear=True):
+        with caplog.at_level(logging.WARNING):
+            result = run_copycat(args)
+    assert result is not None  # Report trotzdem erstellt
+    assert any("KI-Zusammenfassung fehlgeschlagen" in r.message for r in caplog.records)
+
+
+# ==================== M36: Report-Timeline ====================
+
+def test_build_timeline_empty_archive(tmp_path):
+    """build_timeline mit leerem Archiv gibt passende Meldung."""
+    archive = tmp_path / "CopyCat_Archive"
+    archive.mkdir()
+    result = build_timeline(archive)
+    assert "Keine Archiv-Reports gefunden" in result
+
+
+def test_build_timeline_nonexistent_archive(tmp_path):
+    """build_timeline mit nicht existierendem Archiv gibt passende Meldung."""
+    result = build_timeline(tmp_path / "nonexistent")
+    assert "Keine Archiv-Reports gefunden" in result
+
+
+def test_build_timeline_txt_reports(tmp_path):
+    """build_timeline parst TXT-Reports korrekt."""
+    archive = tmp_path / "CopyCat_Archive"
+    archive.mkdir()
+    (archive / "combined_copycat_1.txt").write_text(
+        "============================================================\n"
+        "CopyCat v2.9 | 01.01.2025 14:00 | FLACH (Default)\n"
+        "/some/path\nGIT: No Git\n\nGesamt: 5 Dateien\nSerial #1\n"
+        "============================================================\n"
+        "CODE: 3 Dateien\n",
+        encoding="utf-8",
+    )
+    (archive / "combined_copycat_2.txt").write_text(
+        "============================================================\n"
+        "CopyCat v2.9 | 15.01.2025 10:00 | FLACH (Default)\n"
+        "/some/path\nGIT: No Git\n\nGesamt: 8 Dateien\nSerial #2\n"
+        "============================================================\n"
+        "CODE: 5 Dateien\n",
+        encoding="utf-8",
+    )
+    result = build_timeline(archive)
+    assert "1" in result
+    assert "2" in result
+    assert "5" in result
+    assert "8" in result
+
+
+def test_build_timeline_json_reports(tmp_path):
+    """build_timeline parst JSON-Reports korrekt."""
+    archive = tmp_path / "CopyCat_Archive"
+    archive.mkdir()
+    report = {
+        "version": "2.9",
+        "generated": "10.02.2025 09:30",
+        "files": 12,
+        "types": {"code": 8, "docs": 4},
+        "details": {},
+    }
+    (archive / "combined_copycat_3.json").write_text(
+        json.dumps(report), encoding="utf-8"
+    )
+    result = build_timeline(archive)
+    assert "12" in result
+    assert "10.02.2025" in result
+
+
+def test_timeline_md_format(tmp_path):
+    """build_timeline erzeugt gültige Markdown-Tabelle."""
+    archive = tmp_path / "CopyCat_Archive"
+    archive.mkdir()
+    (archive / "combined_copycat_1.json").write_text(
+        json.dumps({"generated": "01.03.2025 12:00", "files": 7, "types": {"code": 7}}),
+        encoding="utf-8",
+    )
+    result = build_timeline(archive, fmt="md")
+    assert result.startswith("# CopyCat Report-Timeline")
+    assert "| Serial |" in result
+    assert "#1" in result
+
+
+def test_timeline_ascii_format(tmp_path):
+    """build_timeline erzeugt ASCII-Chart."""
+    archive = tmp_path / "CopyCat_Archive"
+    archive.mkdir()
+    (archive / "combined_copycat_1.json").write_text(
+        json.dumps({"generated": "01.03.2025", "files": 10, "types": {}}),
+        encoding="utf-8",
+    )
+    result = build_timeline(archive, fmt="ascii")
+    assert "CopyCat Report-Timeline (ASCII)" in result
+    assert "1" in result
+    assert "█" in result
+
+
+def test_timeline_html_format(tmp_path):
+    """build_timeline erzeugt HTML mit Chart.js."""
+    archive = tmp_path / "CopyCat_Archive"
+    archive.mkdir()
+    (archive / "combined_copycat_1.json").write_text(
+        json.dumps({"generated": "01.03.2025", "files": 5, "types": {}}),
+        encoding="utf-8",
+    )
+    result = build_timeline(archive, fmt="html")
+    assert "<!DOCTYPE html>" in result
+    assert "chart.js" in result
+    assert "#1" in result
+
+
+def test_timeline_md_helper():
+    """_timeline_md erstellt korrekte Markdown-Tabelle aus Einträgen."""
+    entries = [
+        {"serial": 1, "date": "01.01.2025", "total": 3, "types": {"code": 3}},
+        {"serial": 2, "date": "02.01.2025", "total": 5, "types": {"code": 4, "docs": 1}},
+    ]
+    result = _timeline_md(entries)
+    assert "| #1 |" in result
+    assert "| #2 |" in result
+    assert "CODE" in result
+
+
+def test_timeline_ascii_helper():
+    """_timeline_ascii erstellt ASCII-Chart aus Einträgen."""
+    entries = [
+        {"serial": 1, "date": "01.01.2025", "total": 10, "types": {}},
+        {"serial": 2, "date": "02.01.2025", "total": 20, "types": {}},
+    ]
+    result = _timeline_ascii(entries)
+    assert "█" in result
+    assert "10" in result
+    assert "20" in result
+    assert "CopyCat Report-Timeline (ASCII)" in result
+
+
+def test_timeline_html_helper():
+    """_timeline_html enthält Chart.js und Tabelle."""
+    entries = [{"serial": 1, "date": "01.01.2025", "total": 5, "types": {}}]
+    result = _timeline_html(entries)
+    assert "chart.js" in result
+    assert "#1" in result
+    assert "<table>" in result
+
+
+def test_timeline_ignores_pdf_files(tmp_path):
+    """build_timeline ignoriert .pdf-Archive-Dateien."""
+    archive = tmp_path / "CopyCat_Archive"
+    archive.mkdir()
+    (archive / "combined_copycat_1.pdf").write_bytes(b"%PDF-1.4 fake")
+    result = build_timeline(archive)
+    assert "Keine Archiv-Reports gefunden" in result
+

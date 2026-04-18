@@ -12,7 +12,10 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
-from CopyCat import diff_reports, install_hook, load_config, merge_reports, run_copycat, watch_and_run
+from CopyCat import (
+    diff_reports, install_hook, load_config, merge_reports,
+    run_copycat, watch_and_run, build_timeline,
+)
 
 try:  # pragma: no cover
     from tkinterdnd2 import DND_FILES, TkinterDnD
@@ -121,7 +124,7 @@ class CopyCatGUI:
         ttk.Combobox(
             frm_opt,
             textvariable=self._format_var,
-            values=["txt", "json", "md", "html"],
+            values=["txt", "json", "md", "html", "pdf"],
             state="readonly",
             width=6,
         ).grid(row=0, column=4, sticky="w")
@@ -173,6 +176,7 @@ class CopyCatGUI:
         ttk.Button(frm_btn, text="⇄  Diff", command=self._on_diff).pack(side="left", padx=4)
         ttk.Button(frm_btn, text="📄  Merge", command=self._on_merge).pack(side="left", padx=4)
         ttk.Button(frm_btn, text="🔗  Hook", command=self._on_install_hook).pack(side="left", padx=4)
+        ttk.Button(frm_btn, text="📊  Timeline", command=self._on_timeline).pack(side="left", padx=4)
         self._watch_btn = ttk.Button(frm_btn, text="👁  Watch", command=self._on_watch_toggle)
         self._watch_btn.pack(side="left", padx=4)
 
@@ -253,7 +257,7 @@ class CopyCatGUI:
             self._recursive_var.set(cfg["recursive"].lower() in ("true", "yes", "1"))
         if "max_size_mb" in cfg:
             self._max_size_var.set(cfg["max_size_mb"])
-        if "format" in cfg and cfg["format"] in ("txt", "json", "md", "html"):
+        if "format" in cfg and cfg["format"] in ("txt", "json", "md", "html", "pdf"):
             self._format_var.set(cfg["format"])
         if "search" in cfg:
             self._search_var.set(cfg["search"])
@@ -386,6 +390,18 @@ class CopyCatGUI:
         except FileNotFoundError as exc:
             messagebox.showerror("Hook-Fehler", str(exc))
 
+    # ── Timeline ──────────────────────────────────────────────────────────────
+
+    def _on_timeline(self):  # pragma: no cover
+        base = self._input_var.get().strip() or str(Path(__file__).parent)
+        archive = Path(base) / "CopyCat_Archive"
+        result = build_timeline(archive, fmt="md")
+        # Ergebnis in Ausgabefenster anzeigen
+        self._output_text.configure(state="normal")
+        self._output_text.insert("end", "\n" + result + "\n")
+        self._output_text.configure(state="disabled")
+        self._output_text.see("end")
+
     # ── Run ───────────────────────────────────────────────────────────────────
 
     def _build_args(self):
@@ -418,6 +434,9 @@ class CopyCatGUI:
             incremental=self._incremental_var.get(),
             stats=self._stats_var.get(),
             git_url=self._git_url_var.get().strip() or None,
+            ai_summary=False,
+            ai_model="gpt-4o-mini",
+            ai_base_url=None,
         )
 
     def _on_watch_toggle(self):  # pragma: no cover

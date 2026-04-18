@@ -100,9 +100,9 @@ def parse_arguments(config_path=None):
     parser.add_argument(
         "--format",
         "-f",
-        choices=["txt", "json", "md", "html"],
+        choices=["txt", "json", "md", "html", "pdf"],
         default="txt",
-        help="Ausgabeformat: txt (default), json, md, html",
+        help="Ausgabeformat: txt (default), json, md, html, pdf",
     )
     parser.add_argument(
         "--search",
@@ -192,6 +192,35 @@ def parse_arguments(config_path=None):
         default=None,
         help="Remote-Git-Repository klonen und scannen (z.B. https://github.com/user/repo)",
     )
+    parser.add_argument(
+        "--ai-summary",
+        action="store_true",
+        help="KI-Zusammenfassung am Ende des Reports anhängen (erfordert: pip install openai, Env-Var COPYCAT_AI_KEY)",
+    )
+    parser.add_argument(
+        "--ai-model",
+        default="gpt-4o-mini",
+        metavar="MODEL",
+        help="KI-Modell für --ai-summary (Standard: gpt-4o-mini; für Ollama z.B. 'llama3')",
+    )
+    parser.add_argument(
+        "--ai-base-url",
+        default=None,
+        metavar="URL",
+        help="Basis-URL für OpenAI-kompatible API (z.B. http://localhost:11434/v1 für Ollama)",
+    )
+    parser.add_argument(
+        "--timeline",
+        action="store_true",
+        help="Report-Timeline aus dem Archiv ausgeben und beenden",
+    )
+    parser.add_argument(
+        "--timeline-format",
+        choices=["md", "ascii", "html"],
+        default="md",
+        metavar="FORMAT",
+        help="Format für --timeline: md (default), ascii, html",
+    )
 
     # ── Config-Datei: Defaults aus copycat.conf (CLI überschreibt) ──────────
     cfg = load_config(config_path)
@@ -208,7 +237,7 @@ def parse_arguments(config_path=None):
         except ValueError:
             logging.warning("copycat.conf: ungültiger max_size_mb-Wert wird ignoriert")
     if "format" in cfg:
-        if cfg["format"] in ("txt", "json", "md", "html"):
+        if cfg["format"] in ("txt", "json", "md", "html", "pdf"):
             overrides["format"] = cfg["format"]
         else:
             logging.warning("copycat.conf: ungültiger format-Wert wird ignoriert")
@@ -228,6 +257,10 @@ def parse_arguments(config_path=None):
         overrides["stats"] = cfg["stats"].lower() in ("true", "yes", "1")
     if "git_url" in cfg:
         overrides["git_url"] = cfg["git_url"]
+    if "ai_model" in cfg:
+        overrides["ai_model"] = cfg["ai_model"]
+    if "ai_base_url" in cfg:
+        overrides["ai_base_url"] = cfg["ai_base_url"]
     if overrides:
         parser.set_defaults(**overrides)
     # ────────────────────────────────────────────────────────────────────────
@@ -244,7 +277,7 @@ def parse_arguments(config_path=None):
 
 
 def is_valid_serial_filename(filename: str) -> bool:
-    pattern = r"^combined_copycat_(\d+)\.(txt|json|md|html)$"
+    pattern = r"^combined_copycat_(\d+)\.(txt|json|md|html|pdf)$"
     return bool(re.match(pattern, filename))
 
 
@@ -1608,6 +1641,389 @@ def _write_html(path, files, args, input_dir, git_info, serial,
         fh.write(html)
 
 
+# ── M33: PDF-Export ──────────────────────────────────────────────────────────
+
+def _write_pdf(path, files, args, input_dir, git_info, serial,
+               search_pattern=None, search_results=None, cache=None, stats=None):
+    """Write PDF report using reportlab.
+
+    Requires: pip install reportlab
+    """
+    try:
+        from reportlab.lib.pagesizes import A4
+        from reportlab.platypus import (
+            SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Preformatted,
+        )
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib.units import mm
+        from reportlab.lib import colors as rl_colors
+    except ImportError as exc:
+        raise ImportError(
+            "reportlab ist nicht installiert. Bitte: pip install reportlab"
+        ) from exc
+
+    doc = SimpleDocTemplate(
+        str(path), pagesize=A4,
+        rightMargin=20 * mm, leftMargin=20 * mm,
+        topMargin=25 * mm, bottomMargin=20 * mm,
+        title=f"CopyCat Report #{serial}",
+        author="CopyCat v2.9",
+    )
+    styles = getSampleStyleSheet()
+    h2_style = styles["Heading2"]
+    h3_style = styles["Heading3"]
+    normal_style = styles["Normal"]
+    code_style = ParagraphStyle(
+        "CCCode", parent=normal_style,
+        fontName="Courier", fontSize=7,
+        leftIndent=8, spaceAfter=4, leading=10,
+    )
+    title_style = ParagraphStyle(
+        "CCTitle", parent=styles["Title"],
+        fontSize=16, spaceAfter=6,
+    )
+
+    story = []
+    now = datetime.now().strftime("%d.%m.%Y %H:%M")
+    mode_text = "Rekursiv" if args.recursive else "Flach"
+    total_files = sum(len(v) for v in files.values())
+    cache = cache or {}
+    sr = search_results or {}
+    _hdr_bg = rl_colors.HexColor("#e3f2fd")
+    _grid_c = rl_colors.HexColor("#90caf9")
+
+    # Header
+    story.append(Paragraph(f"CopyCat v2.9 Report #{serial}", title_style))
+    story.append(Spacer(1, 4 * mm))
+
+    # Meta table
+    meta_data = [
+        ["Datum", now],
+        ["Modus", mode_text],
+        ["Pfad", str(input_dir)],
+        ["Git", git_info],
+        ["Gesamt", f"{total_files} {get_plural(total_files)}"],
+    ]
+    if search_pattern:
+        total_hits = sum(len(v) for v in sr.values())
+        meta_data.append([
+            "Suche",
+            f'"{search_pattern}" \u2192 {total_hits} Treffer in {len(sr)} {get_plural(len(sr))}',
+        ])
+    meta_table = Table(meta_data, colWidths=[35 * mm, None])
+    meta_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (0, -1), _hdr_bg),
+        ("FONTNAME", (0, 0), (-1, -1), "Helvetica"),
+        ("FONTSIZE", (0, 0), (-1, -1), 9),
+        ("GRID", (0, 0), (-1, -1), 0.4, _grid_c),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+    ]))
+    story.append(meta_table)
+    story.append(Spacer(1, 6 * mm))
+
+    # Overview
+    story.append(Paragraph("\u00dcbersicht", h2_style))
+    ov_rows = [["Typ", "Anzahl"]] + [
+        [t.upper(), str(len(flist))] for t, flist in files.items() if flist
+    ]
+    ov_table = Table(ov_rows, colWidths=[55 * mm, 30 * mm])
+    ov_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), _hdr_bg),
+        ("FONTNAME", (0, 0), (-1, -1), "Helvetica"),
+        ("FONTSIZE", (0, 0), (-1, -1), 9),
+        ("GRID", (0, 0), (-1, -1), 0.4, _grid_c),
+        ("TOPPADDING", (0, 0), (-1, -1), 3),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+    ]))
+    story.append(ov_table)
+    story.append(Spacer(1, 5 * mm))
+
+    # Stats
+    if stats and stats.get("per_file"):
+        story.append(Paragraph("Code-Statistiken", h2_style))
+        tot = stats["total"]
+        avg_str = (
+            f"\u00d8 {tot['avg_complexity']}"
+            if tot["avg_complexity"] is not None else "\u2013"
+        )
+        s_rows = [["Datei", "LOC", "Code", "Komm.", "Leer", "Kompl."]]
+        for fpath, s in stats["per_file"].items():
+            c = str(s["complexity"]) if s["complexity"] is not None else "\u2013"
+            s_rows.append([fpath.name, str(s["loc"]), str(s["code"]),
+                           str(s["comments"]), str(s["blank"]), c])
+        s_rows.append(["GESAMT", str(tot["loc"]), str(tot["code"]),
+                       str(tot["comments"]), str(tot["blank"]), avg_str])
+        s_table = Table(s_rows)
+        s_table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), _hdr_bg),
+            ("BACKGROUND", (0, -1), (-1, -1), rl_colors.HexColor("#fff9c4")),
+            ("FONTNAME", (0, 0), (-1, -1), "Helvetica"),
+            ("FONTSIZE", (0, 0), (-1, -1), 8),
+            ("GRID", (0, 0), (-1, -1), 0.4, _grid_c),
+            ("TOPPADDING", (0, 0), (-1, -1), 3),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ]))
+        story.append(s_table)
+        story.append(Paragraph(f"Kommentaranteil: {tot['comment_ratio']}%", normal_style))
+        story.append(Spacer(1, 4 * mm))
+
+    # Code details
+    selected_types = args.types if args.types else ["all"]
+    process_all = "all" in selected_types
+    _MAX_LINES_PDF = 150
+    if process_all or "code" in selected_types:
+        story.append(Paragraph("Code-Details", h2_style))
+        for code_file in files.get("code", []):
+            rel_path = code_file.relative_to(input_dir)
+            if code_file in cache:
+                code_text = cache[code_file].get("content", "")
+                lines_count = cache[code_file].get("lines", 0)
+            else:
+                try:
+                    code_text = code_file.read_text(encoding="utf-8")
+                    lines_count = sum(1 for ln in code_text.splitlines() if ln.strip())
+                except (UnicodeDecodeError, OSError):
+                    code_text = "(Binary oder ung\u00fcltiges Encoding - \u00fcbersprungen)"
+                    lines_count = 0
+            story.append(Paragraph(f"{rel_path.as_posix()} ({lines_count} Zeilen)", h3_style))
+            code_lines = code_text.splitlines()
+            if len(code_lines) > _MAX_LINES_PDF:
+                code_text = "\n".join(code_lines[:_MAX_LINES_PDF]) + (
+                    f"\n... [{len(code_lines) - _MAX_LINES_PDF} weitere Zeilen ausgelassen]"
+                )
+            safe_code = (
+                code_text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            )
+            story.append(Preformatted(safe_code, code_style))
+            story.append(Spacer(1, 2 * mm))
+
+    # Search results
+    if search_pattern and sr:
+        total_hits = sum(len(v) for v in sr.values())
+        story.append(Paragraph(
+            f'Suchergebnisse: "{search_pattern}" ({total_hits} Treffer)', h2_style
+        ))
+        sr_rows = [["Datei", "Zeile", "Treffer"]]
+        for f_path, hits in sr.items():
+            for lineno, text in hits:
+                sr_rows.append([f_path.name, str(lineno), text.strip()[:80]])
+        sr_table = Table(sr_rows, colWidths=[50 * mm, 15 * mm, None])
+        sr_table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), _hdr_bg),
+            ("FONTNAME", (0, 0), (-1, -1), "Helvetica"),
+            ("FONTSIZE", (0, 0), (-1, -1), 8),
+            ("GRID", (0, 0), (-1, -1), 0.4, _grid_c),
+            ("TOPPADDING", (0, 0), (-1, -1), 3),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ]))
+        story.append(sr_table)
+
+    doc.build(story)
+
+
+# ── M35: KI-Zusammenfassung ───────────────────────────────────────────────────
+
+def _generate_ai_summary(files: dict, input_dir, git_info: str, stats=None,
+                          model: str = "gpt-4o-mini", base_url: str = None) -> str:
+    """Generate an AI project summary using an OpenAI-compatible API.
+
+    The API key is read exclusively from the ``COPYCAT_AI_KEY`` environment variable.
+    Raises ImportError when openai is not installed.
+    Raises ValueError on missing API key or API errors.
+
+    Note: Only project metadata (file names, counts) is sent to the API – never
+    source code content. Use ``base_url`` for a local Ollama instance.
+    """
+    import os
+    api_key = os.environ.get("COPYCAT_AI_KEY", "").strip()
+    if not api_key:
+        raise ValueError(
+            "Umgebungsvariable COPYCAT_AI_KEY nicht gesetzt.\n"
+            "  OpenAI:  set COPYCAT_AI_KEY=sk-...\n"
+            "  Ollama:  set COPYCAT_AI_KEY=ollama  (und --ai-base-url http://localhost:11434/v1)"
+        )
+    try:
+        from openai import OpenAI
+    except ImportError as exc:
+        raise ImportError(
+            "openai-Bibliothek nicht installiert. Bitte: pip install openai"
+        ) from exc
+
+    # Build compact project description (no source code sent to external API)
+    total = sum(len(v) for v in files.values())
+    desc_lines = [
+        f"Projektname: {Path(input_dir).name}",
+        f"Pfad: {input_dir}",
+        f"Git: {git_info}",
+        f"Dateien gesamt: {total}",
+    ]
+    for t, flist in files.items():
+        if flist:
+            desc_lines.append(f"  {t.upper()}: {len(flist)} Datei(en)")
+    if stats:
+        tot = stats["total"]
+        desc_lines.append(
+            f"Codezeilen: {tot['loc']} (Code: {tot['code']}, "
+            f"Kommentaranteil: {tot['comment_ratio']}%)"
+        )
+    code_sample = [f.name for f in files.get("code", [])[:25]]
+    if code_sample:
+        desc_lines.append("Code-Dateien (Auswahl): " + ", ".join(code_sample))
+
+    prompt = (
+        "Analysiere diese CopyCat-Projektbeschreibung und erstelle einen kompakten "
+        "Projektsteckbrief auf Deutsch (max. 200 W\u00f6rter). Erkl\u00e4re kurz: Projektzweck, "
+        "Technologie-Stack, Struktur und m\u00f6gliche Qualit\u00e4tshinweise.\n\n"
+        "Projektbeschreibung:\n" + "\n".join(desc_lines)
+    )
+
+    client_kwargs: dict = {"api_key": api_key}
+    if base_url:
+        client_kwargs["base_url"] = base_url
+
+    client = OpenAI(**client_kwargs)
+    try:
+        response = client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=400,
+            temperature=0.3,
+        )
+        return response.choices[0].message.content.strip()
+    except Exception as exc:
+        raise ValueError(f"AI-API-Fehler: {exc}") from exc
+
+
+# ── M36: Report-Timeline ─────────────────────────────────────────────────────
+
+def build_timeline(archive_dir=None, fmt: str = "md") -> str:
+    """Build a timeline from CopyCat archive reports.
+
+    Reads all ``combined_copycat_N.*`` files from *archive_dir*
+    (default: ``CopyCat_Archive/`` next to ``CopyCat.py``), extracts metadata
+    and returns a formatted timeline string.
+
+    fmt: ``'md'`` (Markdown table), ``'ascii'`` (ASCII bar chart), ``'html'`` (Chart.js HTML)
+    """
+    if archive_dir is None:
+        archive_dir = Path(__file__).parent / "CopyCat_Archive"
+    archive_dir = Path(archive_dir)
+
+    entries = []
+    for report_file in sorted(archive_dir.glob("combined_copycat_*.*")):
+        if not is_valid_serial_filename(report_file.name):
+            continue
+        m = re.match(r"^combined_copycat_(\d+)\.(txt|json|md|html|pdf)$", report_file.name)
+        if not m:
+            continue
+        serial_num = int(m.group(1))
+        ext = m.group(2)
+        if ext == "pdf":
+            continue  # PDF nicht als Text lesbar
+
+        try:
+            text = report_file.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+
+        entry: dict = {"serial": serial_num, "date": "?", "total": 0, "types": {}}
+        if ext == "json":
+            try:
+                data = json.loads(text)
+                entry["date"] = data.get("generated", "?")
+                entry["total"] = int(data.get("files", 0))
+                entry["types"] = {t: int(c) for t, c in data.get("types", {}).items()}
+            except (json.JSONDecodeError, KeyError, ValueError):
+                pass
+        else:
+            m_date = re.search(r"CopyCat v[\d.]+ \| (.+?) \|", text)
+            if m_date:
+                entry["date"] = m_date.group(1).strip()
+            m_total = re.search(r"Gesamt: (\d+)", text)
+            if m_total:
+                entry["total"] = int(m_total.group(1))
+            for tm in re.finditer(r"^(\w+): (\d+) Datei", text, re.MULTILINE):
+                entry["types"][tm.group(1).lower()] = int(tm.group(2))
+        entries.append(entry)
+
+    if not entries:
+        return "Keine Archiv-Reports gefunden.\n"
+
+    entries.sort(key=lambda e: e["serial"])
+
+    if fmt == "ascii":
+        return _timeline_ascii(entries)
+    if fmt == "html":
+        return _timeline_html(entries)
+    return _timeline_md(entries)
+
+
+def _timeline_md(entries: list) -> str:
+    all_types = sorted({t for e in entries for t in e["types"]})
+    header = "| Serial | Datum | Gesamt |" + "".join(f" {t.upper()} |" for t in all_types)
+    sep = "|---|---|---|" + "|---|" * len(all_types)
+    rows = []
+    for e in entries:
+        row = f"| #{e['serial']} | {e['date']} | {e['total']} |"
+        row += "".join(f" {e['types'].get(t, 0)} |" for t in all_types)
+        rows.append(row)
+    return "# CopyCat Report-Timeline\n\n" + header + "\n" + sep + "\n" + "\n".join(rows) + "\n"
+
+
+def _timeline_ascii(entries: list) -> str:
+    max_total = max((e["total"] for e in entries), default=1) or 1
+    _w = 40
+    lines = ["CopyCat Report-Timeline (ASCII)", "=" * 56]
+    for e in entries:
+        bar = "\u2588" * int(e["total"] / max_total * _w)
+        lines.append(f"  #{e['serial']:>3} [{e['date']:>16}]  {bar} {e['total']}")
+    lines.append("=" * 56)
+    return "\n".join(lines) + "\n"
+
+
+def _timeline_html(entries: list) -> str:
+    labels = json.dumps([f"#{e['serial']}" for e in entries])
+    data_pts = json.dumps([e["total"] for e in entries])
+    rows = "".join(
+        f"<tr><td>#{e['serial']}</td><td>{_html_escape(e['date'])}</td>"
+        f"<td>{e['total']}</td></tr>"
+        for e in entries
+    )
+    return (
+        '<!DOCTYPE html>\n<html lang="de">\n<head>\n<meta charset="UTF-8">\n'
+        '<title>CopyCat Timeline</title>\n'
+        '<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js">'
+        '</script>\n'
+        '<style>'
+        'body{font-family:"Segoe UI",Arial,sans-serif;max-width:900px;'
+        'margin:0 auto;padding:24px;background:#f5f5f5}'
+        'h1,h2{color:#1565c0}'
+        'canvas{background:#fff;border-radius:8px;padding:12px;'
+        'box-shadow:0 1px 3px rgba(0,0,0,.1);margin-bottom:24px}'
+        'table{border-collapse:collapse;width:100%;background:#fff;border-radius:8px;'
+        'box-shadow:0 1px 3px rgba(0,0,0,.1)}'
+        'th,td{padding:9px 16px;border:1px solid #e0e0e0;text-align:left}'
+        'th{background:#e3f2fd;font-weight:600}'
+        '</style>\n</head>\n<body>\n'
+        '<h1>&#128008; CopyCat Report-Timeline</h1>\n'
+        '<canvas id="cc-chart" height="80"></canvas>\n'
+        '<script>\nnew Chart(document.getElementById("cc-chart"), {\n'
+        '  type: "bar",\n'
+        f'  data: {{ labels: {labels},\n'
+        f'    datasets: [{{ label: "Dateien gesamt", data: {data_pts},\n'
+        '      backgroundColor: "#1565c0", borderRadius: 4 }] },\n'
+        '  options: { responsive: true,\n'
+        '    plugins: { legend: { display: false } },\n'
+        '    scales: { y: { beginAtZero: true } } }\n'
+        '});\n</script>\n'
+        '<h2>Details</h2>\n'
+        '<table>\n<tr><th>Serial</th><th>Datum</th><th>Dateien</th></tr>\n'
+        f'{rows}\n</table>\n</body>\n</html>\n'
+    )
+
+
 def run_copycat(args):
     git_url = getattr(args, "git_url", None)
     _tmp_dir_obj = None
@@ -1734,9 +2150,56 @@ def run_copycat(args):
             _write_md(writer, files, args, input_dir, git_info, serial, search_pattern, search_results, cache_map, stats_map)
     elif fmt == "html":
         _write_html(new_file, files, args, input_dir, git_info, serial, search_pattern, search_results, cache_map, stats_map)
+    elif fmt == "pdf":
+        _write_pdf(new_file, files, args, input_dir, git_info, serial, search_pattern, search_results, cache_map, stats_map)
     else:
         with open(new_file, "w", encoding="utf-8") as writer:
             _write_txt(writer, files, args, input_dir, git_info, serial, search_pattern, search_results, cache_map, stats_map)
+
+    # ── M35: KI-Zusammenfassung ───────────────────────────────────────────────
+    if getattr(args, "ai_summary", False):
+        logging.info("Generiere KI-Zusammenfassung...")
+        try:
+            ai_text = _generate_ai_summary(
+                files, input_dir, git_info, stats_map,
+                model=getattr(args, "ai_model", "gpt-4o-mini"),
+                base_url=getattr(args, "ai_base_url", None),
+            )
+            if fmt == "json":
+                with open(new_file, "r", encoding="utf-8") as fh:
+                    _report_data = json.load(fh)
+                _report_data["ai_summary"] = ai_text
+                with open(new_file, "w", encoding="utf-8") as fh:
+                    json.dump(_report_data, fh, ensure_ascii=False, indent=2)
+            elif fmt == "html":
+                _html_content = new_file.read_text(encoding="utf-8")
+                _ai_section = (
+                    f'<section style="margin-top:24px">\n'
+                    f'<h2>\U0001f916 KI-Zusammenfassung</h2>\n'
+                    f'<p style="background:#fff;padding:16px;border-radius:8px;'
+                    f'box-shadow:0 1px 3px rgba(0,0,0,.1);white-space:pre-wrap">'
+                    f'{_html_escape(ai_text)}</p>\n</section>\n'
+                )
+                new_file.write_text(
+                    _html_content.replace("</body>", _ai_section + "</body>"),
+                    encoding="utf-8",
+                )
+            elif fmt == "pdf":
+                logging.warning(
+                    "KI-Zusammenfassung im PDF-Format nur als Log-Ausgabe verfügbar."
+                )
+                logging.info("KI-Zusammenfassung:\n%s", ai_text)
+            else:  # txt, md
+                with open(new_file, "a", encoding="utf-8") as fh:
+                    if fmt == "md":
+                        fh.write(f"\n## \U0001f916 KI-Zusammenfassung\n\n{ai_text}\n")
+                    else:
+                        fh.write(
+                            f"\n{'=' * 20} KI-ZUSAMMENFASSUNG {'=' * 20}\n{ai_text}\n"
+                        )
+            logging.info("KI-Zusammenfassung erfolgreich hinzugefügt.")
+        except (ImportError, ValueError) as exc:
+            logging.warning("KI-Zusammenfassung fehlgeschlagen: %s", exc)
 
     logging.info("Erstellt: %s", new_file)
     if _tmp_dir_obj is not None:
@@ -1773,5 +2236,10 @@ if __name__ == "__main__":  # pragma: no cover
         print(diff_reports(Path(_args.diff[0]), Path(_args.diff[1])))
     elif getattr(_args, "watch", False):
         watch_and_run(_args, cooldown=getattr(_args, "cooldown", 2.0))
+    elif getattr(_args, "timeline", False):
+        _tl_base = Path(_args.input or str(Path(__file__).parent))
+        _tl_archive = _tl_base / "CopyCat_Archive"
+        _tl_fmt = getattr(_args, "timeline_format", "md")
+        print(build_timeline(_tl_archive, fmt=_tl_fmt))
     else:
         run_copycat(_args)
