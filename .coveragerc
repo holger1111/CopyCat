@@ -4,6 +4,8 @@ omit =
     test_copycat.py
     */__pycache__/*
     plugins/*
+    _patch_giturl.py
+    find_ideas.py
 branch = True
 
 [report]
