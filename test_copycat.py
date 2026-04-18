@@ -4479,6 +4479,41 @@ def test_run_copycat_git_url_clone_no_dir(tmp_path):
     assert result is None
 
 
+def test_run_copycat_git_url_git_not_installed(tmp_path):
+    """git nicht im PATH: run_copycat gibt None zurueck, kein Traceback."""
+    from argparse import Namespace
+    a = Namespace(
+        input=None, output=str(tmp_path),
+        types=["code"], recursive=False, max_size=float("inf"),
+        format="txt", search=None, template=None, watch=False, cooldown=2.0,
+        plugin_dir=None, list_plugins=False, diff=None, merge=None,
+        install_hook=None, verbose=False, quiet=True, exclude=[],
+        incremental=False, stats=False,
+        git_url="https://github.com/user/repo",
+    )
+    with patch("subprocess.run", side_effect=FileNotFoundError("git not found")):
+        result = run_copycat(a)
+    assert result is None
+
+
+def test_run_copycat_git_url_clone_timeout(tmp_path):
+    """git clone Timeout: run_copycat gibt None zurueck, kein Traceback."""
+    from argparse import Namespace
+    import subprocess
+    a = Namespace(
+        input=None, output=str(tmp_path),
+        types=["code"], recursive=False, max_size=float("inf"),
+        format="txt", search=None, template=None, watch=False, cooldown=2.0,
+        plugin_dir=None, list_plugins=False, diff=None, merge=None,
+        install_hook=None, verbose=False, quiet=True, exclude=[],
+        incremental=False, stats=False,
+        git_url="https://github.com/user/repo",
+    )
+    with patch("subprocess.run", side_effect=subprocess.TimeoutExpired(cmd="git", timeout=120)):
+        result = run_copycat(a)
+    assert result is None
+
+
 # ─── GUI git-url Tests ────────────────────────────────────────────────────────
 
 def test_gui_git_url_build_args(gui):

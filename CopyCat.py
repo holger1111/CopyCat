@@ -2042,10 +2042,19 @@ def run_copycat(args):
         _tmp_dir_obj = tempfile.TemporaryDirectory()
         tmp_clone = Path(_tmp_dir_obj.name) / "repo"
         logging.info("Klone Repository: %s", git_url)
-        result = subprocess.run(
-            ["git", "clone", "--depth", "1", "--", git_url, str(tmp_clone)],
-            capture_output=True, text=True, timeout=120,
-        )
+        try:
+            result = subprocess.run(
+                ["git", "clone", "--depth", "1", "--", git_url, str(tmp_clone)],
+                capture_output=True, text=True, timeout=120,
+            )
+        except FileNotFoundError:
+            logging.error("git ist nicht installiert oder nicht im PATH")
+            _tmp_dir_obj.cleanup()
+            return None
+        except subprocess.TimeoutExpired:
+            logging.error("git clone Timeout nach 120 Sekunden: %s", git_url)
+            _tmp_dir_obj.cleanup()
+            return None
         if result.returncode != 0:
             logging.error("git clone fehlgeschlagen: %s", result.stderr.strip())
             _tmp_dir_obj.cleanup()
