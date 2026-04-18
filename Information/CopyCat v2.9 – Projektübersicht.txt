@@ -1,0 +1,107 @@
+## CopyCat v2.9 – Projektübersicht
+
+### Zweck
+CopyCat ist ein **automatisierter Projekt-Dokumentierer**: Er scannt einen lokalen Ordner oder ein Remote-Git-Repository und erzeugt einen konsolidierten Report (TXT, JSON, MD, HTML), der Quellcode, Diagramme, Medien, Notebooks u. v. m. zusammenfasst – per einzigem Befehl.
+
+---
+
+### Architektur
+
+| Datei | Rolle |
+|---|---|
+| CopyCat.py | **Core-Engine** – gesamte Logik, CLI, alle Ausgabeformater |
+| CopyCat_GUI.py | **Tkinter-GUI** – grafische Oberfläche |
+| CopyCat_Web.py | **Flask-Web-Interface** – Browser-UI + REST-API |
+| test_copycat.py | **Pytest-Suite** (~300 Tests, Ziel: 100 % Coverage) |
+| plugins | Dynamisches Plugin-System |
+| copycat-vscode | TypeScript VS-Code-Extension |
+| Entwicklungsplan.md | Detaillierter Meilensteinplan (36 Meilensteine) |
+
+---
+
+### Core-Features (CopyCat.py)
+
+**Datei-Scanner:**
+- 10 Dateityp-Kategorien (`code`, `web`, `db`, `config`, `docs`, `deps`, `img`, `audio`, `diagram`, `notebook`) als zentrale `TYPE_FILTERS`-Dict mit Glob-Mustern
+- .gitignore-Auswertung (inkl. Negationsregeln `!`, nested)
+- `--exclude`-Muster per `fnmatch`
+- Selbstschutz: eigene Reports und CopyCat.py werden immer ignoriert
+
+**Ausgabeformate:**
+- **TXT** – klassisch
+- **JSON** – strukturiert mit Metadaten
+- **MD** – Markdown mit Codeblöcken
+- **HTML** – eigenständig mit `<details>`-Klappboxen + optionalem Syntax-Highlighting (Pygments)
+- **Jinja2-Template** – benutzerdefiniertes Rendering
+
+**Spezial-Renderer:**
+- `extract_drawio()` – Plain-XML, ZIP und Base64/zlib-komprimierte Diagramme
+- `extract_notebook()` – Jupyter-Notebook-Zellen-Extraktion
+- `list_binary_file()` – MIME-Erkennung + WAV-Dauermessung
+
+**Erweiterte Features:**
+- Parallele Regex-Suche via `ThreadPoolExecutor`
+- SHA-256-Incremental-Cache in `.copycat_cache/` (performante Rescans)
+- LOC, Kommentaranteil, zyklomatische Komplexität (McCabe-Schätzung)
+- `diff_reports()` / `merge_reports()` – Report-Vergleich und -Zusammenführung
+- `install_hook()` – automatischer Git-Pre-commit-Hook
+- `watch_and_run()` – Dateisystem-Überwachung via `watchdog`
+- Remote-Repo via `--git-url`: `git clone --depth 1` in temporäres Verzeichnis
+- **Serial-/Archiv-System**: jeder Lauf erzeugt `combined_copycat_N.*`, ältere in CopyCat_Archive
+
+---
+
+### Plugin-System
+
+- Dynamisches Laden per `importlib.util` aus plugins-Verzeichnis
+- Pflichtfelder: `TYPE_NAME`, `PATTERNS`; optional: `render_file()`
+- Fehlerhafte Plugins werden übersprungen (kein Crash)
+- Beispiel: example_proto.py für `.proto`-Dateien
+
+---
+
+### GUI (CopyCat_GUI.py)
+
+- Tkinter, Hintergrund-Threading (GUI friert nicht ein)
+- `RedirectText` leitet `sys.stdout` live ins Textfenster
+- Drag & Drop via `tkinterdnd2` (graceful fallback)
+- `ttk.Progressbar` für Fortschrittsanzeige
+- Config laden/speichern über `copycat.conf`
+
+---
+
+### Web-Interface (CopyCat_Web.py)
+
+- Flask, gestartet via `python CopyCat_Web.py [--port 8080]`
+- `GET /` – Formular, `POST /run` – Ausführung, `GET /download` – Datei-Download, `POST /api/run` – REST-API
+- Sicherheit: Download nur per `re.fullmatch` validierter Dateinamen (kein Path-Traversal)
+- `_run_lock` verhindert parallele Läufe
+
+---
+
+### VS-Code-Extension (copycat-vscode)
+
+- TypeScript, Befehle in Befehlspalette und Statusleiste
+- Konfigurierbar: `copycat.pythonPath`, `copycat.outputFormat`, `copycat.excludePatterns` etc.
+
+---
+
+### Entwicklungsstand (36 Meilensteine)
+
+- **Meilensteine 1–32**: implementiert (CLI, GUI, Web, Plugins, Tests, HTML, Cache, Stats, Remote-Repo, VS-Code-Extension …)
+- **Meilensteine 33–36** (geplant):
+  | # | Feature |
+  |---|---|
+  | 33 | PDF-Export (`weasyprint`/`reportlab`) |
+  | 34 | Docker-Image |
+  | 35 | KI-Zusammenfassung (`--ai-summary`, OpenAI/Ollama) |
+  | 36 | Report-Timeline (ASCII/HTML mit Chart.js) |
+
+---
+
+### Technische Besonderheiten
+
+- Alle optionalen Abhängigkeiten (Jinja2, watchdog, Flask, Pygments, tkinterdnd2) mit graceful fallback
+- Deutsch-first UI, parallele englische README
+- CI via GitHub Actions; PyInstaller-`.exe`-Builds als Artifacts
+- OWASP-konformer Pfad-Traversal-Schutz im Web-Interface
