@@ -29,6 +29,8 @@
 | Config File		| `copycat.conf` auto-loaded; CLI overrides		|
 | Performance		| Recursive/flat, size filter + progress		|
 | GUI			| Graphical interface via `CopyCat_GUI.py` (drag & drop)	|
+| Web Interface		| Browser UI via Flask (`python CopyCat_Web.py`)	|
+| CI Artifacts		| PyInstaller `.exe` builds via GitHub Actions		|
 
 
 ### GUI
@@ -245,6 +247,53 @@ python CopyCat.py --plugin-dir ./myplugins --list-plugins
 | Idempotency | A type name is only registered once per session |
 
 The example plugin `plugins/example_proto.py` ships with CopyCat and serves as a copy-paste template.
+
+
+### Web Interface
+
+CopyCat v2.9 includes a browser-based UI powered by Flask.
+
+**Start:**
+```bash
+pip install flask
+python CopyCat_Web.py                        # http://localhost:5000
+python CopyCat_Web.py --port 8080 --host 0.0.0.0
+```
+
+**Routes:**
+
+| Route | Method | Description |
+|---|---|---|
+| `/` | GET | HTML form with all options |
+| `/run` | POST | Run CopyCat, show report inline |
+| `/download?path=…` | GET | Download report file (only `combined_copycat_*.{txt,json,md}`) |
+| `/api/run` | POST (JSON) | REST API – returns `{"status":"ok","report":"<path>"}` |
+
+**JSON API example:**
+```bash
+curl -s -X POST http://localhost:5000/api/run \
+  -H "Content-Type: application/json" \
+  -d '{"input": "/my/project", "format": "txt", "types": ["code"]}'
+```
+
+
+### PyInstaller / EXE Artifacts
+
+GitHub Actions automatically builds standalone `.exe` files for every push (Windows, no Python required).
+
+Download from the **Actions** tab → latest run → **Artifacts**:
+
+| Artifact | Description |
+|---|---|
+| `CopyCat-exe` | CLI tool (`CopyCat.exe`) |
+| `CopyCat-Web-exe` | Web interface (`CopyCat_Web.exe`) |
+
+**Build locally:**
+```bash
+pip install pyinstaller jinja2 watchdog flask
+pyinstaller CopyCat.spec        # → dist/CopyCat.exe
+pyinstaller CopyCat_Web.spec    # → dist/CopyCat_Web.exe
+```
 
 
 ### Technology

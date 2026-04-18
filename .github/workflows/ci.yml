@@ -14,7 +14,7 @@ jobs:
         python-version: '3.13'
         
     - name: Install pytest + cov
-      run: pip install pytest pytest-cov jinja2 watchdog
+      run: pip install pytest pytest-cov jinja2 watchdog flask
     
     - name: Run Tests with Coverage  
       run: |
@@ -31,3 +31,53 @@ jobs:
         slug: holger1111/CopyCat
         files: ./coverage.xml
         fail_ci_if_error: true
+
+  build-exe:
+    runs-on: windows-latest
+    needs: test
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    steps:
+    - uses: actions/checkout@v4
+
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.13'
+
+    - name: Install build dependencies
+      run: pip install pyinstaller jinja2 watchdog
+
+    - name: Build CopyCat.exe
+      run: pyinstaller CopyCat.spec
+
+    - name: Upload EXE artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: CopyCat-exe
+        path: dist/CopyCat.exe
+        retention-days: 30
+
+  build-web-exe:
+    runs-on: windows-latest
+    needs: test
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    steps:
+    - uses: actions/checkout@v4
+
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.13'
+
+    - name: Install build dependencies
+      run: pip install pyinstaller flask jinja2 watchdog
+
+    - name: Build CopyCat_Web.exe
+      run: pyinstaller CopyCat_Web.spec
+
+    - name: Upload Web-EXE artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: CopyCat-Web-exe
+        path: dist/CopyCat_Web.exe
+        retention-days: 30

@@ -2891,3 +2891,408 @@ def test_parse_arguments_list_plugins():
     assert args.list_plugins is True
 
 
+# ==================== WEB-INTERFACE (IDEE 14) ====================
+
+flask = pytest.importorskip("flask", reason="flask nicht installiert – Web-Tests übersprungen")
+
+
+@pytest.fixture
+def web_client(tmp_path):
+    """Flask-Test-Client für CopyCat_Web."""
+    import importlib, sys
+    # Sicherstellen, dass CopyCat_Web frisch importiert wird
+    if "CopyCat_Web" in sys.modules:
+        del sys.modules["CopyCat_Web"]
+    import CopyCat_Web
+    CopyCat_Web.app.config["TESTING"] = True
+    with CopyCat_Web.app.test_client() as client:
+        yield client, tmp_path
+
+
+def test_web_index_returns_200(web_client):
+    """GET / liefert 200 und enthält 'CopyCat'."""
+    client, _ = web_client
+    resp = client.get("/")
+    assert resp.status_code == 200
+    assert b"CopyCat" in resp.data
+
+
+def test_web_index_contains_form_fields(web_client):
+    """GET / enthält alle wichtigen Formularfelder."""
+    client, _ = web_client
+    resp = client.get("/")
+    html = resp.data
+    assert b'name="input_dir"' in html
+    assert b'name="output_dir"' in html
+    assert b'name="fmt"' in html
+    assert b'name="recursive"' in html
+    assert b'name="search"' in html
+
+
+def test_web_run_missing_input(web_client):
+    """POST /run ohne input_dir → Fehlermeldung."""
+    client, _ = web_client
+    resp = client.post("/run", data={"fmt": "txt"})
+    assert resp.status_code == 200
+    assert "Eingabeordner" in resp.data.decode("utf-8")
+
+
+def test_web_run_nonexistent_input(web_client):
+    """POST /run mit nicht existierendem Ordner → Fehlermeldung."""
+    client, _ = web_client
+    resp = client.post("/run", data={"input_dir": "/nonexistent/xyz", "fmt": "txt"})
+    assert resp.status_code == 200
+    assert "existiert nicht" in resp.data.decode("utf-8")
+
+
+def test_web_run_valid_creates_report(web_client):
+    """POST /run mit gültigem Ordner → Report im Response."""
+    client, tmp = web_client
+    (tmp / "hello.py").write_text("def hello(): pass\n")
+    resp = client.post("/run", data={
+        "input_dir": str(tmp),
+        "output_dir": str(tmp),
+        "types": ["code"],
+        "fmt": "txt",
+        "max_size": "0",
+    })
+    assert resp.status_code == 200
+    html = resp.data.decode("utf-8")
+    assert "hello.py" in html or "report-box" in html
+
+
+def test_web_run_all_types(web_client):
+    """POST /run mit types=all → kein Fehler."""
+    client, tmp = web_client
+    (tmp / "test.py").write_text("x = 1\n")
+    resp = client.post("/run", data={
+        "input_dir": str(tmp),
+        "output_dir": str(tmp),
+        "types": ["all"],
+        "fmt": "txt",
+    })
+    assert resp.status_code == 200
+    assert b"error" not in resp.data.lower() or b"Kein Pfad" not in resp.data
+
+
+def test_web_run_format_json(web_client):
+    """POST /run mit format=json → Report enthält JSON-Inhalt."""
+    client, tmp = web_client
+    (tmp / "mod.py").write_text("x = 1\n")
+    resp = client.post("/run", data={
+        "input_dir": str(tmp),
+        "output_dir": str(tmp),
+        "types": ["code"],
+        "fmt": "json",
+    })
+    assert resp.status_code == 200
+    assert b"report-box" in resp.data or b"combined_copycat" in resp.data
+
+
+def test_web_run_with_search(web_client):
+    """POST /run mit search → kein Fehler."""
+    client, tmp = web_client
+    (tmp / "code.py").write_text("# TODO fix this\nx = 1\n")
+    resp = client.post("/run", data={
+        "input_dir": str(tmp),
+        "output_dir": str(tmp),
+        "types": ["code"],
+        "fmt": "txt",
+        "search": "TODO",
+    })
+    assert resp.status_code == 200
+
+
+def test_web_download_valid(web_client):
+    """GET /download mit gültigem Report → 200 und Content-Disposition."""
+    client, tmp = web_client
+    report = tmp / "combined_copycat_1.txt"
+    report.write_text("Test Report\n")
+    resp = client.get(f"/download?path={report}")
+    assert resp.status_code == 200
+    assert b"Test Report" in resp.data
+
+
+def test_web_download_missing_path(web_client):
+    """GET /download ohne path → 400."""
+    client, _ = web_client
+    resp = client.get("/download")
+    assert resp.status_code == 400
+
+
+def test_web_download_nonexistent_file(web_client):
+    """GET /download mit nicht existierender Datei → 404."""
+    client, tmp = web_client
+    resp = client.get(f"/download?path={tmp / 'combined_copycat_99.txt'}")
+    assert resp.status_code == 404
+
+
+def test_web_download_forbidden_name(web_client):
+    """GET /download mit ungültigem Dateinamen → 403."""
+    client, tmp = web_client
+    evil = tmp / "../../etc/passwd"
+    resp = client.get(f"/download?path={evil}")
+    assert resp.status_code in (403, 404)
+
+
+def test_web_download_returns_403_for_bad_filename(web_client, tmp_path):
+    """GET /download: Datei existiert, aber Name ungültig → 403."""
+    client, tmp = web_client
+    bad = tmp / "evil.exe"
+    bad.write_bytes(b"not allowed")
+    resp = client.get(f"/download?path={bad}")
+    assert resp.status_code == 403
+
+
+def test_web_api_run_missing_input(web_client):
+    """POST /api/run ohne 'input' → 400."""
+    client, _ = web_client
+    resp = client.post("/api/run", json={})
+    assert resp.status_code == 400
+    assert b"input" in resp.data
+
+
+def test_web_api_run_nonexistent_input(web_client):
+    """POST /api/run mit ungültigem Ordner → 400."""
+    client, _ = web_client
+    resp = client.post("/api/run", json={"input": "/nonexistent/xyz"})
+    assert resp.status_code == 400
+
+
+def test_web_api_run_valid(web_client):
+    """POST /api/run mit gültigem Ordner → JSON mit status ok."""
+    client, tmp = web_client
+    (tmp / "api.py").write_text("x = 1\n")
+    resp = client.post("/api/run", json={
+        "input": str(tmp),
+        "output": str(tmp),
+        "types": ["code"],
+        "format": "txt",
+    })
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["status"] == "ok"
+
+
+def test_web_build_args_defaults():
+    """_build_args: Defaults ohne Formular-Input."""
+    import CopyCat_Web
+    class _F:
+        def get(self, k, d=""): return {"input_dir": "/tmp", "fmt": "txt", "max_size": "0"}.get(k, d)
+        def getlist(self, k): return ["all"] if k == "types" else []
+        def __contains__(self, i): return False
+    args = CopyCat_Web._build_args(_F())
+    assert args.format == "txt"
+    assert args.types == ["all"]
+    assert args.max_size == float("inf")
+    assert args.recursive is False
+
+
+def test_web_build_args_specific_types():
+    """_build_args: Spezifische Typen werden korrekt übernommen."""
+    import CopyCat_Web
+    class _F:
+        def get(self, k, d=""): return {"input_dir": "/tmp", "fmt": "json", "max_size": "5"}.get(k, d)
+        def getlist(self, k): return ["code", "web"] if k == "types" else []
+        def __contains__(self, i): return i == "recursive"
+    args = CopyCat_Web._build_args(_F())
+    assert args.types == ["code", "web"]
+    assert args.max_size == 5.0
+    assert args.recursive is True
+    assert args.format == "json"
+
+
+def test_web_build_args_invalid_max_size():
+    """_build_args: Ungültige max_size → inf."""
+    import CopyCat_Web
+    class _F:
+        def get(self, k, d=""): return {"fmt": "txt", "max_size": "abc"}.get(k, d)
+        def getlist(self, k): return []
+        def __contains__(self, i): return False
+    args = CopyCat_Web._build_args(_F())
+    assert args.max_size == float("inf")
+
+
+def test_web_build_args_invalid_types_fallback_to_all():
+    """_build_args: Ungültige Typen → Fallback auf ['all']."""
+    import CopyCat_Web
+    class _F:
+        def get(self, k, d=""): return {"fmt": "txt", "max_size": "0"}.get(k, d)
+        def getlist(self, k): return ["xyz_invalid"] if k == "types" else []
+        def __contains__(self, i): return False
+    args = CopyCat_Web._build_args(_F())
+    assert args.types == ["all"]
+
+
+def test_web_parse_web_args_defaults(monkeypatch):
+    """_parse_web_args: Defaults ohne Argumente."""
+    import CopyCat_Web, sys
+    monkeypatch.setattr(sys, "argv", ["CopyCat_Web.py"])
+    args = CopyCat_Web._parse_web_args()
+    assert args.host == "127.0.0.1"
+    assert args.port == 5000
+    assert args.debug is False
+
+
+def test_web_parse_web_args_custom(monkeypatch):
+    """_parse_web_args: Benutzerdefinierte Werte."""
+    import CopyCat_Web, sys
+    monkeypatch.setattr(sys, "argv", ["CopyCat_Web.py", "--host", "0.0.0.0", "--port", "8080", "--debug"])
+    args = CopyCat_Web._parse_web_args()
+    assert args.host == "0.0.0.0"
+    assert args.port == 8080
+    assert args.debug is True
+
+
+def test_web_get_plugins_empty_string():
+    """_get_plugins('') → leere Liste."""
+    import CopyCat_Web
+    result = CopyCat_Web._get_plugins("")
+    assert result == []
+
+
+def test_web_get_plugins_nonexistent_dir(tmp_path):
+    """_get_plugins mit nicht existierendem Ordner → leere Liste."""
+    import CopyCat_Web
+    result = CopyCat_Web._get_plugins(str(tmp_path / "no_such_dir"))
+    assert result == []
+
+
+def test_web_get_plugins_with_plugin(tmp_path):
+    """_get_plugins mit gültigem Plugin-Verzeichnis → Plugin-Info zurückgegeben."""
+    import CopyCat_Web
+    plugin_file = tmp_path / "myplugin.py"
+    plugin_file.write_text(
+        'TYPE_NAME = "mytype"\nPATTERNS = ["*.myext"]\n'
+        'def render_file(path, writer, args):\n    writer("content")\n'
+    )
+    result = CopyCat_Web._get_plugins(str(tmp_path))
+    names = [p["name"] for p in result]
+    assert "mytype" in names
+
+
+def test_web_api_run_exception(web_client, monkeypatch):
+    """POST /api/run bei run_copycat-Fehler → 500."""
+    client, tmp = web_client
+    import CopyCat_Web
+    (tmp / "x.py").write_text("x=1\n")
+    monkeypatch.setattr(CopyCat_Web, "run_copycat", lambda a: (_ for _ in ()).throw(RuntimeError("forced")))
+    resp = client.post("/api/run", json={"input": str(tmp), "format": "txt"})
+    assert resp.status_code == 500
+    assert b"forced" in resp.data
+
+
+def test_web_run_no_reports_after_run(web_client, monkeypatch):
+    """POST /run wenn run_copycat keinen Report erstellt."""
+    client, tmp = web_client
+    import CopyCat_Web
+    monkeypatch.setattr(CopyCat_Web, "run_copycat", lambda a: None)
+    resp = client.post("/run", data={
+        "input_dir": str(tmp),
+        "output_dir": str(tmp),
+        "types": ["code"],
+        "fmt": "txt",
+    })
+    assert resp.status_code == 200
+    assert "Kein Report" in resp.data.decode("utf-8")
+
+
+def test_web_run_exception_shows_error(web_client, monkeypatch):
+    """POST /run bei Exception → Fehlermeldung anzeigen."""
+    client, tmp = web_client
+    import CopyCat_Web
+    monkeypatch.setattr(CopyCat_Web, "run_copycat", lambda a: (_ for _ in ()).throw(RuntimeError("boom")))
+    resp = client.post("/run", data={
+        "input_dir": str(tmp),
+        "output_dir": str(tmp),
+        "types": ["code"],
+        "fmt": "txt",
+    })
+    assert resp.status_code == 200
+    assert "boom" in resp.data.decode("utf-8")
+
+
+def test_web_api_run_no_reports(web_client, monkeypatch):
+    """POST /api/run wenn kein Report erstellt wird → status ok, report None."""
+    client, tmp = web_client
+    import CopyCat_Web
+    monkeypatch.setattr(CopyCat_Web, "run_copycat", lambda a: None)
+    resp = client.post("/api/run", json={"input": str(tmp), "format": "txt"})
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["status"] == "ok"
+    assert data["report"] is None
+
+
+def test_web_download_combined_txt_mimetype(web_client):
+    """GET /download → Content-Type text/plain für .txt."""
+    client, tmp = web_client
+    report = tmp / "combined_copycat_1.txt"
+    report.write_text("hello\n")
+    resp = client.get(f"/download?path={report}")
+    assert resp.status_code == 200
+    assert "text/plain" in resp.content_type
+
+
+def test_web_download_combined_json_mimetype(web_client):
+    """GET /download → Content-Type application/json für .json."""
+    client, tmp = web_client
+    report = tmp / "combined_copycat_2.json"
+    report.write_text('{"files":[]}')
+    resp = client.get(f"/download?path={report}")
+    assert resp.status_code == 200
+    assert "application/json" in resp.content_type
+
+
+def test_web_download_combined_md_mimetype(web_client):
+    """GET /download → Content-Type text/markdown für .md."""
+    client, tmp = web_client
+    report = tmp / "combined_copycat_3.md"
+    report.write_text("# Bericht\n")
+    resp = client.get(f"/download?path={report}")
+    assert resp.status_code == 200
+    assert "markdown" in resp.content_type
+
+
+def test_web_run_report_file_unreadable(web_client, monkeypatch, tmp_path):
+    """POST /run wenn Report-Datei nicht gelesen werden kann → Fallback-Text."""
+    client, tmp = web_client
+    import CopyCat_Web
+    report_file = tmp / "combined_copycat_1.txt"
+    report_file.write_text("data")
+
+    def fake_run(args):
+        pass
+
+    monkeypatch.setattr(CopyCat_Web, "run_copycat", fake_run)
+
+    # Patchiere Path.read_text so dass es wirft
+    from pathlib import Path as RealPath
+    original_read_text = RealPath.read_text
+
+    def broken_read_text(self, **kw):
+        raise OSError("read error")
+
+    monkeypatch.setattr(RealPath, "read_text", broken_read_text)
+    resp = client.post("/run", data={
+        "input_dir": str(tmp),
+        "output_dir": str(tmp),
+        "types": ["code"],
+        "fmt": "txt",
+    })
+    assert resp.status_code == 200
+    assert "Report-Datei konnte nicht gelesen" in resp.data.decode("utf-8")
+
+
+def test_web_api_run_recursive_flag(web_client):
+    """POST /api/run mit recursive=True → args.recursive=True."""
+    client, tmp = web_client
+    (tmp / "r.py").write_text("x=1\n")
+    resp = client.post("/api/run", json={
+        "input": str(tmp),
+        "format": "txt",
+        "recursive": True,
+    })
+    assert resp.status_code == 200
+
+
