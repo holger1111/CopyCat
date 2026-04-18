@@ -1,0 +1,115 @@
+## Meilenstein-Erklärungen: Warum sinnvoll & Was genau gemacht wird
+
+### MEILENSTEIN 1: CLI `--types` vereinheitlichen
+**Warum sinnvoll**: Aktuell ist die `--types`-Logik inkonsistent: Mehrfachauswahl wird nicht sauber als Liste behandelt, obwohl die Hilfe das suggeriert. Eine einheitliche Logik macht CopyCat für Nutzer vorhersagbarer und reduziert CLI-Fehler.
+**Macht genau**: `args.types` wird immer als Liste ausgewertet, z. B. `if "all" in args.types or t in args.types`; dazu kommt eine zentrale `TYPE_FILTERS`-Definition mit allen Typen. Dadurch funktioniert `-t code web` genauso sauber wie `-t all`.
+
+### MEILENSTEIN 2: Dateitypen zentral definieren + README sync
+**Warum sinnvoll**: Wenn Code und Doku unterschiedliche Typenlisten haben, versteht niemand mehr, was CopyCat wirklich unterstützt. Eine zentrale Typenquelle verhindert Drift zwischen Implementierung und README und macht Erweiterungen deutlich wartbarer.
+**Macht genau**: `TYPE_FILTERS` wird als globale Quelle für alle Kategorien genutzt, und beide Readmes bekommen eine vollständige Tabelle „Alle unterstützten Dateitypen“. So spiegeln Doku und Code exakt dieselben Kategorien wider.
+
+### MEILENSTEIN 3: Serial-/Archivlogik robustifizieren
+**Warum sinnvoll**: Das Serial-System ist ein Kernstück von CopyCat, weil es Reports versionierbar und archivierbar macht. Wenn die Nummerierung bei ungültigen Dateinamen oder Sonderfällen bricht, verliert das Tool genau dort seine Zuverlässigkeit, wo Nutzer sie erwarten.
+**Macht genau**: `get_next_serial_number` wird per Regex abgesichert, alte Reports werden auch bei `serial=1` archiviert, und Konflikte werden sauber behandelt. Dadurch bleiben Nummerierung und Archiv auch bei leeren Ordnern oder manuell angelegten Dateien stabil.
+
+### MEILENSTEIN 4: Exception-Handling gezielt machen
+**Warum sinnvoll**: Generische `except Exception`-Blöcke verstecken echte Fehler und machen Debugging unnötig schwer. Spezifische Fehlerbehandlung sorgt dafür, dass CopyCat verständlich reagiert statt still oder unklar zu scheitern.
+**Macht genau**: Statt pauschalem Catching werden gezielte Handler verwendet, etwa `UnicodeDecodeError` für binäre Dateien und `ET.ParseError` für kaputtes XML. So entstehen klare Meldungen wie „Binary skipped“ oder „Invalid XML“, während Restfehler weiterhin geloggt werden.
+
+### MEILENSTEIN 5: Draw.io-Extraktion stabilisieren
+**Warum sinnvoll**: Draw.io-Dateien sind oft die wichtigste visuelle Projektquelle, aber sie haben mehrere Formate und Edge-Cases. Ohne robuste Extraktion verliert CopyCat bei genau diesen Dateien an Nutzen und wirkt schnell unzuverlässig.
+**Macht genau**: Die Extraktion wird auf spezifisches XML-Parsing umgestellt, inklusive Fallback für komprimierte `.drawio`-Dateien per Unzip. Zusätzlich wird die Statistik erweitert, damit leere, beschädigte oder komprimierte Diagramme sauber erkannt und dokumentiert werden.
+
+### MEILENSTEIN 6: Tests + Open-Source-Ready
+**Warum sinnvoll**: Ohne Tests bleibt jede Änderung riskant, besonders bei CLI, Serial-System und Draw.io-Parsing. Gleichzeitig braucht ein Open-Source-Projekt wie CopyCat klare Mitmachregeln, damit neue Beiträge nicht die Wartbarkeit verschlechtern.
+**Macht genau**: Es entsteht eine Pytest-Suite für CLI, Typen und Edge-Cases, ergänzt durch `CONTRIBUTING.md`, Lizenz und GitHub Actions. Dazu kommen README-Erweiterungen für Entwickler-Guide, Test-Hinweise und Badges, sodass das Projekt technisch und dokumentarisch „open-source-ready“ wird.
+
+### MEILENSTEIN 7: Rekursive Suche 
+**Warum sinnvoll**: Aktuell verpasst CopyCat 90% echter Projekte (Code in `src/`, `tests/`, etc.). Rekursiv → vollständige Projekte.
+**Macht genau**: `--recursive/-r` Flag fügt `input_dir.rglob(pat)` hinzu → scannt **alle** Unterordner, Default bleibt flach (`glob`). 
+
+### MEILENSTEIN 8: Dateigrößenlimit + Performance 
+**Warum sinnvoll**: 10MB+ Videos blockieren Reports; `rglob` bei 1000+ Files hängt. **Enterprise** braucht Kontrolle.
+**Macht genau**: `--max-size 5` → skippt >5MB; Progress-Counter (`Scanned 1234/5000`); `stat().st_size` Filter vor Parsing. )
+
+### MEILENSTEIN 9: Git-Integration + .gitignore 
+**Warum sinnvoll**: 95% Projekte sind Git-Repos. Branch/Commit-Info + `.gitignore`-Skip → **kontextreiche** Reports.
+**Macht genau**: `git rev-parse HEAD` → "Branch: main | abc123"; `gitignore_parser` respektiert `*.log`, `node_modules/`.
+
+### MEILENSTEIN 10: JSON/Markdown Ausgabeformate 
+**Warum sinnvoll**: Nur `.txt` → unbrauchbar für CI/CD, JSON-Parser, VSCode. **Machine-Readable** für Tools.
+**Macht genau**: `--format json|md|txt` → strukturierte Ausgabe:
+```json
+{"files":47,"types":{"code":5},"git":{"branch":"main"}}
+```
+
+### MEILENSTEIN 11: Inhalts-Suche + Regex
+**Warum sinnvoll**: "Finde alle TODOs" oder "def "-Funktionen → **10x** nützlicher als reine Dateiliste.
+**Macht genau**: `--search "TODO|FIXME"` → **Zeilennummer + Snippet** pro Treffer; `re.search(pattern, content)`. 
+
+### MEILENSTEIN 12: Konfigurationsdatei 
+**Warum sinnvoll**: `CopyCat.py -i src -r -t code -o docs --max-size 2` → **zu lang** für täglich. Config = 1 Befehl.
+**Macht genau**: `copycat.conf`:
+```yaml
+types: [code, diagram]
+recursive: true
+max_size_mb: 5
+format: md
+```
+
+### MEILENSTEIN 13: Logging
+**Warum sinnvoll**: Ohne strukturierte Laufzeit-Meldungen ist es schwer nachzuvollziehen, was CopyCat wann tut – besonders bei Fehlern in großen Projekten. Logging macht das Verhalten transparent und vereinfacht Debugging erheblich.
+**Macht genau**: Das `logging`-Modul wird im gesamten Core und in der GUI integriert. `--verbose` schaltet auf DEBUG-Level, `--quiet` unterdrückt alles außer Fehlern. Die GUI leitet Log-Nachrichten ins Ausgabefenster um, sodass Nutzer den Fortschritt live sehen.
+
+### MEILENSTEIN 14: Config Load/Save (GUI)
+**Warum sinnvoll**: Wer CopyCat täglich mit denselben Einstellungen nutzt, will diese nicht bei jedem Start neu eintippen. Eine persistente Konfiguration macht das Tool deutlich angenehmer im Alltag.
+**Macht genau**: `copycat.conf` wird beim Programmstart automatisch geladen und befüllt CLI-Defaults. CLI-Flags überschreiben die Config (Priorität: CLI > Config > Default). Die GUI erhält "Laden"- und "Speichern"-Buttons, über die alle aktuellen Einstellungen direkt in die Datei geschrieben werden können.
+
+### MEILENSTEIN 15: Drag & Drop (tkinterdnd2)
+**Warum sinnvoll**: Das manuelle Eintippen langer Pfade ist fehleranfällig und umständlich. Drag-and-Drop entspricht der natürlichen Erwartung an eine Desktop-GUI und senkt die Einstiegshürde sprunghaft.
+**Macht genau**: Mithilfe der optionalen Bibliothek `tkinterdnd2` kann ein Ordner oder eine Datei direkt in das Eingabefeld der GUI gezogen werden – der Pfad wird automatisch übernommen. Ist `tkinterdnd2` nicht installiert, bleibt die GUI vollständig nutzbar, das Feature ist nur deaktiviert.
+
+### MEILENSTEIN 16: Progressbar
+**Warum sinnvoll**: Bei großen Projekten mit hunderten Dateien wirkt die GUI ohne Feedback eingefroren. Ein Fortschrittsbalken signalisiert, dass das Programm arbeitet, und gibt dem Nutzer Kontrolle über das Geschehen.
+**Macht genau**: Ein `ttk.Progressbar`-Widget wird in die GUI eingebettet und zeigt den Scanfortschritt in Echtzeit an. Der eigentliche Scan läuft im Hintergrund-Thread, `after()`-Callbacks aktualisieren die Leiste thread-sicher, sodass die GUI jederzeit reagiert.
+
+### MEILENSTEIN 17: Notebook/CSV-Unterstützung
+**Warum sinnvoll**: Data-Science-Projekte bestehen zu großen Teilen aus Jupyter-Notebooks und CSV-Dateien. Ohne diese Kategorie liefert CopyCat bei solchen Projekten lückenhafte Reports.
+**Macht genau**: `TYPE_FILTERS` erhält eine neue Kategorie `notebook` mit den Mustern `.ipynb`, `.csv`, `.tsv` und `.parquet`. Jupyter-Notebooks werden per JSON-Parsing verarbeitet, sodass Code- und Markdown-Zellen sauber extrahiert werden. CSV- und TSV-Dateien erscheinen als Plaintext im Report.
+
+### MEILENSTEIN 18: Diff-Modus
+**Warum sinnvoll**: Projekte ändern sich über Zeit – Dateien kommen hinzu, werden gelöscht oder umbenannt. Ohne Vergleichsmöglichkeit bleibt diese Entwicklung unsichtbar. Ein Diff-Modus macht Veränderungen auf einen Blick sichtbar.
+**Macht genau**: `--diff REPORT_A REPORT_B` vergleicht zwei CopyCat-Reports und gibt eine strukturierte Übersicht der Unterschiede aus: hinzugefügte Dateien, entfernte Dateien und geänderte Inhalte. Die Logik steckt in der eigens dafür geschriebenen Funktion `diff_reports()`.
+
+### MEILENSTEIN 19: Jinja2-Templates
+**Warum sinnvoll**: Die fest kodierte Ausgabestruktur lässt sich nicht an individuelle Bedürfnisse anpassen. Anwender mit eigenen Report-Layouts müssten sonst den Core verändern. Templates lösen das elegant ohne jede Codeänderung.
+**Macht genau**: `--template DATEI` lädt eine Jinja2-Template-Datei. `_write_template()` füllt alle verfügbaren Variablen – Dateiliste, Git-Infos, Statistiken – in das Template ein und schreibt die Ausgabe in die Report-Datei. Jinja2 ist optional; fehlt es, erscheint eine verständliche Fehlermeldung mit Installationshinweis.
+
+### MEILENSTEIN 20: Parallele Suche (ThreadPoolExecutor)
+**Warum sinnvoll**: Die sequenzielle Regex-Suche über hunderte Dateien ist bei `--search` ein spürbarer Flaschenhals. Parallelisierung nutzt moderne Mehrkern-CPUs und verkürzt die Wartezeit erheblich.
+**Macht genau**: Die Dateisuche in `--search` wird auf einen `concurrent.futures.ThreadPoolExecutor` umgestellt. Jede Datei wird in einem eigenen Thread per `re.search()` durchsucht; die Treffer (Zeilennummer + Snippet) werden thread-sicher in einer gemeinsamen Liste gesammelt und am Ende sortiert ausgegeben.
+
+### MEILENSTEIN 21: Pre-commit Hook
+**Warum sinnvoll**: Der Report wird oft vergessen, wenn er manuell ausgeführt werden muss. Als Git-Hook läuft CopyCat automatisch bei jedem Commit und hält die Dokumentation so immer auf dem neuesten Stand.
+**Macht genau**: `--install-hook DIR` erzeugt ein ausführbares `pre-commit`-Skript in `.git/hooks/` des angegebenen Projekts. Das Skript ruft CopyCat mit den gleichen Einstellungen auf wie zuletzt verwendet. Existiert bereits ein Hook, wird eine Warnung ausgegeben statt den vorhandenen zu überschreiben.
+
+### MEILENSTEIN 22: Watch-Modus
+**Warum sinnvoll**: Während der aktiven Entwicklung soll der Report ständig aktuell sein, ohne dass der Entwickler manuell eingreifen muss. Der Watch-Modus macht CopyCat zum permanenten Hintergrundassistenten.
+**Macht genau**: `--watch` aktiviert die Dateisystemüberwachung via `watchdog`. Sobald eine Datei im Eingabeordner geändert wird, löst CopyCat nach Ablauf des mit `--cooldown SEKUNDEN` einstellbaren Wartezeitraums automatisch einen neuen Lauf aus. `watchdog` ist optional; fehlt es, erscheint ein klarer Installationshinweis.
+
+### MEILENSTEIN 23: Merge mehrerer Projekte
+**Warum sinnvoll**: In Multi-Repo- oder Monorepo-Setups entstehen mehrere CopyCat-Reports. Diese manuell zusammenzuführen ist mühsam und fehleranfällig. Ein Merge-Befehl löst das mit einem einzigen Aufruf.
+**Macht genau**: `--merge REPORT [REPORT ...]` nimmt beliebig viele CopyCat-Reports entgegen und führt sie in einer einzigen Ausgabedatei zusammen. `merge_reports()` erkennt und dedupliziert überlappende Dateieinträge. Das Zielformat (txt/json/md) wird aus dem ersten Report übernommen.
+
+### MEILENSTEIN 24: Plugin-System
+**Warum sinnvoll**: Jede neue Dateiart (`.proto`, `.avro`, benutzerdefiniert) erforderte bisher Änderungen am Core. Ein Plugin-System macht CopyCat offen erweiterbar, ohne die stabile Kern-Codebasis anzutasten – und ermöglicht Nutzern eigene Renderer ohne Fork.
+**Macht genau**: `load_plugins()` durchsucht ein Plugin-Verzeichnis und importiert jede `.py`-Datei per `importlib.util`. Definiert ein Plugin `TYPE_NAME`, `PATTERNS` und optional `render_file()`, wird der Typ nahtlos in `TYPE_FILTERS` und `PLUGIN_RENDERERS` eingetragen. Fehlerhafte Plugins werden mit Warnung übersprungen. Die CLI erhält `--plugin-dir` und `--list-plugins`; `plugins/example_proto.py` liefert eine sofort kopierbare Vorlage.
+
+### MEILENSTEIN 25: PyInstaller EXE als CI-Artifact
+**Warum sinnvoll**: Nicht alle Nutzer haben Python installiert oder wollen es einrichten. Ein fertiges `.exe`-Binary senkt die Einstiegshürde drastisch und macht CopyCat direkt verwendbar – ohne Abhängigkeiten, ohne Virtualenv, per Doppelklick.
+**Macht genau**: `CopyCat.spec` und `CopyCat_Web.spec` definieren One-File-Builds für PyInstaller. GitHub Actions fügt zwei Windows-Jobs (`build-exe`, `build-web-exe`) hinzu, die erst nach bestandenen Tests laufen. Die fertigen `.exe`-Dateien (`CopyCat.exe` und `CopyCat_Web.exe`) werden als Actions-Artifacts hochgeladen und sind 30 Tage abrufbar. Lokal genügt `pyinstaller CopyCat.spec`.
+
+### MEILENSTEIN 26: Flask Web-Interface
+**Warum sinnvoll**: Die CLI ist mächtig, aber nicht für alle zugänglich. Ein Browser-Interface ermöglicht CopyCat ohne Terminalkenntnisse zu nutzen – ideal für Teams, die das Tool gelegentlich einsetzen oder per REST-API in eigene Workflows einbinden wollen.
+**Macht genau**: `CopyCat_Web.py` startet einen Flask-Server mit vier Routen: `/` zeigt ein HTML-Formular mit allen CopyCat-Optionen, `/run` führt den Report-Lauf durch und zeigt das Ergebnis direkt im Browser an, `/download` liefert die Report-Datei zum Herunterladen (Sicherheitscheck: nur `combined_copycat_*.{txt,json,md}` erlaubt), und `/api/run` stellt eine JSON-REST-API bereit. Ein `threading.Lock` verhindert gleichzeitige Läufe. Das gesamte HTML-Template ist inline eingebettet – kein separates `templates/`-Verzeichnis nötig. Flask ist optional (`pip install flask`); fehlt es, beendet sich die App mit einer verständlichen Fehlermeldung.
+

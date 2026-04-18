@@ -1,4 +1,4 @@
-# CopyCat v2.5
+# CopyCat v2.9
 
 # CopyCat-Output
 CopyCat_Archive/
@@ -12,17 +12,20 @@ __pycache__/
 htmlcov/
 .coverage
 *.cover
-.pytest_cache/
+
+# Coverage-Reports (lokal)
+final_cov*.txt
+full_cov*.txt
+web_test.txt
+coverage.xml
 
 # Tests - Unit Test immer inkludieren
 !test_copycat.py
 
 # Test-Ordner
 !Test_Set/
-Information/
 
 # IDEs
-.vscode/
 .idea/
 *.swp
 *.swo

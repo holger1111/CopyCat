@@ -9,9 +9,7 @@ Erfordert: pip install flask
 """
 
 import argparse
-import io
 import logging
-import os
 import re
 import sys
 import threading

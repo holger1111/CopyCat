@@ -1,0 +1,51 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "CopyCat CLI (aktueller Ordner)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/CopyCat.py",
+            "args": ["-i", "${workspaceFolder}", "-r", "-t", "all"],
+            "python": "${command:python.interpreterPath}",
+            "console": "integratedTerminal",
+            "justMyCode": true
+        },
+        {
+            "name": "CopyCat GUI",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/CopyCat_GUI.py",
+            "args": [],
+            "python": "${command:python.interpreterPath}",
+            "console": "integratedTerminal",
+            "justMyCode": true
+        },
+        {
+            "name": "CopyCat Web (Port 5000)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/CopyCat_Web.py",
+            "args": ["--port", "5000", "--debug"],
+            "python": "${command:python.interpreterPath}",
+            "console": "integratedTerminal",
+            "justMyCode": true
+        },
+        {
+            "name": "Tests (pytest)",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "pytest",
+            "args": [
+                "test_copycat.py",
+                "-v",
+                "--cov=.",
+                "--cov-config=.coveragerc",
+                "--cov-report=term-missing"
+            ],
+            "python": "${command:python.interpreterPath}",
+            "console": "integratedTerminal",
+            "justMyCode": false
+        }
+    ]
+}
