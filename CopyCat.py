@@ -21,7 +21,7 @@ import fnmatch
 import zipfile
 import base64
 import zlib
-from urllib.parse import unquote
+from urllib.parse import unquote, urlparse
 from pathlib import Path
 from datetime import datetime
 
@@ -580,17 +580,34 @@ def size_filtered_glob(search_method, patterns, max_bytes, script_file, input_di
 
 
 def search_in_file(file_path, pattern):
-    """Search regex pattern in a text file. Returns list of (lineno, text) tuples."""
+    """Search regex pattern in a text file. Returns list of (lineno, text) tuples.
+    
+    Sicherheit: Regex-Timeout gegen ReDoS (Catastrophic Backtracking).
+    """
     try:
-        compiled = re.compile(pattern)
+        # Limitiere Regex-Komplexität: max. 20 Alternatives, max. 50 Zeichen
+        if pattern.count("|") > 20 or len(pattern) > 5000:
+            logging.warning("Regex-Pattern zu komplex, übersprungen: %s...", pattern[:50])
+            return []
+        compiled = re.compile(pattern, timeout=1)  # 1 Sekunde Timeout
     except re.error:
         return []
+    except (TypeError, AttributeError):
+        # Fallback für Python < 3.11 ohne Timeout-Support
+        try:
+            compiled = re.compile(pattern)
+        except re.error:
+            return []
     matches = []
     try:
         with open(file_path, "r", encoding="utf-8") as f:
             for lineno, line in enumerate(f, 1):
-                if compiled.search(line):
-                    matches.append((lineno, line.rstrip()))
+                try:
+                    if compiled.search(line):
+                        matches.append((lineno, line.rstrip()))
+                except TimeoutError:
+                    logging.warning("Regex-Timeout in Datei: %s", file_path.name)
+                    break
     except (UnicodeDecodeError, OSError):
         pass
     return matches
@@ -2048,12 +2065,25 @@ def run_copycat(args):
 
     # ── Git-URL: Remote-Repository klonen ───────────────────────────────────
     if git_url:
-        if not re.match(r'^(https?://\S+|git@\S+:\S+|git://\S+|ssh://\S+)$', git_url):
-            logging.error("Ung\u00fcltige Git-URL: %s", git_url)
+        # Sicherheit: Validiere Git-URL gegen Injection-Attacks
+        try:
+            parsed = urlparse(git_url)
+            scheme = parsed.scheme.lower()
+            # Nur sichere Protokolle erlauben
+            if scheme not in ("https", "git", "ssh") and not git_url.startswith("git@"):
+                logging.error("Ungültiges Git-URL-Schema: %s", scheme)
+                return None
+            # Verhindere gefährliche Zeichen (Command-Injection)
+            dangerous_chars = [";", "&", "|", "`", "$", "(", ")", "\n", "\r"]
+            if any(char in git_url for char in dangerous_chars):
+                logging.error("Git-URL enthält verdächtige Zeichen")
+                return None
+        except Exception as e:
+            logging.error("Git-URL Validierung fehlgeschlagen: %s", str(e))
             return None
         _tmp_dir_obj = tempfile.TemporaryDirectory()
         tmp_clone = Path(_tmp_dir_obj.name) / "repo"
-        logging.info("Klone Repository: %s", git_url)
+        logging.info("Klone Repository (mit Sicherheitsprüfung): %s", git_url)
         try:
             result = subprocess.run(
                 ["git", "clone", "--depth", "1", "--", git_url, str(tmp_clone)],

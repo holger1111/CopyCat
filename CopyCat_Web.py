@@ -448,17 +448,29 @@ def run():
     )
 
 
+def _validate_report_path(path_str: str) -> Path:
+    """Validiert Pfad gegen Path-Traversal. Gibt Path zurück oder wirft ValueError."""
+    if not path_str or path_str.startswith("/") or ".." in path_str:
+        raise ValueError("Ungültiger Pfad")
+    p = Path(path_str).resolve()
+    # Prüfe Filename-Pattern
+    if not re.fullmatch(r"combined_copycat_\d+\.(txt|json|md|html|pdf)", p.name):
+        raise ValueError("Ungültiger Dateiname")
+    return p
+
+
 @app.route("/download")
 def download():
     path_str = request.args.get("path", "")
     if not path_str:
         return "Kein Pfad angegeben.", 400
-    p = Path(path_str)
+    try:
+        p = _validate_report_path(path_str)
+    except ValueError as e:
+        logging.warning("Path-Traversal Attempt geblockt: %s", str(e))
+        return "Nicht erlaubt.", 403
     if not p.is_file():
         return "Datei nicht gefunden.", 404
-    # Sicherheitscheck: nur combined_copycat_*.{txt,json,md,html,pdf} erlaubt
-    if not re.fullmatch(r"combined_copycat_\d+\.(txt|json|md|html|pdf)", p.name):
-        return "Nicht erlaubt.", 403
     content = p.read_bytes()
     mime = {"txt": "text/plain", "json": "application/json", "md": "text/markdown",
             "html": "text/html", "pdf": "application/pdf"}.get(
