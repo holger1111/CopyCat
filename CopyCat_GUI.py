@@ -12,7 +12,7 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
-from CopyCat import load_config, run_copycat
+from CopyCat import diff_reports, load_config, run_copycat
 
 try:  # pragma: no cover
     from tkinterdnd2 import DND_FILES, TkinterDnD
@@ -135,6 +135,7 @@ class CopyCatGUI:
 
         ttk.Button(frm_btn, text="📥  Config laden", command=self._load_config).pack(side="left", padx=4)
         ttk.Button(frm_btn, text="💾  Config speichern", command=self._save_config).pack(side="left", padx=4)
+        ttk.Button(frm_btn, text="⇄  Diff", command=self._on_diff).pack(side="left", padx=4)
 
         ttk.Button(frm_btn, text="✖  Ausgabe leeren", command=self._clear_output).pack(side="right", padx=4)
 
@@ -251,6 +252,31 @@ class CopyCatGUI:
         path = event.data.strip().strip("{}")
         if os.path.isdir(path):
             self._output_var.set(path)
+
+    # ── Diff ──────────────────────────────────────────────────────────────────
+
+    def _on_diff(self):
+        path_a = filedialog.askopenfilename(
+            title="Report A wählen",
+            filetypes=[("CopyCat Reports", "*.txt *.json *.md"), ("Alle Dateien", "*.*")],
+        )
+        if not path_a:
+            return
+        path_b = filedialog.askopenfilename(
+            title="Report B wählen",
+            filetypes=[("CopyCat Reports", "*.txt *.json *.md"), ("Alle Dateien", "*.*")],
+        )
+        if not path_b:
+            return
+        try:
+            result = diff_reports(Path(path_a), Path(path_b))
+        except Exception as exc:
+            messagebox.showerror("Diff-Fehler", str(exc))
+            return
+        self._clear_output()
+        self._output_text.configure(state="normal")
+        self._output_text.insert("end", result)
+        self._output_text.configure(state="disabled")
 
     # ── Run ───────────────────────────────────────────────────────────────────
 

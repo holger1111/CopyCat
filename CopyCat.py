@@ -3,6 +3,7 @@ CopyCat v2.9
 """
 
 import argparse
+import concurrent.futures
 import json
 import xml.etree.ElementTree as ET
 import shutil
@@ -114,6 +115,12 @@ def parse_arguments(config_path=None):
         "-q",
         action="store_true",
         help="Nur Fehler anzeigen (WARNING-Level)",
+    )
+    parser.add_argument(
+        "--diff",
+        nargs=2,
+        metavar=("REPORT_A", "REPORT_B"),
+        help="Vergleiche zwei CopyCat-Reports und zeige Unterschiede (TXT oder JSON)",
     )
 
     # ── Config-Datei: Defaults aus copycat.conf (CLI überschreibt) ──────────
@@ -458,17 +465,98 @@ def search_in_file(file_path, pattern):
 
 
 def _build_search_results(files, pattern):
-    """Search pattern in all text-based files. Returns {Path: [(lineno, text)]}."""
+    """Search pattern in all text-based files in parallel. Returns {Path: [(lineno, text)]}."""
     SEARCHABLE = {"code", "web", "db", "config", "docs", "deps"}
+    candidates = [
+        f for t, flist in files.items() if t in SEARCHABLE for f in flist
+    ]
+    if not candidates:
+        return {}
     results = {}
-    for t, flist in files.items():
-        if t not in SEARCHABLE:
-            continue
-        for f in flist:
-            hits = search_in_file(f, pattern)
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        future_to_path = {executor.submit(search_in_file, f, pattern): f for f in candidates}
+        for future in concurrent.futures.as_completed(future_to_path):
+            f = future_to_path[future]
+            hits = future.result()
             if hits:
                 results[f] = hits
     return results
+
+
+def diff_reports(path_a: Path, path_b: Path) -> str:
+    """Compare two CopyCat reports (TXT or JSON) and return a formatted diff summary."""
+
+    def _parse_txt(text: str) -> dict:
+        m = re.search(r"CopyCat v[\d.]+ \| (.+?) \|", text)
+        date_str = m.group(1) if m else "unbekannt"
+        type_counts = {
+            mo.group(1).lower(): int(mo.group(2))
+            for mo in re.finditer(r"^(\w+): (\d+) Datei", text, re.MULTILINE)
+        }
+        files = {fm.group(1) for fm in re.finditer(r"^----- (.+?) -----$", text, re.MULTILINE)}
+        return {"date": date_str, "types": type_counts, "files": files}
+
+    def _parse_json_report(text: str) -> dict:
+        data = json.loads(text)
+        date_str = data.get("generated", "unbekannt")
+        type_counts = data.get("types", {})
+        files = {
+            e["name"]
+            for entries in data.get("details", {}).values()
+            for e in entries
+        }
+        return {"date": date_str, "types": type_counts, "files": files}
+
+    def _parse_report(path: Path) -> dict:
+        text = path.read_text(encoding="utf-8")
+        return _parse_json_report(text) if path.suffix.lower() == ".json" else _parse_txt(text)
+
+    info_a = _parse_report(path_a)
+    info_b = _parse_report(path_b)
+    added = info_b["files"] - info_a["files"]
+    removed = info_a["files"] - info_b["files"]
+    unchanged = info_a["files"] & info_b["files"]
+
+    lines = [
+        "CopyCat Diff-Report",
+        "=" * 60,
+        f"A: {path_a.name}  ({info_a['date']})",
+        f"B: {path_b.name}  ({info_b['date']})",
+        "",
+    ]
+
+    all_types = sorted(set(info_a["types"]) | set(info_b["types"]))
+    change_lines = []
+    for t in all_types:
+        cnt_a = info_a["types"].get(t, 0)
+        cnt_b = info_b["types"].get(t, 0)
+        if cnt_a != cnt_b:
+            delta = cnt_b - cnt_a
+            sign = "+" if delta > 0 else ""
+            change_lines.append(f"  {t.upper():<12} {cnt_a} \u2192 {cnt_b}  ({sign}{delta})")
+    if change_lines:
+        lines.append("Typ-\u00c4nderungen:")
+        lines += change_lines
+        lines.append("")
+
+    if added:
+        lines.append(f"Neu (+{len(added)}):")
+        for f in sorted(added):
+            lines.append(f"  + {f}")
+        lines.append("")
+
+    if removed:
+        lines.append(f"Entfernt (-{len(removed)}):")
+        for f in sorted(removed):
+            lines.append(f"  - {f}")
+        lines.append("")
+
+    if not added and not removed and not change_lines:
+        lines.append("Keine \u00c4nderungen.")
+    else:
+        lines.append(f"Unver\u00e4ndert: {len(unchanged)} {get_plural(len(unchanged))}")
+
+    return "\n".join(lines) + "\n"
 
 
 TYPE_FILTERS = {
@@ -796,4 +884,7 @@ if __name__ == "__main__":  # pragma: no cover
     else:
         _log_level = logging.INFO
     logging.basicConfig(level=_log_level, format="%(message)s")
-    run_copycat(_args)
+    if getattr(_args, "diff", None):
+        print(diff_reports(Path(_args.diff[0]), Path(_args.diff[1])))
+    else:
+        run_copycat(_args)

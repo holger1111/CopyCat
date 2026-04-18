@@ -34,6 +34,7 @@ from CopyCat import (
     _write_json,
     _write_md,
     _write_txt,
+    diff_reports,
     TYPE_FILTERS,
 )
 
@@ -1816,4 +1817,194 @@ def test_load_config_all_type_via_all_keyword(gui, tmp_path):
     with patch("tkinter.filedialog.askopenfilename", return_value=str(conf)):
         gui._load_config()
     assert all(var.get() for var in gui._type_vars.values())
+
+
+# ==================== IDEE 9: PARALLELE VERARBEITUNG ====================
+
+def test_build_search_results_parallel(tmp_path):
+    """_build_search_results liefert korrekte Ergebnisse trotz ThreadPoolExecutor."""
+    f1 = tmp_path / "a.py"
+    f2 = tmp_path / "b.py"
+    f3 = tmp_path / "c.py"
+    f1.write_text("def foo(): pass\n# TODO fix\n", encoding="utf-8")
+    f2.write_text("x = 1\n", encoding="utf-8")
+    f3.write_text("# TODO later\ndef bar(): pass\n", encoding="utf-8")
+
+    files = {"code": [f1, f2, f3], "img": []}
+    results = _build_search_results(files, "TODO")
+
+    assert f1 in results
+    assert f3 in results
+    assert f2 not in results
+    assert any("TODO fix" in txt for _, txt in results[f1])
+
+
+def test_build_search_results_parallel_empty_files():
+    """_build_search_results mit leerer Dateiliste gibt {} zurück."""
+    result = _build_search_results({"code": [], "web": []}, "TODO")
+    assert result == {}
+
+
+def test_build_search_results_parallel_invalid_regex(tmp_path):
+    """Ungültiger Regex führt zu leerem Ergebnis ohne Exception."""
+    f = tmp_path / "x.py"
+    f.write_text("hello\n", encoding="utf-8")
+    result = _build_search_results({"code": [f]}, "[invalid(")
+    assert result == {}
+
+
+def test_build_search_results_non_searchable_skipped(tmp_path):
+    """Nicht-durchsuchbare Typen (img, audio) werden übersprungen."""
+    img = tmp_path / "pic.png"
+    img.write_bytes(b"\x89PNG")
+    result = _build_search_results({"img": [img]}, "PNG")
+    assert result == {}
+
+
+# ==================== IDEE 7: DIFF-MODUS ====================
+
+def _make_txt_report(tmp_path, name, files_code, files_web=None):
+    """Hilfsfunktion: Erzeugt ein minimales TXT-Report im CopyCat-Format."""
+    lines = [
+        "=" * 60,
+        f"CopyCat v2.9 | 01.01.2025 10:00 | FLACH (Default)",
+        str(tmp_path),
+        "GIT: No Git",
+        "",
+        f"Gesamt: {len(files_code)} Dateien",
+        "Serial #1",
+        "=" * 60,
+    ]
+    if files_code:
+        lines.append(f"CODE: {len(files_code)} Dateien")
+    if files_web:
+        lines.append(f"WEB: {len(files_web)} Dateien")
+    lines.append("")
+    lines.append("CODE-Details:")
+    for fname in files_code:
+        lines.append(f"  {fname}: 10 Zeilen")
+        lines.append(f"----- {fname} -----")
+        lines.append("# code")
+        lines.append("")
+    report = tmp_path / name
+    report.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return report
+
+
+def test_diff_reports_added_and_removed(tmp_path):
+    """Diff erkennt neue und entfernte Dateien korrekt."""
+    rep_a = _make_txt_report(tmp_path, "report_a.txt", ["old.py", "keep.py"])
+    rep_b = _make_txt_report(tmp_path, "report_b.txt", ["new.py", "keep.py"])
+
+    result = diff_reports(rep_a, rep_b)
+
+    assert "Neu (+1):" in result
+    assert "+ new.py" in result
+    assert "Entfernt (-1):" in result
+    assert "- old.py" in result
+    assert "Unverändert: 1 Datei" in result
+
+
+def test_diff_reports_no_changes(tmp_path):
+    """Identische Reports geben 'Keine Änderungen' zurück."""
+    rep_a = _make_txt_report(tmp_path, "report_a.txt", ["main.py"])
+    rep_b = _make_txt_report(tmp_path, "report_b.txt", ["main.py"])
+
+    result = diff_reports(rep_a, rep_b)
+    assert "Keine Änderungen." in result
+
+
+def test_diff_reports_type_count_change(tmp_path):
+    """Diff zeigt Typ-Zähler-Änderungen."""
+    rep_a = _make_txt_report(tmp_path, "report_a.txt", ["a.py"], files_web=[])
+    rep_b = _make_txt_report(tmp_path, "report_b.txt", ["a.py", "b.py"])
+
+    result = diff_reports(rep_a, rep_b)
+    assert "Typ-Änderungen:" in result
+    assert "CODE" in result
+
+
+def test_diff_reports_header_contains_filenames(tmp_path):
+    """Diff-Report enthält Dateinamen beider Reports im Header."""
+    rep_a = _make_txt_report(tmp_path, "alpha.txt", ["x.py"])
+    rep_b = _make_txt_report(tmp_path, "beta.txt", ["x.py"])
+
+    result = diff_reports(rep_a, rep_b)
+    assert "alpha.txt" in result
+    assert "beta.txt" in result
+
+
+def test_diff_reports_json_format(tmp_path):
+    """diff_reports funktioniert auch mit JSON-Reports."""
+    def _make_json(name, code_files):
+        data = {
+            "version": "2.9",
+            "generated": "01.01.2025 10:00",
+            "mode": "flat",
+            "input": str(tmp_path),
+            "serial": 1,
+            "git": None,
+            "files": len(code_files),
+            "types": {"code": len(code_files)},
+            "search": None,
+            "details": {"code": [{"name": f, "path": f, "size": 0} for f in code_files]},
+        }
+        p = tmp_path / name
+        p.write_text(json.dumps(data), encoding="utf-8")
+        return p
+
+    rep_a = _make_json("a.json", ["old.py"])
+    rep_b = _make_json("b.json", ["new.py"])
+
+    result = diff_reports(rep_a, rep_b)
+    assert "+ new.py" in result
+    assert "- old.py" in result
+
+
+def test_parse_arguments_diff_flag():
+    """--diff Argument wird korrekt geparst."""
+    with patch("sys.argv", ["CopyCat.py", "--diff", "a.txt", "b.txt"]):
+        args = parse_arguments()
+    assert args.diff == ["a.txt", "b.txt"]
+
+
+def test_gui_on_diff_success(gui, tmp_path):
+    """_on_diff zeigt Diff-Ergebnis im Ausgabefeld."""
+    rep_a = tmp_path / "a.txt"
+    rep_b = tmp_path / "b.txt"
+    rep_a.write_text("CopyCat v2.9 | 01.01.2025 | FLACH\nGesamt: 0\n----- x.py -----\n")
+    rep_b.write_text("CopyCat v2.9 | 01.01.2025 | FLACH\nGesamt: 0\n----- y.py -----\n")
+
+    with patch("tkinter.filedialog.askopenfilename", side_effect=[str(rep_a), str(rep_b)]):
+        gui._on_diff()
+
+    inserted = "".join(call.args[1] for call in gui._output_text.insert.call_args_list)
+    assert "Diff" in inserted
+
+
+def test_gui_on_diff_cancel_first(gui):
+    """_on_diff bricht ab wenn erster Dialog abgebrochen wird."""
+    with patch("tkinter.filedialog.askopenfilename", return_value=""):
+        gui._on_diff()  # darf keine Exception werfen
+
+
+def test_gui_on_diff_cancel_second(gui, tmp_path):
+    """_on_diff bricht ab wenn zweiter Dialog abgebrochen wird."""
+    rep_a = tmp_path / "a.txt"
+    rep_a.write_text("dummy")
+    with patch("tkinter.filedialog.askopenfilename", side_effect=[str(rep_a), ""]):
+        gui._on_diff()  # darf keine Exception werfen
+
+
+def test_gui_on_diff_error(gui, tmp_path):
+    """_on_diff zeigt Fehlermeldung bei ungültigem Report."""
+    bad = tmp_path / "bad.txt"
+    bad.write_text("kein report")
+
+    with patch("tkinter.filedialog.askopenfilename", return_value=str(bad)), \
+         patch("tkinter.filedialog.askopenfilename", side_effect=[str(bad), str(bad)]), \
+         patch("CopyCat_GUI.diff_reports", side_effect=ValueError("ungültig")), \
+         patch("tkinter.messagebox.showerror") as mock_err:
+        gui._on_diff()
+    mock_err.assert_called_once()
 
