@@ -1672,14 +1672,37 @@ def test_on_run_success(gui, tmp_path):
         return m
 
     with patch("CopyCat_GUI.threading.Thread", side_effect=fake_thread), \
-         patch("CopyCat_GUI.run_copycat"), \
+         patch("CopyCat_GUI.run_copycat", return_value=str(tmp_path / "report.txt")), \
+         patch("CopyCat_GUI.logging.getLogger") as mock_get_logger:
+        mock_get_logger.return_value.level = logging.WARNING
+        (tmp_path / "report.txt").write_text("preview content", encoding="utf-8")
+        gui._on_run()
+
+    for fn in after_calls:
+        fn()
+    gui._run_btn.configure.assert_called()
+    gui._open_btn.configure.assert_called_with(state="normal")
+
+
+def test_on_run_success_result_none(gui, tmp_path):
+    """run_copycat gibt None zurueck: kein _show_preview, nur open_btn."""
+    gui._input_var.set(str(tmp_path))
+    after_calls = []
+    gui._root.after = lambda _d, fn: after_calls.append(fn)
+
+    def fake_thread(target=None, daemon=None):
+        m = MagicMock()
+        m.start.side_effect = lambda: target()
+        return m
+
+    with patch("CopyCat_GUI.threading.Thread", side_effect=fake_thread), \
+         patch("CopyCat_GUI.run_copycat", return_value=None), \
          patch("CopyCat_GUI.logging.getLogger") as mock_get_logger:
         mock_get_logger.return_value.level = logging.WARNING
         gui._on_run()
 
     for fn in after_calls:
         fn()
-    gui._run_btn.configure.assert_called()
     gui._open_btn.configure.assert_called_with(state="normal")
 
 
@@ -4548,6 +4571,59 @@ def test_gui_git_url_save_config(gui, tmp_path):
         gui._save_config()
     text = out.read_text(encoding="utf-8")
     assert "git_url = https://github.com/user/repo" in text
+
+
+# ─── GUI _show_preview Tests ─────────────────────────────────────────────────
+
+def test_gui_show_preview_txt(gui, tmp_path):
+    """_show_preview zeigt Dateiinhalt fuer txt-Format an."""
+    report = tmp_path / "report.txt"
+    report.write_text("Hallo Welt\nZeile 2\n", encoding="utf-8")
+    gui._show_preview(str(report), "txt")
+    calls = gui._output_text.insert.call_args_list
+    inserted = "".join(str(c) for c in calls)
+    assert "Vorschau" in inserted
+    assert "Hallo Welt" in inserted
+
+
+def test_gui_show_preview_pdf(gui, tmp_path):
+    """_show_preview zeigt PDF-Hinweis statt Inhalt."""
+    report = tmp_path / "report.pdf"
+    report.write_bytes(b"%PDF-1.4 binary")
+    gui._show_preview(str(report), "pdf")
+    calls = gui._output_text.insert.call_args_list
+    inserted = "".join(str(c) for c in calls)
+    assert "PDF-Vorschau nicht verfügbar" in inserted
+
+
+def test_gui_show_preview_large_file(gui, tmp_path):
+    """_show_preview kuerzt Dateien mit mehr als 500 Zeilen."""
+    report = tmp_path / "report.txt"
+    report.write_text("\n".join(f"Zeile {i}" for i in range(600)), encoding="utf-8")
+    gui._show_preview(str(report), "txt")
+    calls = gui._output_text.insert.call_args_list
+    inserted = "".join(str(c) for c in calls)
+    assert "weitere Zeilen" in inserted
+
+
+def test_gui_show_preview_oserror(gui, tmp_path):
+    """_show_preview zeigt Fehlermeldung wenn Datei nicht lesbar."""
+    gui._show_preview(str(tmp_path / "nonexistent.txt"), "txt")
+    calls = gui._output_text.insert.call_args_list
+    inserted = "".join(str(c) for c in calls)
+    assert "Vorschau nicht verfügbar" in inserted
+
+
+def test_gui_show_preview_md(gui, tmp_path):
+    """_show_preview zeigt Markdown-Inhalt (≤500 Zeilen) vollstaendig."""
+    report = tmp_path / "report.md"
+    content = "\n".join(f"# {i}" for i in range(10))
+    report.write_text(content, encoding="utf-8")
+    gui._show_preview(str(report), "md")
+    calls = gui._output_text.insert.call_args_list
+    inserted = "".join(str(c) for c in calls)
+    assert "# 9" in inserted
+    assert "weitere Zeilen" not in inserted
 
 
 # ─── Web git-url Tests ────────────────────────────────────────────────────────

@@ -401,7 +401,30 @@ class CopyCatGUI:
         self._output_text.insert("end", "\n" + result + "\n")
         self._output_text.configure(state="disabled")
         self._output_text.see("end")
+    # ── Vorschau ──────────────────────────────────────────────────────────
 
+    def _show_preview(self, filepath: str, fmt: str):
+        """Zeigt den Inhalt der generierten Ausgabedatei im Ausgabe-Widget an."""
+        self._output_text.configure(state="normal")
+        sep = "─" * 60
+        self._output_text.insert("end", f"\n{sep}\n📄 Vorschau: {filepath}\n{sep}\n")
+        if fmt == "pdf":
+            self._output_text.insert("end", "(PDF-Vorschau nicht verfügbar – Datei wurde gespeichert)\n")
+        else:
+            try:
+                content = Path(filepath).read_text(encoding="utf-8", errors="replace")
+                lines = content.splitlines()
+                max_lines = 500
+                if len(lines) > max_lines:
+                    preview = "\n".join(lines[:max_lines])
+                    preview += f"\n\n[... {len(lines) - max_lines} weitere Zeilen – Datei öffnen für vollständigen Report ...]\n"
+                else:
+                    preview = content
+                self._output_text.insert("end", preview)
+            except OSError as e:
+                self._output_text.insert("end", f"(Vorschau nicht verfügbar: {e})\n")
+        self._output_text.configure(state="disabled")
+        self._output_text.see("end")
     # ── Run ───────────────────────────────────────────────────────────────────
 
     def _build_args(self):
@@ -508,7 +531,9 @@ class CopyCatGUI:
 
         def task():
             try:
-                run_copycat(args)
+                result = run_copycat(args)
+                if result:
+                    self._root.after(0, lambda r=result: self._show_preview(r, args.format))
                 self._root.after(0, lambda: self._open_btn.configure(state="normal"))
             except Exception as exc:
                 msg = str(exc)
