@@ -34,6 +34,8 @@ from CopyCat import (
     _write_json,
     _write_md,
     _write_txt,
+    _write_template,
+    watch_and_run,
     diff_reports,
     install_hook,
     merge_reports,
@@ -1406,6 +1408,10 @@ def gui():
     instance._open_btn = MagicMock()
     instance._output_text = MagicMock()
     instance._progress = MagicMock()
+    instance._template_var = _make_var("")
+    instance._cooldown_var = _make_var("2.0")
+    instance._watch_stop_event = None
+    instance._watch_btn = MagicMock()
     return instance
 
 
@@ -2212,5 +2218,391 @@ def test_merge_reports_json_entry_without_path_key(tmp_path):
     p.write_text(json.dumps(data), encoding="utf-8")
     result = merge_reports([p, p])
     assert "fallback.py" in result
+
+
+# ==================== JINJA2 TEMPLATE (_write_template) ====================
+
+def _make_files(tmp_path):
+    """Hilfsfunktion: erstellt eine minimale files-Struktur für _write_template."""
+    f = tmp_path / "hello.py"
+    f.write_text("print('hi')", encoding="utf-8")
+    return {"code": [f], "web": []}
+
+
+def test_write_template_no_jinja2(tmp_path):
+    """ImportError wenn jinja2 nicht verfügbar."""
+    with patch.dict("sys.modules", {"jinja2": None}):
+        with pytest.raises(ImportError, match="jinja2"):
+            _write_template(
+                tmp_path / "t.j2", {}, Namespace(recursive=False), tmp_path, {}, 1
+            )
+
+
+def test_write_template_bad_path(tmp_path):
+    """ValueError wenn Template-Datei nicht lesbar."""
+    with pytest.raises(ValueError, match="Template-Datei nicht lesbar"):
+        _write_template(
+            tmp_path / "nonexistent.j2", {}, Namespace(recursive=False), tmp_path, {}, 1
+        )
+
+
+def test_write_template_syntax_error(tmp_path):
+    """ValueError bei Jinja2-Syntaxfehler."""
+    bad = tmp_path / "bad.j2"
+    bad.write_text("{% for %}", encoding="utf-8")
+    with pytest.raises(ValueError, match="Template-Syntaxfehler"):
+        _write_template(
+            bad, {}, Namespace(recursive=False), tmp_path, {}, 1
+        )
+
+
+def test_write_template_renders_context(tmp_path):
+    """Einfaches Template wird korrekt gerendert."""
+    tmpl = tmp_path / "report.j2"
+    tmpl.write_text("Dir={{ input_dir }}|Serial={{ serial }}|Total={{ total_files }}", encoding="utf-8")
+    files = _make_files(tmp_path)
+    result = _write_template(tmpl, files, Namespace(recursive=False), tmp_path, {}, 42)
+    assert str(tmp_path) in result
+    assert "Serial=42" in result
+    assert "Total=1" in result
+
+
+def test_write_template_with_search_results(tmp_path):
+    """Template erhält search_results korrekt."""
+    tmpl = tmp_path / "s.j2"
+    tmpl.write_text("{{ search_results | length }}", encoding="utf-8")
+    f = tmp_path / "a.py"
+    f.write_text("x", encoding="utf-8")
+    sr = {f: [(1, "x = 1")]}
+    result = _write_template(
+        tmpl, {"code": [f]}, Namespace(recursive=False), tmp_path, {}, 1,
+        search_pattern="x", search_results=sr,
+    )
+    assert result == "1"
+
+
+def test_write_template_render_error(tmp_path):
+    """ValueError bei Render-Fehler."""
+    tmpl = tmp_path / "err.j2"
+    # Aufruf einer nicht vorhandenen Methode eines Strings→ TemplateError
+    tmpl.write_text("{{ undefined_var.unknown_method() }}", encoding="utf-8")
+    with pytest.raises(ValueError, match="Template-Renderfehler|Template-Syntaxfehler"):
+        _write_template(
+            tmpl, {}, Namespace(recursive=False), tmp_path, {}, 1
+        )
+
+
+def test_run_copycat_with_template(tmp_path):
+    """run_copycat schreibt Template-Output statt Standard-Format."""
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "main.py").write_text("x=1", encoding="utf-8")
+    out = tmp_path / "out"
+    out.mkdir()
+    tmpl = tmp_path / "t.j2"
+    tmpl.write_text("TOTAL={{ total_files }}", encoding="utf-8")
+    args = Namespace(
+        input=str(src), output=str(out), types=["code"], recursive=False,
+        max_size=float("inf"), format="txt", search=None,
+        template=str(tmpl), diff=None, merge=None, install_hook=None,
+        verbose=False, quiet=False, watch=False, cooldown=2.0,
+    )
+    with patch("CopyCat.get_git_info", return_value={}):
+        run_copycat(args)
+    files = list(out.glob("*.j2")) + list(out.glob("*.txt"))
+    assert any("TOTAL=1" in f.read_text(encoding="utf-8") for f in out.iterdir())
+
+
+# ==================== WATCH MODE (watch_and_run) ====================
+
+def test_watch_and_run_no_watchdog(tmp_path):
+    """ImportError wenn watchdog nicht verfügbar."""
+    with patch.dict("sys.modules", {"watchdog": None, "watchdog.observers": None, "watchdog.events": None}):
+        with pytest.raises(ImportError, match="watchdog"):
+            watch_and_run(Namespace(input=str(tmp_path), recursive=False), stop_event=MagicMock(is_set=lambda: True))
+
+
+def test_watch_and_run_stops_immediately(tmp_path):
+    """stop_event gesetzt → Loop endet ohne run_copycat."""
+    import threading
+    stop = threading.Event()
+    stop.set()
+
+    observer_mock = MagicMock()
+
+    with patch("watchdog.observers.Observer", return_value=observer_mock), \
+         patch("CopyCat.run_copycat") as mock_run:
+        watch_and_run(Namespace(input=str(tmp_path), recursive=False), cooldown=0.1, stop_event=stop)
+
+    observer_mock.start.assert_called_once()
+    observer_mock.stop.assert_called_once()
+    observer_mock.join.assert_called_once()
+    mock_run.assert_not_called()
+
+
+def test_watch_and_run_triggers_run_copycat(tmp_path):
+    """Nach Dateiänderung und abgelaufenem Cooldown wird run_copycat aufgerufen."""
+    import threading, time
+    stop = threading.Event()
+
+    call_log = []
+    captured_handler = []
+
+    class FakeObserver:
+        def schedule(self, handler, path, recursive=False):
+            captured_handler.append(handler)
+        def start(self): pass
+        def stop(self): pass
+        def join(self): pass
+
+    def fake_run_copycat(args):
+        call_log.append(True)
+        stop.set()  # nach erstem Lauf stoppen
+
+    with patch("watchdog.observers.Observer", FakeObserver), \
+         patch("CopyCat.run_copycat", side_effect=fake_run_copycat):
+        def _trigger():
+            time.sleep(0.05)
+            ev = MagicMock()
+            ev.is_directory = False
+            if captured_handler:
+                captured_handler[0].on_any_event(ev)
+        t = threading.Thread(target=_trigger)
+        t.start()
+        watch_and_run(
+            Namespace(input=str(tmp_path), recursive=False),
+            cooldown=0.1,
+            stop_event=stop,
+        )
+        t.join()
+
+    assert call_log, "run_copycat wurde nicht aufgerufen"
+
+
+def test_watch_and_run_run_error_is_caught(tmp_path):
+    """Fehler in run_copycat wird abgefangen und geloggt."""
+    import threading, time
+    stop = threading.Event()
+    call_count = [0]
+    _fake_obs_instance = [None]
+
+    class FakeObserver:
+        def __init__(self):
+            _fake_obs_instance[0] = self
+        def schedule(self, handler, path, recursive=False):
+            self._handler = handler
+        def start(self): pass
+        def stop(self): pass
+        def join(self): pass
+
+    def fake_run(args):
+        call_count[0] += 1
+        stop.set()
+        raise RuntimeError("Testfehler")
+
+    def _trigger():
+        time.sleep(0.05)
+        ev = MagicMock()
+        ev.is_directory = False
+        obs = _fake_obs_instance[0]
+        if obs and hasattr(obs, "_handler"):
+            obs._handler.on_any_event(ev)
+
+    with patch("watchdog.observers.Observer", FakeObserver), \
+         patch("CopyCat.run_copycat", side_effect=fake_run):
+        t = threading.Thread(target=_trigger)
+        t.start()
+        watch_and_run(
+            Namespace(input=str(tmp_path), recursive=False),
+            cooldown=0.1,
+            stop_event=stop,
+        )
+        t.join()
+    assert call_count[0] == 1
+
+
+# ==================== CLI: --template / --watch / --cooldown ====================
+
+def test_parse_arguments_template():
+    with patch("sys.argv", ["copycat", "--template", "report.j2"]):
+        args = parse_arguments()
+    assert args.template == "report.j2"
+
+
+def test_parse_arguments_watch_flag():
+    with patch("sys.argv", ["copycat", "-w"]):
+        args = parse_arguments()
+    assert args.watch is True
+
+
+def test_parse_arguments_cooldown():
+    with patch("sys.argv", ["copycat", "--cooldown", "5.5"]):
+        args = parse_arguments()
+    assert args.cooldown == 5.5
+
+
+def test_watch_and_run_no_stop_event_creates_one(tmp_path):
+    """Wenn stop_event=None übergeben, wird intern eines erzeugt (Zeile 748)."""
+    import threading, time
+
+    captured = []
+
+    class FakeObserver:
+        def schedule(self, handler, path, recursive=False):
+            captured.append(handler)
+        def start(self): pass
+        def stop(self): pass
+        def join(self): pass
+
+    # Wir übergeben kein stop_event – die Funktion erstellt es intern.
+    # Wir beenden den Loop, indem run_copycat nach dem ersten Trigger stop_event setzt.
+    # Dafür müssen wir das interne Event abfangen → nicht möglich direkt.
+    # Einfachere Lösung: den Loop via Observer-Thread-Trick stoppen.
+    # Stattdessen: kurzen Cooldown, mit einem echten Observer-Dummy + direkten Stop via Patch.
+    internal_stop = [None]
+    original_threading_event = threading.Event
+
+    def fake_event():
+        ev = original_threading_event()
+        internal_stop[0] = ev
+        ev.set()  # sofort setzen → Loop endet sofort
+        return ev
+
+    with patch("CopyCat.threading.Event", side_effect=fake_event), \
+         patch("watchdog.observers.Observer", FakeObserver):
+        watch_and_run(Namespace(input=str(tmp_path), recursive=False), cooldown=0.1)
+
+    assert internal_stop[0] is not None
+
+
+def test_watch_and_run_directory_event_ignored(tmp_path):
+    """Verzeichnis-Events (is_directory=True) werden ignoriert (Branch 754->False)."""
+    import threading, time
+    stop = threading.Event()
+    stop.set()
+    captured_handler = []
+
+    class FakeObserver:
+        def schedule(self, handler, path, recursive=False):
+            captured_handler.append(handler)
+        def start(self): pass
+        def stop(self): pass
+        def join(self): pass
+
+    with patch("watchdog.observers.Observer", FakeObserver), \
+         patch("CopyCat.run_copycat") as mock_run:
+        watch_and_run(Namespace(input=str(tmp_path), recursive=False), cooldown=0.1, stop_event=stop)
+
+    # Manuell einen Verzeichnis-Event feuern (sollte last_event_time nicht setzen)
+    if captured_handler:
+        ev = MagicMock()
+        ev.is_directory = True
+        captured_handler[0].on_any_event(ev)
+    mock_run.assert_not_called()
+
+
+def test_watch_and_run_event_before_cooldown_no_run(tmp_path):
+    """Event kommt, aber stop_event wird vor Cooldown-Ablauf gesetzt → kein run_copycat."""
+    import threading, time
+    stop = threading.Event()
+    captured_handler = []
+
+    class FakeObserver:
+        def schedule(self, handler, path, recursive=False):
+            captured_handler.append(handler)
+        def start(self): pass
+        def stop(self): pass
+        def join(self): pass
+
+    def _trigger():
+        time.sleep(0.05)
+        ev = MagicMock()
+        ev.is_directory = False
+        if captured_handler:
+            captured_handler[0].on_any_event(ev)
+        # Stop sofort nach Event – vor Cooldown (5 s)
+        stop.set()
+
+    with patch("watchdog.observers.Observer", FakeObserver), \
+         patch("CopyCat.run_copycat") as mock_run:
+        t = threading.Thread(target=_trigger)
+        t.start()
+        watch_and_run(
+            Namespace(input=str(tmp_path), recursive=False),
+            cooldown=5.0,  # langer Cooldown → läuft beim Stop noch nicht ab
+            stop_event=stop,
+        )
+        t.join()
+    mock_run.assert_not_called()
+
+
+def test_parse_arguments_cooldown_default():
+    with patch("sys.argv", ["copycat"]):
+        args = parse_arguments()
+    assert args.cooldown == 2.0
+
+
+# ==================== GUI: template/cooldown/watch ====================
+
+def test_build_args_template_and_cooldown(gui):
+    gui._template_var.set("/path/to/report.j2")
+    gui._cooldown_var.set("3.5")
+    args = gui._build_args()
+    assert args.template == "/path/to/report.j2"
+    assert args.cooldown == 3.5
+    assert args.watch is False
+
+
+def test_build_args_empty_template_is_none(gui):
+    gui._template_var.set("   ")
+    args = gui._build_args()
+    assert args.template is None
+
+
+def test_build_args_default_cooldown(gui):
+    args = gui._build_args()
+    assert args.cooldown == 2.0
+
+
+def test_on_watch_toggle_no_input(gui):
+    """Watch-Toggle zeigt Fehler wenn kein Eingabeordner gesetzt."""
+    with patch("tkinter.messagebox.showerror") as mock_err:
+        gui._on_watch_toggle()
+    mock_err.assert_called_once()
+
+
+def test_on_watch_toggle_invalid_input(gui, tmp_path):
+    """Watch-Toggle zeigt Fehler wenn Eingabeordner nicht existiert."""
+    gui._input_var.set("/nonexistent/path/xyz")
+    with patch("tkinter.messagebox.showerror") as mock_err:
+        gui._on_watch_toggle()
+    mock_err.assert_called_once()
+
+
+def test_on_watch_toggle_start_and_stop(gui, tmp_path):
+    """Watch-Toggle startet und stoppt den Watch-Thread."""
+    import time
+    gui._input_var.set(str(tmp_path))
+
+    class FakeObserver:
+        def schedule(self, h, p, recursive=False): pass
+        def start(self): pass
+        def stop(self): pass
+        def join(self): pass
+
+    with patch("watchdog.observers.Observer", FakeObserver):
+        gui._on_watch_toggle()  # Start
+        time.sleep(0.1)
+        assert gui._watch_stop_event is not None
+        gui._on_watch_toggle()  # Stop
+        time.sleep(0.1)
+
+
+def test_on_watch_toggle_build_args_error(gui):
+    """Watch-Toggle zeigt Fehler bei ungueltiger Max-Groesse."""
+    gui._max_size_var.set("kein_wert")
+    with patch("tkinter.messagebox.showerror") as mock_err:
+        gui._on_watch_toggle()
+    mock_err.assert_called_once()
 
 

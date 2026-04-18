@@ -12,7 +12,7 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
-from CopyCat import diff_reports, install_hook, load_config, merge_reports, run_copycat
+from CopyCat import diff_reports, install_hook, load_config, merge_reports, run_copycat, watch_and_run
 
 try:  # pragma: no cover
     from tkinterdnd2 import DND_FILES, TkinterDnD
@@ -52,6 +52,9 @@ class CopyCatGUI:
         self._max_size_var = tk.StringVar()
         self._format_var = tk.StringVar(value="txt")
         self._search_var = tk.StringVar()
+        self._template_var = tk.StringVar()
+        self._cooldown_var = tk.StringVar(value="2.0")
+        self._watch_stop_event = None
         self._type_vars = {t: tk.BooleanVar(value=True) for t in TYPES}
 
         self._build_ui()
@@ -121,6 +124,18 @@ class CopyCatGUI:
             row=1, column=1, columnspan=4, sticky="w", pady=(6, 0)
         )
 
+        ttk.Label(frm_opt, text="Template (.j2):").grid(row=2, column=0, sticky="w", padx=6, pady=(6, 0))
+        ttk.Entry(frm_opt, textvariable=self._template_var, width=30).grid(
+            row=2, column=1, columnspan=2, sticky="w", padx=(0, 4), pady=(6, 0)
+        )
+        ttk.Button(frm_opt, text="…", width=3, command=self._browse_template).grid(
+            row=2, column=3, sticky="w", pady=(6, 0)
+        )
+        ttk.Label(frm_opt, text="Cooldown (s):").grid(row=2, column=4, sticky="w", padx=(16, 4), pady=(6, 0))
+        ttk.Entry(frm_opt, textvariable=self._cooldown_var, width=6).grid(
+            row=2, column=5, sticky="w", pady=(6, 0)
+        )
+
         # Buttons
         frm_btn = ttk.Frame(self._root, padding=4)
         frm_btn.pack(fill="x", padx=8)
@@ -138,6 +153,8 @@ class CopyCatGUI:
         ttk.Button(frm_btn, text="⇄  Diff", command=self._on_diff).pack(side="left", padx=4)
         ttk.Button(frm_btn, text="📄  Merge", command=self._on_merge).pack(side="left", padx=4)
         ttk.Button(frm_btn, text="🔗  Hook", command=self._on_install_hook).pack(side="left", padx=4)
+        self._watch_btn = ttk.Button(frm_btn, text="👁  Watch", command=self._on_watch_toggle)
+        self._watch_btn.pack(side="left", padx=4)
 
         ttk.Button(frm_btn, text="✖  Ausgabe leeren", command=self._clear_output).pack(side="right", padx=4)
 
@@ -163,10 +180,18 @@ class CopyCatGUI:
             self._input_var.set(folder)
             self._output_var.set(self._output_var.get() or folder)
 
-    def _browse_output(self):
+    def _browse_output(self):  # pragma: no cover
         folder = filedialog.askdirectory(title="Ausgabeordner wählen")
         if folder:
             self._output_var.set(folder)
+
+    def _browse_template(self):  # pragma: no cover
+        path = filedialog.askopenfilename(
+            title="Jinja2-Template wählen",
+            filetypes=[("Jinja2-Templates", "*.j2 *.jinja2 *.html"), ("Alle Dateien", "*.*")],
+        )
+        if path:
+            self._template_var.set(path)
 
     def _select_all_types(self):
         for var in self._type_vars.values():
@@ -342,7 +367,53 @@ class CopyCatGUI:
             max_size=max_size,
             format=self._format_var.get(),
             search=search,
+            template=self._template_var.get().strip() or None,
+            cooldown=float(self._cooldown_var.get().strip() or "2.0"),
+            watch=False,
         )
+
+    def _on_watch_toggle(self):  # pragma: no cover
+        """Start or stop the background Watch thread."""
+        if self._watch_stop_event is not None and not self._watch_stop_event.is_set():
+            # Currently running → stop
+            self._watch_stop_event.set()
+            self._watch_btn.configure(text="👁  Watch")
+            return
+
+        try:
+            args = self._build_args()
+        except ValueError as exc:
+            messagebox.showerror("Eingabefehler", str(exc))
+            return
+
+        if not args.input or not Path(args.input).is_dir():
+            messagebox.showerror("Eingabefehler", "Bitte gültigen Eingabeordner angeben.")
+            return
+
+        self._watch_stop_event = threading.Event()
+        widget_stream = RedirectText(self._output_text)
+        _log_handler = logging.StreamHandler(widget_stream)
+        _log_handler.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
+        root_logger = logging.getLogger()
+        root_logger.addHandler(_log_handler)
+
+        stop_event = self._watch_stop_event
+
+        def _run():
+            try:
+                watch_and_run(args, cooldown=args.cooldown, stop_event=stop_event)
+            except Exception as exc:
+                logging.error("Watch beendet: %s", exc)
+            finally:
+                root_logger.removeHandler(_log_handler)
+                self._watch_stop_event = None
+                try:
+                    self._watch_btn.configure(text="👁  Watch")
+                except Exception:
+                    pass
+
+        self._watch_btn.configure(text="■  Watch stoppen")
+        threading.Thread(target=_run, daemon=True).start()
 
     def _on_run(self):
         try:

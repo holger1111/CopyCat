@@ -6,6 +6,8 @@ import argparse
 import concurrent.futures
 import json
 import stat
+import threading
+import time
 import xml.etree.ElementTree as ET
 import shutil
 import re
@@ -134,6 +136,25 @@ def parse_arguments(config_path=None):
         metavar="PROJECT_DIR",
         default=None,
         help="Installiere CopyCat als Git pre-commit Hook im angegebenen Projektordner",
+    )
+    parser.add_argument(
+        "--template",
+        metavar="TEMPLATE.j2",
+        default=None,
+        help="Jinja2-Template f\u00fcr benutzerdefinierte Ausgabe (erfordert: pip install jinja2)",
+    )
+    parser.add_argument(
+        "--watch",
+        "-w",
+        action="store_true",
+        help="Watch-Modus: bei Datei\u00e4nderungen Report automatisch neu erzeugen",
+    )
+    parser.add_argument(
+        "--cooldown",
+        type=float,
+        default=2.0,
+        metavar="SEKUNDEN",
+        help="Watch: Wartezeit nach letzter \u00c4nderung in Sekunden (Standard: 2.0)",
     )
 
     # ── Config-Datei: Defaults aus copycat.conf (CLI überschreibt) ──────────
@@ -648,6 +669,117 @@ def merge_reports(paths: list, output: Path = None) -> str:
     return merged
 
 
+def _write_template(
+    template_path, files, args, input_dir, git_info, serial,
+    search_pattern=None, search_results=None,
+):
+    """Render a Jinja2 template with CopyCat report context.
+
+    Requires: pip install jinja2
+    Raises ImportError when jinja2 is not installed.
+    Raises ValueError on template I/O or rendering errors.
+    """
+    try:
+        from jinja2 import Template, TemplateError
+    except ImportError as exc:
+        raise ImportError(
+            "jinja2 ist nicht installiert. Bitte: pip install jinja2"
+        ) from exc
+
+    try:
+        source = Path(template_path).read_text(encoding="utf-8")
+    except OSError as exc:
+        raise ValueError(f"Template-Datei nicht lesbar: {exc}") from exc
+    try:
+        tmpl = Template(source)
+    except TemplateError as exc:
+        raise ValueError(f"Template-Syntaxfehler: {exc}") from exc
+
+    type_data = {
+        t: [
+            {
+                "name": f.name,
+                "path": f.relative_to(input_dir).as_posix(),
+                "size": f.stat().st_size,
+            }
+            for f in flist
+        ]
+        for t, flist in files.items()
+        if flist
+    }
+    sr = search_results or {}
+    context = {
+        "input_dir": str(input_dir),
+        "date": datetime.now().strftime("%d.%m.%Y %H:%M"),
+        "git": git_info,
+        "serial": serial,
+        "mode": "recursive" if args.recursive else "flat",
+        "total_files": sum(len(flist) for flist in files.values()),
+        "types": type_data,
+        "search_pattern": search_pattern,
+        "search_results": {
+            f.name: [{"line": ln, "text": txt} for ln, txt in hits]
+            for f, hits in sr.items()
+        },
+    }
+    try:
+        return tmpl.render(**context)
+    except TemplateError as exc:
+        raise ValueError(f"Template-Renderfehler: {exc}") from exc
+
+
+def watch_and_run(args, cooldown: float = 2.0, stop_event=None):
+    """Watch the input directory for changes and re-run CopyCat.
+
+    Requires: pip install watchdog
+    Blocks until stop_event is set (or KeyboardInterrupt in CLI mode).
+    Raises ImportError when watchdog is not installed.
+    """
+    try:
+        from watchdog.observers import Observer
+        from watchdog.events import FileSystemEventHandler
+    except ImportError as exc:
+        raise ImportError(
+            "watchdog ist nicht installiert. Bitte: pip install watchdog"
+        ) from exc
+
+    input_dir = Path(args.input or str(Path(__file__).parent))
+    if stop_event is None:
+        stop_event = threading.Event()
+
+    last_event_time = [0.0]
+
+    class _Handler(FileSystemEventHandler):
+        def on_any_event(self, event):
+            if not event.is_directory:
+                last_event_time[0] = time.monotonic()
+
+    observer = Observer()
+    observer.schedule(
+        _Handler(), str(input_dir), recursive=getattr(args, "recursive", False)
+    )
+    observer.start()
+    logging.info(
+        "Watch: %s | Cooldown: %.1fs | stop_event.set() zum Beenden",
+        input_dir, cooldown,
+    )
+
+    try:
+        while not stop_event.is_set():
+            time.sleep(0.25)
+            t = last_event_time[0]
+            if t > 0.0 and (time.monotonic() - t) >= cooldown:
+                last_event_time[0] = 0.0
+                logging.info("Änderung erkannt – erzeuge Report...")
+                try:
+                    run_copycat(args)
+                except Exception as exc:
+                    logging.error("Watch-Fehler beim Re-Run: %s", exc)
+    finally:
+        observer.stop()
+        observer.join()
+
+
 TYPE_FILTERS = {
     "code": ["*.java", "*.py", "*.spec", "*.cpp", "*.c"],
     "web": ["*.html", "*.css", "*.js", "*.ts", "*.jsx"],
@@ -952,7 +1084,15 @@ def run_copycat(args):
         logging.info('Suche nach Muster: "%s"', search_pattern)
     search_results = _build_search_results(files, search_pattern) if search_pattern else {}
 
-    if fmt == "json":
+    template_path = getattr(args, "template", None)
+    if template_path:
+        content = _write_template(
+            template_path, files, args, input_dir, git_info, serial,
+            search_pattern, search_results,
+        )
+        with open(new_file, "w", encoding="utf-8") as writer:
+            writer.write(content)
+    elif fmt == "json":
         _write_json(new_file, files, args, input_dir, git_info, serial, search_pattern, search_results)
     elif fmt == "md":
         with open(new_file, "w", encoding="utf-8") as writer:
@@ -980,5 +1120,7 @@ if __name__ == "__main__":  # pragma: no cover
         print(merge_reports([Path(p) for p in _args.merge]))
     elif getattr(_args, "diff", None):
         print(diff_reports(Path(_args.diff[0]), Path(_args.diff[1])))
+    elif getattr(_args, "watch", False):
+        watch_and_run(_args, cooldown=getattr(_args, "cooldown", 2.0))
     else:
         run_copycat(_args)
