@@ -21,6 +21,7 @@
 | Git-Integration	| Branch + Commit-Hash					|
 | Ausgabeformate	| TXT / JSON / Markdown / **HTML** (mit Syntax-Highlighting) / Jinja2-Template (`--format`, `--template`)	|
 | Inkrementeller Cache	| Nur geänderte Dateien neu scannen; SHA-256-Cache in `.copycat_cache/` (`--incremental`)	|
+| Code-Statistiken	| LOC, Kommentaranteil, Leerzeilen, zyklomatische Komplexität pro Datei (`--stats`)	|
 | Inhaltssuche		| Parallele Regex-Suche über Dateiinhalte (`--search`)	|
 | Diff-Modus		| Zwei Reports vergleichen (`--diff`)			|
 | Merge-Modus		| Mehrere Reports zusammenführen (`--merge`)		|
@@ -116,6 +117,7 @@ python CopyCat.py                             # nutzt copycat.conf falls vorhand
 | `-S`, `--search`		| Regex-Suchmuster (z.B. `TODO\|FIXME`, `def `)			| None		|
 | `-E`, `--exclude`		| Glob-Muster oder Ordner ausschließen (z.B. `*.min.js` `dist/` `node_modules/`)	| None	|
 | `-I`, `--incremental`	| Inkrementeller Modus: nur geänderte Dateien neu scannen, Cache in `.copycat_cache/`	| aus	|
+| `--stats`			| Code-Statistiken: LOC, Kommentarzeilen, Leerzeilen, zyklomatische Komplexität		| aus	|
 | `-v`, `--verbose`		| Ausführliche Ausgabe (DEBUG-Level)					| aus		|
 | `-q`, `--quiet`		| Nur Warnungen ausgeben						| aus		|
 | `--template`			| Pfad zu einer Jinja2-Template-Datei (`.j2`); erfordert `pip install jinja2`	| None	|
@@ -523,6 +525,7 @@ format = md
 | `output` | Pfad | `reports` | Ausgabeordner |
 | `exclude` | string | `*.min.js, dist/` | Glob-Muster zum Ausschließen |
 | `incremental` | bool | `true` | Inkrementellen Cache aktivieren (`true`/`false`) |
+| `stats` | bool | `true` | Code-Statistiken aktivieren (`true`/`false`) |
 
 
 **Suchreihenfolge:** Aktuelles Verzeichnis → Skript-Verzeichnis. Erste gefundene Datei gewinnt.

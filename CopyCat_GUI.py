@@ -56,6 +56,7 @@ class CopyCatGUI:
         self._cooldown_var = tk.StringVar(value="2.0")
         self._exclude_var = tk.StringVar()
         self._incremental_var = tk.BooleanVar(value=False)
+        self._stats_var = tk.BooleanVar(value=False)
         self._watch_stop_event = None
         self._type_vars = {t: tk.BooleanVar(value=True) for t in TYPES}
 
@@ -133,6 +134,10 @@ class CopyCatGUI:
 
         ttk.Checkbutton(frm_opt, text="Inkrementell (Cache)", variable=self._incremental_var).grid(
             row=3, column=4, columnspan=2, sticky="w", padx=(16, 0), pady=(6, 0)
+        )
+
+        ttk.Checkbutton(frm_opt, text="Code-Statistiken", variable=self._stats_var).grid(
+            row=4, column=4, columnspan=2, sticky="w", padx=(16, 0), pady=(6, 0)
         )
 
         ttk.Label(frm_opt, text="Template (.j2):").grid(row=4, column=0, sticky="w", padx=6, pady=(6, 0))
@@ -252,6 +257,8 @@ class CopyCatGUI:
             self._exclude_var.set(cfg["exclude"])
         if "incremental" in cfg:
             self._incremental_var.set(cfg["incremental"].lower() in ("true", "yes", "1"))
+        if "stats" in cfg:
+            self._stats_var.set(cfg["stats"].lower() in ("true", "yes", "1"))
 
     def _save_config(self):
         path = filedialog.asksaveasfilename(
@@ -281,6 +288,8 @@ class CopyCatGUI:
             lines.append(f"exclude = {exclude}")
         if self._incremental_var.get():
             lines.append("incremental = true")
+        if self._stats_var.get():
+            lines.append("stats = true")
         try:
             Path(path).write_text("\n".join(lines) + "\n", encoding="utf-8")
             messagebox.showinfo("Gespeichert", f"Config gespeichert:\n{path}")
@@ -394,6 +403,7 @@ class CopyCatGUI:
             watch=False,
             exclude=exclude,
             incremental=self._incremental_var.get(),
+            stats=self._stats_var.get(),
         )
 
     def _on_watch_toggle(self):  # pragma: no cover

@@ -146,6 +146,9 @@ _TEMPLATE = """<!DOCTYPE html>
         <label style="display:flex;align-items:center;gap:.5rem;margin-bottom:.9rem;">
           <input type="checkbox" name="incremental" {% if form.incremental %}checked{% endif %}> Inkrementell (Cache)
         </label>
+        <label style="display:flex;align-items:center;gap:.5rem;margin-bottom:.9rem;">
+          <input type="checkbox" name="stats" {% if form.stats %}checked{% endif %}> Code-Statistiken
+        </label>
       </div>
 
       <div class="card">
@@ -221,6 +224,7 @@ def _build_args(form) -> Namespace:
         quiet=True,
         exclude=exclude,
       incremental="incremental" in form,
+      stats="stats" in form,
     )
 
 
@@ -236,6 +240,7 @@ def _form_defaults():
         "exclude": "",
         "recursive": False,
         "incremental": False,
+        "stats": False,
     }
 
 
@@ -286,6 +291,7 @@ def run():
         "exclude": request.form.get("exclude", "").strip(),
         "recursive": "recursive" in request.form,
       "incremental": "incremental" in request.form,
+      "stats": "stats" in request.form,
     }
 
     # Pflichtfeld: Eingabeordner
@@ -397,6 +403,8 @@ def api_run():
         form_like["recursive"] = "on"
     if data.get("incremental"):
       form_like["incremental"] = "on"
+    if data.get("stats"):
+        form_like["stats"] = "on"
 
     class _FakeForm:
         def get(self, key, default=""):

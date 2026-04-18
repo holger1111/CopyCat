@@ -48,6 +48,8 @@ from CopyCat import (
     _load_cache,
     _save_cache,
     _write_html,
+    _analyse_file,
+    _build_stats,
 )
 
 
@@ -64,7 +66,7 @@ def mock_writer():
 @pytest.fixture
 def run_args(tmp_path):
     """Factory fixture for Namespace args."""
-    def _make_args(types=None, recursive=False, max_size=None, input_path=None, output_path=None, fmt="txt", search=None, exclude=None, incremental=False):
+    def _make_args(types=None, recursive=False, max_size=None, input_path=None, output_path=None, fmt="txt", search=None, exclude=None, incremental=False, stats=False):
         return Namespace(
             input=str(input_path or tmp_path),
             output=str(output_path or tmp_path),
@@ -79,6 +81,7 @@ def run_args(tmp_path):
             plugin_dir=None,
             exclude=exclude or [],
             incremental=incremental,
+            stats=stats,
         )
     return _make_args
 
@@ -1499,6 +1502,7 @@ def gui():
     instance._cooldown_var = _make_var("2.0")
     instance._exclude_var = _make_var("")
     instance._incremental_var = _make_var(False)
+    instance._stats_var = _make_var(False)
     instance._watch_stop_event = None
     instance._watch_thread = None
     instance._watch_btn = MagicMock()
@@ -4020,6 +4024,308 @@ def test_web_api_run_with_incremental(web_client):
         "input": str(tmp),
         "format": "txt",
         "incremental": True,
+    })
+    assert resp.status_code == 200
+
+
+# ==================== CODE-STATISTIKEN TESTS ====================
+
+def test_analyse_file_python(tmp_path):
+    """_analyse_file erkennt Python-LOC, Kommentare, Blank und Komplexität."""
+    py = tmp_path / "sample.py"
+    py.write_text("# Kommentar\n\ndef foo():\n    if True:\n        pass\n")
+    result = _analyse_file(py)
+    assert result["loc"] == 5
+    assert result["comments"] == 1
+    assert result["blank"] == 1
+    assert result["code"] == 3
+    assert result["complexity"] is not None
+    assert result["complexity"] >= 2  # 1 + If
+
+
+def test_analyse_file_non_python(tmp_path):
+    """_analyse_file ermittelt Komplexität für Nicht-Python-Dateien via Regex."""
+    js = tmp_path / "app.js"
+    js.write_text("if (x) { for (;;) {} }\n")
+    result = _analyse_file(js)
+    assert result["complexity"] >= 2
+    assert result["loc"] == 1
+
+
+def test_analyse_file_no_keywords(tmp_path):
+    """Nicht-Python-Datei ohne Branch-Schlüsselwörter → complexity=1."""
+    txt = tmp_path / "data.js"
+    txt.write_text("let x = 1;\nlet y = 2;\n")
+    result = _analyse_file(txt)
+    assert result["complexity"] == 1
+
+
+def test_analyse_file_oserror(tmp_path):
+    """_analyse_file gibt Null-Werte bei OSError zurück."""
+    missing = tmp_path / "ghost.py"
+    result = _analyse_file(missing)
+    assert result == {"loc": 0, "code": 0, "comments": 0, "blank": 0, "complexity": None}
+
+
+def test_analyse_file_unicode_error(tmp_path):
+    """_analyse_file gibt Null-Werte bei UnicodeDecodeError zurück."""
+    bin_file = tmp_path / "binary.py"
+    bin_file.write_bytes(b"\xff\xfe")
+    result = _analyse_file(bin_file)
+    assert result == {"loc": 0, "code": 0, "comments": 0, "blank": 0, "complexity": None}
+
+
+def test_analyse_file_syntax_error(tmp_path):
+    """_analyse_file gibt complexity=None bei SyntaxError zurück."""
+    bad = tmp_path / "bad.py"
+    bad.write_text("def (:\n", encoding="utf-8")
+    result = _analyse_file(bad)
+    assert result["complexity"] is None
+    assert result["loc"] > 0
+
+
+def test_analyse_file_empty(tmp_path):
+    """_analyse_file bei leerer Datei → loc=0."""
+    empty = tmp_path / "empty.py"
+    empty.write_text("", encoding="utf-8")
+    result = _analyse_file(empty)
+    assert result["loc"] == 0
+    assert result["code"] == 0
+
+
+def test_build_stats_with_files(tmp_path):
+    """_build_stats liefert per_file und total."""
+    py = tmp_path / "x.py"
+    py.write_text("x = 1\n# Komm\n\n")
+    files = {k: [] for k in TYPE_FILTERS}
+    files["code"] = [py]
+    stats = _build_stats(files)
+    assert py in stats["per_file"]
+    assert stats["total"]["loc"] > 0
+    assert "comment_ratio" in stats["total"]
+
+
+def test_build_stats_empty(tmp_path):
+    """_build_stats mit leerer code-Liste gibt Null-Total zurück."""
+    files = {k: [] for k in TYPE_FILTERS}
+    stats = _build_stats(files)
+    assert stats["per_file"] == {}
+    assert stats["total"]["loc"] == 0
+    assert stats["total"]["avg_complexity"] is None
+
+
+def test_build_stats_cache_hit(tmp_path):
+    """_build_stats liest stats aus Cache, wenn vorhanden."""
+    py = tmp_path / "c.py"
+    py.write_text("x=1\n")
+    cached_stats = {"loc": 99, "code": 80, "comments": 10, "blank": 9, "complexity": 5}
+    cache = {py: {"stats": cached_stats}}
+    files = {k: [] for k in TYPE_FILTERS}
+    files["code"] = [py]
+    stats = _build_stats(files, cache)
+    assert stats["per_file"][py] == cached_stats
+    assert stats["total"]["loc"] == 99
+
+
+def test_build_stats_no_complexity(tmp_path):
+    """_build_stats mit complexity=None in allen Dateien → avg/max None."""
+    bin_file = tmp_path / "data.py"
+    bin_file.write_bytes(b"\xff\xfe")  # UnicodeDecodeError → complexity None
+    files = {k: [] for k in TYPE_FILTERS}
+    files["code"] = [bin_file]
+    stats = _build_stats(files)
+    assert stats["total"]["avg_complexity"] is None
+    assert stats["total"]["max_complexity"] is None
+
+
+def test_parse_arguments_stats_flag():
+    """--stats Flag setzt args.stats=True."""
+    with patch("sys.argv", ["CopyCat.py", "--stats"]):
+        args = parse_arguments()
+    assert args.stats is True
+
+
+def test_parse_arguments_stats_config(tmp_path, monkeypatch):
+    """Config-Key 'stats = true' setzt args.stats=True."""
+    conf = tmp_path / "copycat.conf"
+    conf.write_text("stats = true\n", encoding="utf-8")
+    with patch("sys.argv", ["CopyCat.py"]):
+        args = parse_arguments(config_path=str(conf))
+    assert args.stats is True
+
+
+def test_run_copycat_stats_txt(tmp_path, run_args):
+    """run_copycat mit stats=True erzeugt CODE-STATISTIKEN im TXT-Report."""
+    py = tmp_path / "code.py"
+    py.write_text("x = 1\n# Komm\n\n")
+    run_copycat(run_args(stats=True))
+    reports = list(tmp_path.glob("combined_copycat_*.txt"))
+    assert reports
+    content = reports[0].read_text(encoding="utf-8")
+    assert "CODE-STATISTIKEN" in content
+
+
+def test_run_copycat_stats_json(tmp_path, run_args):
+    """run_copycat mit stats=True und format=json enthält code_stats im JSON."""
+    py = tmp_path / "code.py"
+    py.write_text("x = 1\n")
+    run_copycat(run_args(fmt="json", stats=True))
+    reports = list(tmp_path.glob("combined_copycat_*.json"))
+    assert reports
+    import json
+    data = json.loads(reports[0].read_text(encoding="utf-8"))
+    assert "code_stats" in data
+
+
+def test_run_copycat_stats_md(tmp_path, run_args):
+    """run_copycat mit stats=True und format=md enthält ## Code-Statistiken."""
+    py = tmp_path / "code.py"
+    py.write_text("x = 1\n")
+    run_copycat(run_args(fmt="md", stats=True))
+    reports = list(tmp_path.glob("combined_copycat_*.md"))
+    assert reports
+    content = reports[0].read_text(encoding="utf-8")
+    assert "## Code-Statistiken" in content
+
+
+def test_run_copycat_stats_html(tmp_path, run_args):
+    """run_copycat mit stats=True und format=html enthält stat-cards."""
+    py = tmp_path / "code.py"
+    py.write_text("x = 1\n")
+    run_copycat(run_args(fmt="html", stats=True))
+    reports = list(tmp_path.glob("combined_copycat_*.html"))
+    assert reports
+    content = reports[0].read_text(encoding="utf-8")
+    assert "stat-cards" in content
+
+
+def test_write_txt_with_stats(tmp_path):
+    """_write_txt mit stats erzeugt Statistik-Block."""
+    files = {k: [] for k in TYPE_FILTERS}
+    py = tmp_path / "mod.py"
+    py.write_text("x = 1\n# Komm\n")
+    files["code"] = [py]
+    stats = _build_stats(files)
+    buf = StringIO()
+    args = Namespace(recursive=False, types=["code"], max_size=float("inf"), format="txt", search=None)
+    _write_txt(buf, files, args, tmp_path, "No Git", 1, stats=stats)
+    out = buf.getvalue()
+    assert "CODE-STATISTIKEN" in out
+    assert "GESAMT" in out
+
+
+def test_write_json_with_stats(tmp_path):
+    """_write_json mit stats enthält code_stats und stats pro Datei."""
+    import json
+    files = {k: [] for k in TYPE_FILTERS}
+    py = tmp_path / "mod.py"
+    py.write_text("x = 1\n")
+    files["code"] = [py]
+    stats = _build_stats(files)
+    out_file = tmp_path / "out.json"
+    args = Namespace(recursive=False, types=["code"], max_size=float("inf"), format="json", search=None)
+    _write_json(out_file, files, args, tmp_path, "No Git", 1, stats=stats)
+    data = json.loads(out_file.read_text(encoding="utf-8"))
+    assert data["code_stats"] is not None
+    code_entries = data["details"]["code"]
+    assert any("stats" in e for e in code_entries)
+
+
+def test_write_md_with_stats(tmp_path):
+    """_write_md mit stats enthält ## Code-Statistiken."""
+    files = {k: [] for k in TYPE_FILTERS}
+    py = tmp_path / "mod.py"
+    py.write_text("x = 1\n")
+    files["code"] = [py]
+    stats = _build_stats(files)
+    buf = StringIO()
+    args = Namespace(recursive=False, types=["code"], max_size=float("inf"), format="md", search=None)
+    _write_md(buf, files, args, tmp_path, "No Git", 1, stats=stats)
+    out = buf.getvalue()
+    assert "## Code-Statistiken" in out
+
+
+def test_write_html_with_stats(tmp_path):
+    """_write_html mit stats enthält stat-cards."""
+    files = {k: [] for k in TYPE_FILTERS}
+    py = tmp_path / "mod.py"
+    py.write_text("x = 1\n")
+    files["code"] = [py]
+    stats = _build_stats(files)
+    out_file = tmp_path / "out.html"
+    args = Namespace(recursive=False, types=["code"], max_size=float("inf"), format="html", search=None)
+    _write_html(out_file, files, args, tmp_path, "No Git", 1, stats=stats)
+    out = out_file.read_text(encoding="utf-8")
+    assert "stat-cards" in out
+
+
+def test_gui_stats_build_args(gui):
+    """GUI _build_args enthält stats=False wenn Checkbox nicht gesetzt."""
+    from CopyCat_GUI import CopyCatGUI
+    gui._input_var.set("")
+    gui._output_var.set("")
+    args = CopyCatGUI._build_args(gui)
+    assert args.stats is False
+
+
+def test_gui_stats_build_args_true(gui):
+    """GUI _build_args enthält stats=True wenn Checkbox gesetzt."""
+    from CopyCat_GUI import CopyCatGUI
+    gui._stats_var.set(True)
+    args = CopyCatGUI._build_args(gui)
+    assert args.stats is True
+
+
+def test_gui_stats_load_config(gui, tmp_path):
+    """GUI _load_config setzt _stats_var aus Config-Datei."""
+    from CopyCat_GUI import CopyCatGUI
+    conf = tmp_path / "copycat.conf"
+    conf.write_text("stats = true\n", encoding="utf-8")
+    with patch("CopyCat_GUI.filedialog.askopenfilename", return_value=str(conf)):
+        CopyCatGUI._load_config(gui)
+    assert gui._stats_var.get() is True
+
+
+def test_gui_stats_save_config(gui, tmp_path):
+    """GUI _save_config schreibt stats = true wenn Checkbox gesetzt."""
+    from CopyCat_GUI import CopyCatGUI
+    gui._stats_var.set(True)
+    conf = tmp_path / "copycat.conf"
+    with patch("CopyCat_GUI.filedialog.asksaveasfilename", return_value=str(conf)):
+        CopyCatGUI._save_config(gui)
+    content = conf.read_text(encoding="utf-8")
+    assert "stats = true" in content
+
+
+def test_web_stats_form_defaults(web_client):
+    """GET / hat stats=False in form_defaults."""
+    client, _ = web_client
+    resp = client.get("/")
+    assert resp.status_code == 200
+    # stats checkbox nicht standardmäßig angekreuzt
+    assert b'name="stats"' in resp.data
+
+
+def test_web_run_with_stats(web_client):
+    """POST /run mit stats-Checkbox erzeugt Bericht."""
+    client, tmp = web_client
+    (tmp / "app.py").write_text("x=1\n")
+    resp = client.post("/run", data={
+        "input": str(tmp),
+        "fmt": "txt",
+        "stats": "on",
+    })
+    assert resp.status_code == 200
+
+
+def test_web_api_run_with_stats(web_client):
+    """POST /api/run mit stats=True setzt form_like['stats']."""
+    client, tmp = web_client
+    (tmp / "app.py").write_text("x=1\n")
+    resp = client.post("/api/run", json={
+        "input": str(tmp),
+        "format": "txt",
+        "stats": True,
     })
     assert resp.status_code == 200
 

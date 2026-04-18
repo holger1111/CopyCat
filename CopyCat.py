@@ -180,6 +180,11 @@ def parse_arguments(config_path=None):
         action="store_true",
         help="Inkrementeller Modus: nur geänderte Dateien neu scannen, Cache in .copycat_cache/",
     )
+    parser.add_argument(
+        "--stats",
+        action="store_true",
+        help="Code-Statistiken ausgeben (LOC, Kommentare, Leerzeilen, zyklomatische Komplexität)",
+    )
 
     # ── Config-Datei: Defaults aus copycat.conf (CLI überschreibt) ──────────
     cfg = load_config(config_path)
@@ -212,6 +217,8 @@ def parse_arguments(config_path=None):
             overrides["exclude"] = parts
     if "incremental" in cfg:
         overrides["incremental"] = cfg["incremental"].lower() in ("true", "yes", "1")
+    if "stats" in cfg:
+        overrides["stats"] = cfg["stats"].lower() in ("true", "yes", "1")
     if overrides:
         parser.set_defaults(**overrides)
     # ────────────────────────────────────────────────────────────────────────
@@ -919,6 +926,96 @@ def _should_exclude(candidate, input_dir, exclude_patterns):
     return False
 
 
+# ── Code-Statistiken (Idee 5) ─────────────────────────────────────────────────
+
+# Mapping Dateiendung → Tuple von Zeilenpräfixen, die als Kommentar gewertet werden
+_COMMENT_PREFIXES: dict = {
+    ".py": ("#", '"""', "'''"),
+    ".rb": ("#",), ".sh": ("#",), ".bash": ("#",), ".r": ("#",),
+    ".yml": ("#",), ".yaml": ("#",), ".toml": ("#",),
+    ".java": ("//", "/*", "*/", "*"), ".c": ("//", "/*", "*/", "*"),
+    ".cpp": ("//", "/*", "*/", "*"), ".h": ("//", "/*", "*/", "*"),
+    ".cs": ("//", "/*", "*/", "*"), ".js": ("//", "/*", "*/", "*"),
+    ".ts": ("//", "/*", "*/", "*"), ".jsx": ("//", "/*", "*/", "*"),
+    ".tsx": ("//", "/*", "*/", "*"), ".go": ("//", "/*", "*/", "*"),
+    ".swift": ("//", "/*", "*/", "*"), ".kt": ("//", "/*", "*/", "*"),
+    ".scala": ("//", "/*", "*/", "*"), ".groovy": ("//", "/*", "*/", "*"),
+    ".sql": ("--", "/*", "*/"),
+    ".html": ("<!--",), ".xml": ("<!--",), ".svg": ("<!--",),
+    ".css": ("/*", "*/", "*"), ".less": ("/*", "*/", "*"), ".scss": ("/*", "*/", "*"),
+}
+
+
+def _analyse_file(path: Path) -> dict:
+    """Analyse a source file: count LOC, blank, comment, code lines + cyclomatic complexity."""
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return {"loc": 0, "code": 0, "comments": 0, "blank": 0, "complexity": None}
+    lines = text.splitlines()
+    suffix = path.suffix.lower()
+    comment_prefixes = _COMMENT_PREFIXES.get(suffix, ("#",))
+    blank = sum(1 for ln in lines if not ln.strip())
+    comments = sum(
+        1 for ln in lines
+        if ln.strip() and any(ln.strip().startswith(p) for p in comment_prefixes)
+    )
+    code = max(len(lines) - blank - comments, 0)
+    complexity = None
+    if suffix == ".py":
+        try:
+            import ast as _ast
+            tree = _ast.parse(text)
+            _DECISION = (
+                _ast.If, _ast.For, _ast.While, _ast.ExceptHandler,
+                _ast.With, _ast.Assert, _ast.ListComp, _ast.DictComp,
+                _ast.SetComp, _ast.GeneratorExp,
+            )
+            complexity = 1 + sum(1 for n in _ast.walk(tree) if isinstance(n, _DECISION))
+        except SyntaxError:
+            complexity = None
+    else:
+        m = re.findall(r'\b(?:if|else|elif|for|while|switch|case|catch|except)\b|&&|\|\|', text)
+        complexity = 1 + len(m) if m else 1
+    return {"loc": len(lines), "code": code, "comments": comments, "blank": blank, "complexity": complexity}
+
+
+def _build_stats(files: dict, cache: dict = None) -> dict:
+    """Build per-file and aggregate stats for all code files."""
+    cache = cache or {}
+    per_file: dict = {}
+    for f in files.get("code", []):
+        if f in cache and cache[f].get("stats"):
+            per_file[f] = cache[f]["stats"]
+        else:
+            per_file[f] = _analyse_file(f)
+    if per_file:
+        total_loc = sum(v["loc"] for v in per_file.values())
+        total_code = sum(v["code"] for v in per_file.values())
+        total_comments = sum(v["comments"] for v in per_file.values())
+        total_blank = sum(v["blank"] for v in per_file.values())
+        complexities = [v["complexity"] for v in per_file.values() if v["complexity"] is not None]
+        avg_c = round(sum(complexities) / len(complexities), 1) if complexities else None
+        max_c = max(complexities) if complexities else None
+        comment_ratio = round(total_comments / total_loc * 100, 1) if total_loc else 0.0
+    else:
+        total_loc = total_code = total_comments = total_blank = 0
+        avg_c = max_c = None
+        comment_ratio = 0.0
+    return {
+        "per_file": per_file,
+        "total": {
+            "loc": total_loc,
+            "code": total_code,
+            "comments": total_comments,
+            "blank": total_blank,
+            "avg_complexity": avg_c,
+            "max_complexity": max_c,
+            "comment_ratio": comment_ratio,
+        },
+    }
+
+
 def _collect_files(args, input_dir, script_file):
     """Collect and return files dict based on args."""
     files = {k: [] for k in TYPE_FILTERS}
@@ -955,7 +1052,7 @@ def _collect_files(args, input_dir, script_file):
     return files
 
 
-def _write_txt(writer, files, args, input_dir, git_info, serial, search_pattern=None, search_results=None, cache=None):
+def _write_txt(writer, files, args, input_dir, git_info, serial, search_pattern=None, search_results=None, cache=None, stats=None):
     """Write TXT report."""
     mode_text = "REKURSIV" if args.recursive else "FLACH (Default)"
     writer.write(
@@ -983,6 +1080,28 @@ def _write_txt(writer, files, args, input_dir, git_info, serial, search_pattern=
             writer.write(f"{t.upper()}: {count} {get_plural(count)}\n")
 
     writer.write("\n")
+
+    if stats and stats["per_file"]:
+        writer.write(f"{'='*20} CODE-STATISTIKEN {'='*20}\n")
+        hdr = f"{'Datei':<30} {'LOC':>5} {'Code':>5} {'Komm.':>6} {'Leer':>5} {'Kompl.':>7}\n"
+        sep = "-" * len(hdr.rstrip()) + "\n"
+        writer.write(hdr)
+        writer.write(sep)
+        for fpath, s in stats["per_file"].items():
+            c = f"{s['complexity']}" if s["complexity"] is not None else "–"
+            writer.write(
+                f"{fpath.name:<30} {s['loc']:>5} {s['code']:>5} {s['comments']:>6} {s['blank']:>5} {c:>7}\n"
+            )
+        writer.write(sep)
+        t = stats["total"]
+        avg_str = f"Ø {t['avg_complexity']}" if t["avg_complexity"] is not None else "–"
+        max_str = f"Max {t['max_complexity']}" if t["max_complexity"] is not None else ""
+        compl_str = f"{avg_str} / {max_str}" if max_str else avg_str
+        ratio_str = f"  (Kommentaranteil: {t['comment_ratio']}%)"
+        writer.write(
+            f"{'GESAMT':<30} {t['loc']:>5} {t['code']:>5} {t['comments']:>6} {t['blank']:>5} {compl_str:>7}\n"
+        )
+        writer.write(ratio_str + "\n\n")
 
     selected_types = args.types if args.types else ["all"]
     process_all = "all" in selected_types
@@ -1056,7 +1175,7 @@ def _write_txt(writer, files, args, input_dir, git_info, serial, search_pattern=
                 writer.write(f"    L{lineno}: {text}\n")
 
 
-def _write_json(path, files, args, input_dir, git_info, serial, search_pattern=None, search_results=None, cache=None):
+def _write_json(path, files, args, input_dir, git_info, serial, search_pattern=None, search_results=None, cache=None, stats=None):
     """Write JSON report."""
     selected_types = args.types if args.types else ["all"]
     process_all = "all" in selected_types
@@ -1087,6 +1206,8 @@ def _write_json(path, files, args, input_dir, git_info, serial, search_pattern=N
                         )
                     except Exception:
                         entry["lines"] = None
+                if stats and f in stats.get("per_file", {}):
+                    entry["stats"] = stats["per_file"][f]
             if search_pattern is not None:
                 hits = (search_results or {}).get(f, [])
                 entry["matches"] = [{"line": ln, "text": txt} for ln, txt in hits]
@@ -1113,6 +1234,7 @@ def _write_json(path, files, args, input_dir, git_info, serial, search_pattern=N
         "files": sum(len(v) for v in types_out.values()),
         "types": {t: len(v) for t, v in types_out.items()},
         "search": search_out,
+        "code_stats": stats["total"] if stats else None,
         "details": types_out,
     }
 
@@ -1120,7 +1242,7 @@ def _write_json(path, files, args, input_dir, git_info, serial, search_pattern=N
         json.dump(report, f, ensure_ascii=False, indent=2)
 
 
-def _write_md(writer, files, args, input_dir, git_info, serial, search_pattern=None, search_results=None, cache=None):
+def _write_md(writer, files, args, input_dir, git_info, serial, search_pattern=None, search_results=None, cache=None, stats=None):
     """Write Markdown report."""
     mode_text = "Rekursiv" if args.recursive else "Flach"
     total_files = sum(len(files[t]) for t in files)
@@ -1148,6 +1270,21 @@ def _write_md(writer, files, args, input_dir, git_info, serial, search_pattern=N
         if flist:
             writer.write(f"| {t.upper()} | {len(flist)} |\n")
     writer.write("\n")
+
+    if stats and stats["per_file"]:
+        writer.write("## Code-Statistiken\n\n")
+        writer.write("| Datei | LOC | Code | Kommentar | Leer | Komplexität |\n|---|---|---|---|---|---|\n")
+        for fpath, s in stats["per_file"].items():
+            c = str(s["complexity"]) if s["complexity"] is not None else "–"
+            writer.write(f"| `{fpath.name}` | {s['loc']} | {s['code']} | {s['comments']} | {s['blank']} | {c} |\n")
+        tot = stats["total"]
+        avg_str = f"Ø {tot['avg_complexity']}" if tot["avg_complexity"] is not None else "–"
+        max_str = f" / Max {tot['max_complexity']}" if tot["max_complexity"] is not None else ""
+        writer.write(
+            f"| **GESAMT** | **{tot['loc']}** | **{tot['code']}** | **{tot['comments']}** |"
+            f" **{tot['blank']}** | **{avg_str}{max_str}** |\n"
+        )
+        writer.write(f"\n> Kommentaranteil: {tot['comment_ratio']}%\n\n")
 
     if process_all or "code" in selected_types:
         writer.write("## Code-Details\n\n")
@@ -1261,7 +1398,7 @@ def _save_cache(cache_file: Path, entries: dict) -> None:
 # ── HTML-Report (Idee 3) ──────────────────────────────────────────────────────
 
 def _write_html(path, files, args, input_dir, git_info, serial,
-                search_pattern=None, search_results=None, cache=None):
+                search_pattern=None, search_results=None, cache=None, stats=None):
     """Write a self-contained HTML report with optional Pygments syntax highlighting."""
     try:
         from pygments import highlight
@@ -1380,6 +1517,39 @@ def _write_html(path, files, args, input_dir, git_info, serial,
         'Syntax-Highlighting nicht verf\u00fcgbar (pip install pygments).</p>'
     )
 
+    # Stats section HTML
+    stats_section = ""
+    if stats and stats["per_file"]:
+        tot = stats["total"]
+        avg_str = f"Ø {tot['avg_complexity']}" if tot["avg_complexity"] is not None else "–"
+        max_str = f"Max {tot['max_complexity']}" if tot["max_complexity"] is not None else ""
+        compl_summary = f"{avg_str} / {max_str}" if max_str else avg_str
+        cards = (
+            f'<div class="stat-card"><div class="stat-val">{tot["loc"]}</div>'
+            f'<div class="stat-label">Zeilen gesamt</div></div>'
+            f'<div class="stat-card"><div class="stat-val">{tot["code"]}</div>'
+            f'<div class="stat-label">Code-Zeilen</div></div>'
+            f'<div class="stat-card"><div class="stat-val">{tot["comment_ratio"]}%</div>'
+            f'<div class="stat-label">Kommentaranteil</div></div>'
+            f'<div class="stat-card"><div class="stat-val">{compl_summary}</div>'
+            f'<div class="stat-label">Komplexität</div></div>'
+        )
+        rows_html = ""
+        for fpath, s in stats["per_file"].items():
+            c = str(s["complexity"]) if s["complexity"] is not None else "–"
+            rows_html += (
+                f'<tr><td>{_html_escape(fpath.name)}</td>'
+                f'<td>{s["loc"]}</td><td>{s["code"]}</td>'
+                f'<td>{s["comments"]}</td><td>{s["blank"]}</td><td>{c}</td></tr>\n'
+            )
+        stats_section = (
+            f'<section>\n<h2>Code-Statistiken</h2>\n'
+            f'<div class="stat-cards">{cards}</div>\n'
+            f'<table><tr><th>Datei</th><th>LOC</th><th>Code</th>'
+            f'<th>Kommentar</th><th>Leer</th><th>Komplexität</th></tr>\n'
+            f'{rows_html}</table>\n</section>\n'
+        )
+
     html = (
         f'<!DOCTYPE html>\n<html lang="de">\n<head>\n'
         f'<meta charset="UTF-8">\n'
@@ -1398,6 +1568,10 @@ def _write_html(path, files, args, input_dir, git_info, serial,
         f'pre{{margin:0;padding:14px 16px;overflow-x:auto;font-size:.88em;line-height:1.5;border-top:1px solid #e0e0e0}}\n'
         f'h2{{color:#1565c0;border-bottom:2px solid #e3f2fd;padding-bottom:4px;margin-top:28px}}\n'
         f'code{{background:#f5f5f5;padding:1px 4px;border-radius:3px;font-size:.92em}}\n'
+        f'.stat-cards{{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px}}\n'
+        f'.stat-card{{background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:14px 20px;min-width:130px;box-shadow:0 1px 3px rgba(0,0,0,.08);text-align:center}}\n'
+        f'.stat-val{{font-size:1.6em;font-weight:700;color:#1565c0}}\n'
+        f'.stat-label{{font-size:.78em;color:#666;margin-top:4px}}\n'
         f'</style>\n</head>\n<body>\n'
         f'<header><h1>&#128008; CopyCat v2.9 Report</h1></header>\n'
         f'<section>\n'
@@ -1412,7 +1586,8 @@ def _write_html(path, files, args, input_dir, git_info, serial,
         f'</table>\n</section>\n'
         f'<section>\n<h2>\u00dcbersicht</h2>\n'
         f'<table><tr><th>Typ</th><th>Anzahl</th></tr>\n{overview_rows}</table>\n</section>\n'
-        f'<section>\n<h2>Code-Details</h2>\n{pygments_note}\n'
+        + stats_section
+        + f'<section>\n<h2>Code-Details</h2>\n{pygments_note}\n'
         + "".join(code_html_parts)
         + f'</section>\n'
         + "".join(other_sections)
@@ -1497,6 +1672,17 @@ def run_copycat(args):
         n_changed = len(files.get("code", [])) - n_cached
         logging.info("Inkrementell: %d aus Cache, %d neu/ge\u00e4ndert", n_cached, n_changed)
 
+    # ── Code-Statistiken (Idee 5) ─────────────────────────────────────────────
+    stats_map = None
+    if getattr(args, "stats", False):
+        stats_map = _build_stats(files, cache_map)
+        t = stats_map["total"]
+        logging.info(
+            "Code-Statistiken: %d Dateien | %d LOC | %d Code | %d Kommentar | %d Leer | Ø Kompl. %s",
+            len(stats_map["per_file"]), t["loc"], t["code"], t["comments"], t["blank"],
+            t["avg_complexity"] if t["avg_complexity"] is not None else "–",
+        )
+
     template_path = getattr(args, "template", None)
     if template_path:
         content = _write_template(
@@ -1506,15 +1692,15 @@ def run_copycat(args):
         with open(new_file, "w", encoding="utf-8") as writer:
             writer.write(content)
     elif fmt == "json":
-        _write_json(new_file, files, args, input_dir, git_info, serial, search_pattern, search_results, cache_map)
+        _write_json(new_file, files, args, input_dir, git_info, serial, search_pattern, search_results, cache_map, stats_map)
     elif fmt == "md":
         with open(new_file, "w", encoding="utf-8") as writer:
-            _write_md(writer, files, args, input_dir, git_info, serial, search_pattern, search_results, cache_map)
+            _write_md(writer, files, args, input_dir, git_info, serial, search_pattern, search_results, cache_map, stats_map)
     elif fmt == "html":
-        _write_html(new_file, files, args, input_dir, git_info, serial, search_pattern, search_results, cache_map)
+        _write_html(new_file, files, args, input_dir, git_info, serial, search_pattern, search_results, cache_map, stats_map)
     else:
         with open(new_file, "w", encoding="utf-8") as writer:
-            _write_txt(writer, files, args, input_dir, git_info, serial, search_pattern, search_results, cache_map)
+            _write_txt(writer, files, args, input_dir, git_info, serial, search_pattern, search_results, cache_map, stats_map)
 
     logging.info("Erstellt: %s", new_file)
 
