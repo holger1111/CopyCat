@@ -57,6 +57,7 @@ class CopyCatGUI:
         self._exclude_var = tk.StringVar()
         self._incremental_var = tk.BooleanVar(value=False)
         self._stats_var = tk.BooleanVar(value=False)
+        self._git_url_var = tk.StringVar()
         self._watch_stop_event = None
         self._type_vars = {t: tk.BooleanVar(value=True) for t in TYPES}
 
@@ -80,6 +81,9 @@ class CopyCatGUI:
         _entry_out = ttk.Entry(frm_io, textvariable=self._output_var, width=55)
         _entry_out.grid(row=1, column=1, padx=4, pady=(4, 0))
         ttk.Button(frm_io, text="…", width=3, command=self._browse_output).grid(row=1, column=2, pady=(4, 0))
+
+        ttk.Label(frm_io, text="Git-URL:").grid(row=2, column=0, sticky="w", pady=(4, 0))
+        ttk.Entry(frm_io, textvariable=self._git_url_var, width=55).grid(row=2, column=1, padx=4, pady=(4, 0))
 
         if _DND_AVAILABLE:
             _entry_in.drop_target_register(DND_FILES)
@@ -259,6 +263,12 @@ class CopyCatGUI:
             self._incremental_var.set(cfg["incremental"].lower() in ("true", "yes", "1"))
         if "stats" in cfg:
             self._stats_var.set(cfg["stats"].lower() in ("true", "yes", "1"))
+        if "git_url" in cfg:
+            self._git_url_var.set(cfg["git_url"])
+        if "git_url" in cfg:
+            self._git_url_var.set(cfg["git_url"])
+        if "git_url" in cfg:
+            self._git_url_var.set(cfg["git_url"])
 
     def _save_config(self):
         path = filedialog.asksaveasfilename(
@@ -290,6 +300,9 @@ class CopyCatGUI:
             lines.append("incremental = true")
         if self._stats_var.get():
             lines.append("stats = true")
+        git_url = self._git_url_var.get().strip()
+        if git_url:
+            lines.append(f"git_url = {git_url}")
         try:
             Path(path).write_text("\n".join(lines) + "\n", encoding="utf-8")
             messagebox.showinfo("Gespeichert", f"Config gespeichert:\n{path}")
@@ -404,6 +417,7 @@ class CopyCatGUI:
             exclude=exclude,
             incremental=self._incremental_var.get(),
             stats=self._stats_var.get(),
+            git_url=self._git_url_var.get().strip() or None,
         )
 
     def _on_watch_toggle(self):  # pragma: no cover

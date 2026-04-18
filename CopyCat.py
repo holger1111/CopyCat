@@ -8,6 +8,7 @@ import hashlib
 import importlib.util
 import json
 import stat
+import tempfile
 import threading
 import time
 import xml.etree.ElementTree as ET
@@ -185,6 +186,12 @@ def parse_arguments(config_path=None):
         action="store_true",
         help="Code-Statistiken ausgeben (LOC, Kommentare, Leerzeilen, zyklomatische Komplexität)",
     )
+    parser.add_argument(
+        "--git-url",
+        metavar="URL",
+        default=None,
+        help="Remote-Git-Repository klonen und scannen (z.B. https://github.com/user/repo)",
+    )
 
     # ── Config-Datei: Defaults aus copycat.conf (CLI überschreibt) ──────────
     cfg = load_config(config_path)
@@ -219,6 +226,8 @@ def parse_arguments(config_path=None):
         overrides["incremental"] = cfg["incremental"].lower() in ("true", "yes", "1")
     if "stats" in cfg:
         overrides["stats"] = cfg["stats"].lower() in ("true", "yes", "1")
+    if "git_url" in cfg:
+        overrides["git_url"] = cfg["git_url"]
     if overrides:
         parser.set_defaults(**overrides)
     # ────────────────────────────────────────────────────────────────────────
@@ -1600,18 +1609,45 @@ def _write_html(path, files, args, input_dir, git_info, serial,
 
 
 def run_copycat(args):
+    git_url = getattr(args, "git_url", None)
+    _tmp_dir_obj = None
+
     plugin_dir = getattr(args, "plugin_dir", None)
     if plugin_dir:
         load_plugins(plugin_dir)
     script_file = Path(__file__).resolve()
     script_dir = Path(__file__).parent
-    input_dir = Path(args.input or str(script_dir))
-    output_dir = Path(args.output or str(input_dir))
+
+    # ── Git-URL: Remote-Repository klonen ───────────────────────────────────
+    if git_url:
+        if not re.match(r'^(https?://\S+|git@\S+:\S+|git://\S+|ssh://\S+)$', git_url):
+            logging.error("Ung\u00fcltige Git-URL: %s", git_url)
+            return None
+        _tmp_dir_obj = tempfile.TemporaryDirectory()
+        tmp_clone = Path(_tmp_dir_obj.name) / "repo"
+        logging.info("Klone Repository: %s", git_url)
+        result = subprocess.run(
+            ["git", "clone", "--depth", "1", "--", git_url, str(tmp_clone)],
+            capture_output=True, text=True, timeout=120,
+        )
+        if result.returncode != 0:
+            logging.error("git clone fehlgeschlagen: %s", result.stderr.strip())
+            _tmp_dir_obj.cleanup()
+            return None
+        input_dir = tmp_clone
+        output_dir = Path(args.output or str(script_dir))
+    else:
+        input_dir = Path(args.input or str(script_dir))
+        output_dir = Path(args.output or str(input_dir))
+    # ────────────────────────────────────────────────────────────────────────
+
     output_dir.mkdir(exist_ok=True)
 
     if not input_dir.is_dir():
         logging.error("Fehler: %s ist kein Ordner", input_dir)
-        return
+        if _tmp_dir_obj is not None:
+            _tmp_dir_obj.cleanup()
+        return None
 
     fmt = getattr(args, "format", "txt")
     files = _collect_files(args, input_dir, script_file)
@@ -1703,6 +1739,9 @@ def run_copycat(args):
             _write_txt(writer, files, args, input_dir, git_info, serial, search_pattern, search_results, cache_map, stats_map)
 
     logging.info("Erstellt: %s", new_file)
+    if _tmp_dir_obj is not None:
+        _tmp_dir_obj.cleanup()
+    return str(new_file)
 
 
 if __name__ == "__main__":  # pragma: no cover

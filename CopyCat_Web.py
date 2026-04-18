@@ -96,6 +96,10 @@ _TEMPLATE = """<!DOCTYPE html>
             <input type="text" id="output_dir" name="output_dir" value="{{ form.output_dir }}" placeholder="/pfad/zur/ausgabe">
           </div>
         </div>
+        <div>
+          <label for="git_url">Git-URL (optional, ersetzt Eingabeordner)</label>
+          <input type="text" id="git_url" name="git_url" value="{{ form.git_url }}" placeholder="https://github.com/user/repo">
+        </div>
       </div>
 
       <div class="card">
@@ -225,6 +229,7 @@ def _build_args(form) -> Namespace:
         exclude=exclude,
       incremental="incremental" in form,
       stats="stats" in form,
+      git_url=form.get("git_url", "").strip() or None,
     )
 
 
@@ -241,6 +246,7 @@ def _form_defaults():
         "recursive": False,
         "incremental": False,
         "stats": False,
+        "git_url": "",
     }
 
 
@@ -292,10 +298,12 @@ def run():
         "recursive": "recursive" in request.form,
       "incremental": "incremental" in request.form,
       "stats": "stats" in request.form,
+      "git_url": request.form.get("git_url", "").strip(),
     }
 
-    # Pflichtfeld: Eingabeordner
-    if not form_data["input_dir"]:
+    git_url = form_data.get("git_url", "")
+    # Pflichtfeld: Eingabeordner (nicht noetig wenn git_url gesetzt)
+    if not form_data["input_dir"] and not git_url:
         return render_template_string(
             _TEMPLATE,
             form=form_data,
@@ -303,11 +311,11 @@ def run():
             plugins=[],
             report=None,
             report_path=None,
-            error="Bitte einen Eingabeordner angeben.",
+            error="Bitte einen Eingabeordner oder eine Git-URL angeben.",
         )
 
-    input_dir = Path(form_data["input_dir"])
-    if not input_dir.is_dir():
+    input_dir = Path(form_data["input_dir"]) if form_data["input_dir"] else None
+    if input_dir is not None and not input_dir.is_dir():
         return render_template_string(
             _TEMPLATE,
             form=form_data,
@@ -328,9 +336,9 @@ def run():
 
     with _run_lock:
         try:
-            run_copycat(args)
+            result_path = run_copycat(args)
             # Letzten erstellten Report einlesen
-            out_dir = Path(args.output or str(input_dir))
+            out_dir = Path(args.output or str(input_dir or "."))
             fmt = args.format
             reports = sorted(out_dir.glob(f"combined_copycat_*.{fmt}"))
             if reports:
@@ -382,11 +390,11 @@ def download():
 def api_run():
     """JSON-API: POST {"input": "...", "types": [...], "format": "txt", ...}"""
     data = request.get_json(silent=True) or {}
-    if not data.get("input"):
-        return jsonify({"error": "Feld 'input' fehlt"}), 400
+    if not data.get("input") and not data.get("git_url"):
+        return jsonify({"error": "Feld 'input' oder 'git_url' fehlt"}), 400
 
-    input_dir = Path(data["input"])
-    if not input_dir.is_dir():
+    input_dir = Path(data["input"]) if data.get("input") else None
+    if input_dir is not None and not input_dir.is_dir():
         return jsonify({"error": f"Eingabeordner existiert nicht: {input_dir}"}), 400
 
     form_like = {
@@ -405,6 +413,8 @@ def api_run():
       form_like["incremental"] = "on"
     if data.get("stats"):
         form_like["stats"] = "on"
+    if data.get("git_url"):
+        form_like["git_url"] = data["git_url"]
 
     class _FakeForm:
         def get(self, key, default=""):
@@ -422,7 +432,7 @@ def api_run():
         except Exception as exc:
             return jsonify({"error": str(exc)}), 500
 
-    out_dir = Path(args.output or str(input_dir))
+    out_dir = Path(args.output or str(input_dir or "."))
     fmt = args.format
     reports = sorted(out_dir.glob(f"combined_copycat_*.{fmt}"))
     if reports:

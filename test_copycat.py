@@ -66,7 +66,7 @@ def mock_writer():
 @pytest.fixture
 def run_args(tmp_path):
     """Factory fixture for Namespace args."""
-    def _make_args(types=None, recursive=False, max_size=None, input_path=None, output_path=None, fmt="txt", search=None, exclude=None, incremental=False, stats=False):
+    def _make_args(types=None, recursive=False, max_size=None, input_path=None, output_path=None, fmt="txt", search=None, exclude=None, incremental=False, stats=False, git_url=None):
         return Namespace(
             input=str(input_path or tmp_path),
             output=str(output_path or tmp_path),
@@ -82,6 +82,7 @@ def run_args(tmp_path):
             exclude=exclude or [],
             incremental=incremental,
             stats=stats,
+            git_url=git_url,
         )
     return _make_args
 
@@ -1503,6 +1504,7 @@ def gui():
     instance._exclude_var = _make_var("")
     instance._incremental_var = _make_var(False)
     instance._stats_var = _make_var(False)
+    instance._git_url_var = _make_var("")
     instance._watch_stop_event = None
     instance._watch_thread = None
     instance._watch_btn = MagicMock()
@@ -4330,3 +4332,198 @@ def test_web_api_run_with_stats(web_client):
     })
     assert resp.status_code == 200
 
+
+
+# ─── --git-url Tests ─────────────────────────────────────────────────────────
+
+def test_parse_arguments_git_url_flag():
+    """--git-url URL setzt args.git_url."""
+    with patch("sys.argv", ["CopyCat.py", "--git-url", "https://github.com/user/repo"]):
+        args = parse_arguments()
+    assert args.git_url == "https://github.com/user/repo"
+
+
+def test_parse_arguments_git_url_default():
+    """Ohne --git-url ist args.git_url None."""
+    with patch("sys.argv", ["CopyCat.py"]):
+        args = parse_arguments()
+    assert args.git_url is None
+
+
+def test_parse_arguments_git_url_config(tmp_path, monkeypatch):
+    """Config-Key 'git_url = ...' setzt args.git_url."""
+    conf = tmp_path / "copycat.conf"
+    conf.write_text("git_url = https://github.com/user/repo\n", encoding="utf-8")
+    with patch("sys.argv", ["CopyCat.py"]):
+        args = parse_arguments(config_path=str(conf))
+    assert args.git_url == "https://github.com/user/repo"
+
+
+def test_run_copycat_git_url_invalid_url(tmp_path):
+    """Ungueltige Git-URL: run_copycat gibt None zurueck, kein clone."""
+    from argparse import Namespace
+    a = Namespace(
+        input=None, output=str(tmp_path),
+        types=["code"], recursive=False, max_size=float("inf"),
+        format="txt", search=None, template=None, watch=False, cooldown=2.0,
+        plugin_dir=None, list_plugins=False, diff=None, merge=None,
+        install_hook=None, verbose=False, quiet=True, exclude=[],
+        incremental=False, stats=False,
+        git_url="not-a-valid-url",
+    )
+    with patch("subprocess.run") as mock_sub:
+        result = run_copycat(a)
+    assert result is None
+    mock_sub.assert_not_called()
+
+
+def test_run_copycat_git_url_clone_failure(tmp_path):
+    """git clone schlaegt fehl: run_copycat gibt None zurueck."""
+    from argparse import Namespace
+    import subprocess
+    a = Namespace(
+        input=None, output=str(tmp_path),
+        types=["code"], recursive=False, max_size=float("inf"),
+        format="txt", search=None, template=None, watch=False, cooldown=2.0,
+        plugin_dir=None, list_plugins=False, diff=None, merge=None,
+        install_hook=None, verbose=False, quiet=True, exclude=[],
+        incremental=False, stats=False,
+        git_url="https://github.com/user/repo",
+    )
+    mock_result = MagicMock()
+    mock_result.returncode = 1
+    mock_result.stderr = "fatal: repository not found"
+    with patch("subprocess.run", return_value=mock_result):
+        result = run_copycat(a)
+    assert result is None
+
+
+def test_run_copycat_git_url_success(tmp_path):
+    """Erfolgreicher git clone: run_copycat scannt geklontes Repo."""
+    from argparse import Namespace
+    import subprocess
+
+    a = Namespace(
+        input=None, output=str(tmp_path),
+        types=["code"], recursive=False, max_size=float("inf"),
+        format="txt", search=None, template=None, watch=False, cooldown=2.0,
+        plugin_dir=None, list_plugins=False, diff=None, merge=None,
+        install_hook=None, verbose=False, quiet=True, exclude=[],
+        incremental=False, stats=False,
+        git_url="https://github.com/user/repo",
+    )
+
+    def fake_clone(cmd, **kw):
+        # Simuliere git clone: erzeuge die Zieldatei
+        clone_path = cmd[-1]
+        import pathlib
+        pathlib.Path(clone_path).mkdir(parents=True, exist_ok=True)
+        (pathlib.Path(clone_path) / "main.py").write_text("x = 1\n", encoding="utf-8")
+        r = MagicMock()
+        r.returncode = 0
+        r.stderr = ""
+        return r
+
+    with patch("subprocess.run", side_effect=fake_clone):
+        result = run_copycat(a)
+
+    assert result is not None
+    assert "combined_copycat" in result
+
+
+def test_run_copycat_git_url_clone_no_dir(tmp_path):
+    """git clone gibt 0 zurueck aber erstellt kein Verzeichnis: run_copycat gibt None."""
+    from argparse import Namespace
+    a = Namespace(
+        input=None, output=str(tmp_path),
+        types=["code"], recursive=False, max_size=float("inf"),
+        format="txt", search=None, template=None, watch=False, cooldown=2.0,
+        plugin_dir=None, list_plugins=False, diff=None, merge=None,
+        install_hook=None, verbose=False, quiet=True, exclude=[],
+        incremental=False, stats=False,
+        git_url="https://github.com/user/repo",
+    )
+    mock_result = MagicMock()
+    mock_result.returncode = 0
+    mock_result.stderr = ""
+    with patch("subprocess.run", return_value=mock_result):
+        result = run_copycat(a)
+    assert result is None
+
+
+# ─── GUI git-url Tests ────────────────────────────────────────────────────────
+
+def test_gui_git_url_build_args(gui):
+    """_build_args gibt git_url korrekt weiter."""
+    gui._git_url_var.set("https://github.com/user/repo")
+    args = gui._build_args()
+    assert args.git_url == "https://github.com/user/repo"
+
+
+def test_gui_git_url_build_args_empty(gui):
+    """_build_args gibt None wenn git_url leer."""
+    gui._git_url_var.set("")
+    args = gui._build_args()
+    assert args.git_url is None
+
+
+def test_gui_git_url_load_config(gui, tmp_path):
+    """_load_config setzt _git_url_var wenn config git_url enthaelt."""
+    conf = tmp_path / "copycat.conf"
+    conf.write_text("git_url = https://github.com/user/repo\n", encoding="utf-8")
+    with patch("CopyCat_GUI.filedialog.askopenfilename", return_value=str(conf)):
+        gui._load_config()
+    assert gui._git_url_var.get() == "https://github.com/user/repo"
+
+
+def test_gui_git_url_save_config(gui, tmp_path):
+    """_save_config schreibt git_url wenn gesetzt."""
+    out = tmp_path / "out.conf"
+    gui._git_url_var.set("https://github.com/user/repo")
+    with patch("CopyCat_GUI.filedialog.asksaveasfilename", return_value=str(out)), \
+         patch("CopyCat_GUI.messagebox.showinfo"):
+        gui._save_config()
+    text = out.read_text(encoding="utf-8")
+    assert "git_url = https://github.com/user/repo" in text
+
+
+# ─── Web git-url Tests ────────────────────────────────────────────────────────
+
+def test_web_form_defaults_git_url():
+    """_form_defaults enthaelt git_url Schluessel."""
+    from CopyCat_Web import _form_defaults
+    defaults = _form_defaults()
+    assert "git_url" in defaults
+    assert defaults["git_url"] == ""
+
+
+def test_web_run_missing_both_input_and_git_url(web_client):
+    """POST /run ohne input_dir und ohne git_url: Fehlermeldung."""
+    client, tmp = web_client
+    resp = client.post("/run", data={"input_dir": "", "git_url": ""})
+    assert resp.status_code == 200
+    assert "Eingabeordner" in resp.get_data(as_text=True) or "Git-URL" in resp.get_data(as_text=True)
+
+
+def test_web_api_run_git_url_no_input_no_git(web_client):
+    """POST /api/run ohne input und ohne git_url: 400."""
+    client, _ = web_client
+    resp = client.post("/api/run", json={"format": "txt"})
+    assert resp.status_code == 400
+
+
+def test_web_api_run_with_git_url(web_client):
+    """POST /api/run mit git_url wird an form_like weitergegeben."""
+    client, tmp = web_client
+    mock_result = MagicMock()
+    mock_result.returncode = 1
+    mock_result.stderr = "fatal"
+    with patch("subprocess.run", return_value=mock_result):
+        resp = client.post("/api/run", json={
+            "git_url": "https://github.com/user/repo",
+            "format": "txt",
+        })
+    # run_copycat gibt None zurueck (clone fehlgeschlagen), API gibt 200 ok mit report=None
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["status"] == "ok"

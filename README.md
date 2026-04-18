@@ -22,6 +22,7 @@
 | Output Formats	| TXT / JSON / Markdown / **HTML** (with syntax highlighting) / Jinja2 template (`--format`, `--template`)	|
 | Incremental Cache	| Only re-scan changed files; SHA-256 cache in `.copycat_cache/` (`--incremental`)	|
 | Code Statistics	| LOC, comment ratio, blank lines, cyclomatic complexity per file (`--stats`)	|
+| Remote Repository	| Clone and scan any remote Git repo directly (`--git-url`)				|
 | Content Search	| Parallel regex search across files (`--search`)	|
 | Diff Mode		| Compare two reports (`--diff`)			|
 | Merge Mode		| Combine multiple reports (`--merge`)			|
@@ -118,6 +119,7 @@ python CopyCat.py                             # uses copycat.conf if present
 | `-E`, `--exclude`		| Glob patterns or folders to exclude (e.g. `*.min.js` `dist/` `node_modules/`)	| None	|
 | `-I`, `--incremental`	| Incremental mode: only re-scan changed files, cache in `.copycat_cache/`	| off	|
 | `--stats`			| Code statistics: LOC, comment lines, blank lines, cyclomatic complexity		| off	|
+| `--git-url URL`		| Clone and scan a remote Git repository					| —	|
 | `-v`, `--verbose`		| Verbose output (DEBUG level)						| off		|
 | `-q`, `--quiet`		| Quiet mode (warnings only)						| off		|
 | `--template`			| Path to a Jinja2 template file (`.j2`); requires `pip install jinja2`	| None		|
@@ -526,6 +528,7 @@ format = md
 | `exclude` | string | `*.min.js, dist/` | Glob patterns to exclude |
 | `incremental` | bool | `true` | Enable incremental cache (`true`/`false`) |
 | `stats` | bool | `true` | Enable code statistics (`true`/`false`) |
+| `git_url` | string | — | Remote Git repository URL to clone and scan |
 
 
 **Lookup order:** CWD → script directory. First file found wins.
