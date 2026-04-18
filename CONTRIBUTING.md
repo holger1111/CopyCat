@@ -50,7 +50,7 @@ py -m pytest test_copycat.py --cov=. --cov-config=.coveragerc --cov-report=term-
 
 
 
-**Coverage: 100 % (238 Tests, Branch-Coverage aktiv)**
+**Coverage: 100 % (262 Tests, Branch-Coverage aktiv)**
 
 
 

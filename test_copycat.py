@@ -40,6 +40,9 @@ from CopyCat import (
     install_hook,
     merge_reports,
     TYPE_FILTERS,
+    load_plugins,
+    PLUGIN_RENDERERS,
+    _loaded_plugins,
 )
 
 
@@ -68,8 +71,25 @@ def run_args(tmp_path):
             template=None,
             watch=False,
             cooldown=2.0,
+            plugin_dir=None,
         )
     return _make_args
+
+
+@pytest.fixture
+def clean_plugins():
+    """Stelle TYPE_FILTERS, PLUGIN_RENDERERS und _loaded_plugins nach jedem Plugin-Test wieder her."""
+    import CopyCat
+    original_tf = dict(CopyCat.TYPE_FILTERS)
+    original_pr = dict(CopyCat.PLUGIN_RENDERERS)
+    original_lp = list(CopyCat._loaded_plugins)
+    yield
+    CopyCat.TYPE_FILTERS.clear()
+    CopyCat.TYPE_FILTERS.update(original_tf)
+    CopyCat.PLUGIN_RENDERERS.clear()
+    CopyCat.PLUGIN_RENDERERS.update(original_pr)
+    CopyCat._loaded_plugins.clear()
+    CopyCat._loaded_plugins.extend(original_lp)
 
 
 # ==================== ARGUMENT PARSING TESTS ====================
@@ -2608,5 +2628,266 @@ def test_on_watch_toggle_build_args_error(gui):
     with patch("tkinter.messagebox.showerror") as mock_err:
         gui._on_watch_toggle()
     mock_err.assert_called_once()
+
+
+# ==================== PLUGIN SYSTEM (IDEE 13) ====================
+
+def test_load_plugins_no_dir(tmp_path, clean_plugins):
+    """Nicht existierendes Verzeichnis → leere Liste."""
+    result = load_plugins(tmp_path / "nonexistent")
+    assert result == []
+
+
+def test_load_plugins_default_dir(clean_plugins):
+    """load_plugins() ohne Argument nutzt plugins/ neben CopyCat.py (example_proto.py)."""
+    result = load_plugins()  # default: plugins/ neben CopyCat.py
+    assert "proto" in result
+
+
+def test_load_plugins_valid_no_renderer(tmp_path, clean_plugins):
+    """Gültiges Plugin ohne render_file → PLUGIN_RENDERERS[type]=None."""
+    plugin = tmp_path / "myplugin.py"
+    plugin.write_text('TYPE_NAME = "mypl"\nPATTERNS = ["*.mypl"]\n', encoding="utf-8")
+    result = load_plugins(tmp_path)
+    assert result == ["mypl"]
+    import CopyCat
+    assert CopyCat.TYPE_FILTERS.get("mypl") == ["*.mypl"]
+    assert CopyCat.PLUGIN_RENDERERS.get("mypl") is None
+
+
+def test_load_plugins_valid_with_renderer(tmp_path, clean_plugins):
+    """Gültiges Plugin mit render_file → PLUGIN_RENDERERS[type] ist callable."""
+    plugin = tmp_path / "rplug.py"
+    plugin.write_text(
+        'TYPE_NAME = "rpl"\nPATTERNS = ["*.rpl"]\ndef render_file(p, w, a): pass\n',
+        encoding="utf-8",
+    )
+    load_plugins(tmp_path)
+    import CopyCat
+    assert callable(CopyCat.PLUGIN_RENDERERS.get("rpl"))
+
+
+def test_load_plugins_skips_underscore_files(tmp_path, clean_plugins):
+    """Dateien die mit _ beginnen werden übersprungen."""
+    (tmp_path / "_private.py").write_text('TYPE_NAME = "prv"\nPATTERNS = ["*.prv"]\n', encoding="utf-8")
+    result = load_plugins(tmp_path)
+    assert result == []
+
+
+def test_load_plugins_missing_type_name(tmp_path, clean_plugins):
+    """Plugin ohne TYPE_NAME → übersprungen."""
+    (tmp_path / "bad.py").write_text('PATTERNS = ["*.bad"]\n', encoding="utf-8")
+    result = load_plugins(tmp_path)
+    assert result == []
+
+
+def test_load_plugins_empty_type_name(tmp_path, clean_plugins):
+    """Plugin mit leerem TYPE_NAME → übersprungen."""
+    (tmp_path / "empty.py").write_text('TYPE_NAME = ""\nPATTERNS = ["*.em"]\n', encoding="utf-8")
+    result = load_plugins(tmp_path)
+    assert result == []
+
+
+def test_load_plugins_collision_with_builtin(tmp_path, clean_plugins):
+    """Plugin-Typname kollidiert mit eingebautem Typ → übersprungen, Original unverändert."""
+    original_patterns = list(TYPE_FILTERS["code"])
+    (tmp_path / "codecoll.py").write_text('TYPE_NAME = "code"\nPATTERNS = ["*.evil"]\n', encoding="utf-8")
+    result = load_plugins(tmp_path)
+    assert result == []
+    assert TYPE_FILTERS["code"] == original_patterns
+
+
+def test_load_plugins_patterns_not_list(tmp_path, clean_plugins):
+    """Plugin mit PATTERNS als String → übersprungen."""
+    (tmp_path / "strpat.py").write_text('TYPE_NAME = "strp"\nPATTERNS = "*.strp"\n', encoding="utf-8")
+    result = load_plugins(tmp_path)
+    assert result == []
+
+
+def test_load_plugins_patterns_empty_list(tmp_path, clean_plugins):
+    """Plugin mit PATTERNS = [] → übersprungen."""
+    (tmp_path / "emptypat.py").write_text('TYPE_NAME = "emp"\nPATTERNS = []\n', encoding="utf-8")
+    result = load_plugins(tmp_path)
+    assert result == []
+
+
+def test_load_plugins_patterns_invalid_entry(tmp_path, clean_plugins):
+    """Plugin mit nicht-string Eintrag in PATTERNS → übersprungen."""
+    (tmp_path / "intpat.py").write_text('TYPE_NAME = "intp"\nPATTERNS = ["*.ok", 42]\n', encoding="utf-8")
+    result = load_plugins(tmp_path)
+    assert result == []
+
+
+def test_load_plugins_import_error(tmp_path, clean_plugins):
+    """Plugin mit Syntaxfehler → übersprungen (Warnung)."""
+    (tmp_path / "broken.py").write_text("def invalid syntax!!!\n", encoding="utf-8")
+    result = load_plugins(tmp_path)
+    assert result == []
+
+
+def test_load_plugins_noncallable_renderer(tmp_path, clean_plugins):
+    """Plugin mit render_file als String (nicht callable) → PLUGIN_RENDERERS[type]=None."""
+    (tmp_path / "noncall.py").write_text(
+        'TYPE_NAME = "ncp"\nPATTERNS = ["*.ncp"]\nrender_file = "not_callable"\n',
+        encoding="utf-8",
+    )
+    load_plugins(tmp_path)
+    import CopyCat
+    assert CopyCat.PLUGIN_RENDERERS.get("ncp") is None
+
+
+def test_load_plugins_idempotent(tmp_path, clean_plugins):
+    """Gleichen Plugin-Typ zweimal laden → zweiter Lauf gibt leere Liste zurück."""
+    plugin = tmp_path / "idem.py"
+    plugin.write_text('TYPE_NAME = "idem"\nPATTERNS = ["*.idem"]\n', encoding="utf-8")
+    result1 = load_plugins(tmp_path)
+    result2 = load_plugins(tmp_path)
+    assert result1 == ["idem"]
+    assert result2 == []
+
+
+def test_loaded_plugins_tracked(tmp_path, clean_plugins):
+    """Nach load_plugins ist Typname in _loaded_plugins."""
+    plugin = tmp_path / "track.py"
+    plugin.write_text('TYPE_NAME = "trk"\nPATTERNS = ["*.trk"]\n', encoding="utf-8")
+    load_plugins(tmp_path)
+    import CopyCat
+    assert "trk" in CopyCat._loaded_plugins
+
+
+def test_write_txt_plugin_renderer_called(tmp_path, clean_plugins):
+    """_write_txt ruft benutzerdefinierten Plugin-Renderer auf."""
+    import CopyCat
+    renderer = MagicMock()
+    CopyCat.TYPE_FILTERS["txpl"] = ["*.txpl"]
+    CopyCat.PLUGIN_RENDERERS["txpl"] = renderer
+    f = tmp_path / "test.txpl"
+    f.write_text("content")
+    files = {k: [] for k in CopyCat.TYPE_FILTERS}
+    files["txpl"] = [f]
+    buf = StringIO()
+    args = Namespace(recursive=False, types=["txpl"], max_size=float("inf"), format="txt", search=None)
+    _write_txt(buf, files, args, tmp_path, "No Git", 1)
+    renderer.assert_called_once_with(f, buf, args)
+
+
+def test_write_txt_plugin_renderer_error_caught(tmp_path, clean_plugins):
+    """_write_txt fängt Renderer-Exceptions ab und schreibt Fehlertext."""
+    import CopyCat
+    def boom(path, writer, args):
+        raise RuntimeError("kaputt")
+    CopyCat.TYPE_FILTERS["errpl"] = ["*.errpl"]
+    CopyCat.PLUGIN_RENDERERS["errpl"] = boom
+    f = tmp_path / "test.errpl"
+    f.write_text("x")
+    files = {k: [] for k in CopyCat.TYPE_FILTERS}
+    files["errpl"] = [f]
+    buf = StringIO()
+    args = Namespace(recursive=False, types=["errpl"], max_size=float("inf"), format="txt", search=None)
+    _write_txt(buf, files, args, tmp_path, "No Git", 1)
+    assert "[Plugin-Fehler:" in buf.getvalue()
+    assert "kaputt" in buf.getvalue()
+
+
+def test_write_txt_plugin_no_renderer_uses_list_binary(tmp_path, clean_plugins):
+    """_write_txt nutzt list_binary_file wenn kein Renderer vorhanden."""
+    import CopyCat
+    CopyCat.TYPE_FILTERS["nrpl"] = ["*.nrpl"]
+    CopyCat.PLUGIN_RENDERERS["nrpl"] = None
+    f = tmp_path / "test.nrpl"
+    f.write_bytes(b"\x00\x01")
+    files = {k: [] for k in CopyCat.TYPE_FILTERS}
+    files["nrpl"] = [f]
+    buf = StringIO()
+    args = Namespace(recursive=False, types=["nrpl"], max_size=float("inf"), format="txt", search=None)
+    with patch("CopyCat.list_binary_file") as mock_lbf:
+        _write_txt(buf, files, args, tmp_path, "No Git", 1)
+    mock_lbf.assert_called_once_with(buf, f)
+
+
+def test_write_md_plugin_renderer_called(tmp_path, clean_plugins):
+    """_write_md ruft benutzerdefinierten Plugin-Renderer auf und umschließt Ausgabe mit ```."""
+    import CopyCat
+    output_lines = []
+    def renderer(path, writer, args):
+        writer.write("PLUGIN_OUTPUT\n")
+    CopyCat.TYPE_FILTERS["mdpl"] = ["*.mdpl"]
+    CopyCat.PLUGIN_RENDERERS["mdpl"] = renderer
+    f = tmp_path / "test.mdpl"
+    f.write_text("x")
+    files = {k: [] for k in CopyCat.TYPE_FILTERS}
+    files["mdpl"] = [f]
+    buf = StringIO()
+    args = Namespace(recursive=False, types=["mdpl"], max_size=float("inf"), format="md", search=None)
+    _write_md(buf, files, args, tmp_path, "No Git", 1)
+    out = buf.getvalue()
+    assert "PLUGIN_OUTPUT" in out
+    assert "```" in out
+
+
+def test_write_md_plugin_renderer_error_caught(tmp_path, clean_plugins):
+    """_write_md fängt Renderer-Exceptions ab."""
+    import CopyCat
+    def boom(path, writer, args):
+        raise ValueError("md-kaputt")
+    CopyCat.TYPE_FILTERS["mderr"] = ["*.mderr"]
+    CopyCat.PLUGIN_RENDERERS["mderr"] = boom
+    f = tmp_path / "test.mderr"
+    f.write_text("x")
+    files = {k: [] for k in CopyCat.TYPE_FILTERS}
+    files["mderr"] = [f]
+    buf = StringIO()
+    args = Namespace(recursive=False, types=["mderr"], max_size=float("inf"), format="md", search=None)
+    _write_md(buf, files, args, tmp_path, "No Git", 1)
+    assert "[Plugin-Fehler:" in buf.getvalue()
+    assert "md-kaputt" in buf.getvalue()
+
+
+def test_write_md_plugin_no_renderer_table(tmp_path, clean_plugins):
+    """_write_md zeigt Tabelle wenn kein Renderer vorhanden."""
+    import CopyCat
+    CopyCat.TYPE_FILTERS["mdnr"] = ["*.mdnr"]
+    CopyCat.PLUGIN_RENDERERS["mdnr"] = None
+    f = tmp_path / "test.mdnr"
+    f.write_bytes(b"AB")
+    files = {k: [] for k in CopyCat.TYPE_FILTERS}
+    files["mdnr"] = [f]
+    buf = StringIO()
+    args = Namespace(recursive=False, types=["mdnr"], max_size=float("inf"), format="md", search=None)
+    _write_md(buf, files, args, tmp_path, "No Git", 1)
+    out = buf.getvalue()
+    assert "test.mdnr" in out
+    assert "bytes" in out
+
+
+def test_run_copycat_loads_plugins_when_plugin_dir_set(tmp_path, run_args, clean_plugins):
+    """run_copycat lädt Plugins wenn plugin_dir gesetzt."""
+    plugin_dir = tmp_path / "myplugins"
+    plugin_dir.mkdir()
+    (plugin_dir / "custpl.py").write_text(
+        'TYPE_NAME = "custpl"\nPATTERNS = ["*.custpl"]\n', encoding="utf-8"
+    )
+    (tmp_path / "file.custpl").write_text("data")
+    args = run_args(types=["custpl"])
+    args.plugin_dir = str(plugin_dir)
+    run_copycat(args)
+    import CopyCat
+    assert "custpl" in CopyCat.TYPE_FILTERS
+    report = next(tmp_path.glob("combined_copycat_*.txt"))
+    assert "file.custpl" in report.read_text()
+
+
+def test_parse_arguments_plugin_dir():
+    """--plugin-dir wird korrekt geparst."""
+    with patch("sys.argv", ["copycat", "--plugin-dir", "/my/plugins"]):
+        args = parse_arguments()
+    assert args.plugin_dir == "/my/plugins"
+
+
+def test_parse_arguments_list_plugins():
+    """--list-plugins setzt das Flag."""
+    with patch("sys.argv", ["copycat", "--list-plugins"]):
+        args = parse_arguments()
+    assert args.list_plugins is True
 
 

@@ -24,6 +24,7 @@
 | Diff-Modus		| Zwei Reports vergleichen (`--diff`)			|
 | Merge-Modus		| Mehrere Reports zusammenführen (`--merge`)		|
 | Watch-Modus		| Automatischer Re-Run bei Änderungen (`--watch`, `--cooldown`)	|
+| Plugin-System		| Eigene Dateitypen per `.py`-Plugin hinzufügen (`--plugin-dir`)	|
 | Pre-commit Hook	| Als Git-Hook installieren (`--install-hook`)		|
 | Konfigurationsdatei	| `copycat.conf` auto-geladen; CLI überschreibt	|
 | Performance		| Rekursiv/Flach, Size-Filter + Progress		|
@@ -84,6 +85,8 @@ python CopyCat.py                             # nutzt copycat.conf falls vorhand
 | `--cooldown`			| Wartezeit (Sek.) nach letzter Änderung vor Re-Run (Watch-Modus)	| `2.0`		|
 | `--diff A B`			| Zwei CopyCat-Reports vergleichen und Unterschiede anzeigen		| —		|
 | `--merge R [R ...]`		| Mehrere CopyCat-Reports zu einem zusammenführen			| —		|
+| `--plugin-dir DIR`		| Plugins aus diesem Verzeichnis laden (Standard: `plugins/` neben CopyCat.py)	| —	|
+| `--list-plugins`		| Geladene Plugins anzeigen und beenden					| aus		|
 | `--install-hook DIR`		| CopyCat als Git pre-commit Hook im angegebenen Projektordner installieren	| —	|
 
 ### Flach vs Rekursiv
@@ -197,6 +200,53 @@ DIAGRAM Test_komplex.drawio: 152 Cells, 45 Texte, 23 Unique
 3. **Täglicher Report:** Cron/PS: 1 Textdatei statt 50+ Files
 
 **Ausbilder:** "Zeig Code+UML!" → CopyCat.py -t code,diagram
+
+
+### Plugin-System
+
+
+CopyCat v2.9 unterstützt eigene Dateitypen per Plugin. Lege eine `.py`-Datei in den Ordner `plugins/` (neben `CopyCat.py`) oder gib ein benutzerdefiniertes Verzeichnis mit `--plugin-dir` an.
+
+
+**Minimales Plugin (`plugins/meintyp.py`):**
+
+```python
+TYPE_NAME = "meintyp"      # eindeutiger Typname
+PATTERNS  = ["*.meintyp"]  # Glob-Muster
+```
+
+**Mit benutzerdefiniertem Renderer:**
+
+```python
+TYPE_NAME = "proto"
+PATTERNS  = ["*.proto"]
+
+def render_file(path, writer, args):
+    """Wird einmal pro Datei beim TXT/Markdown-Report aufgerufen."""
+    writer.write(f"[PROTO: {path.name}]\n")
+    writer.write(path.read_text(encoding="utf-8"))
+```
+
+**CLI-Nutzung:**
+
+```bash
+python CopyCat.py --plugin-dir ./meineplugins -t proto    # Plugin-Typ verwenden
+python CopyCat.py --list-plugins                          # Geladene Plugins anzeigen
+python CopyCat.py --plugin-dir ./meineplugins --list-plugins
+```
+
+**Regeln:**
+
+| Regel | Detail |
+|---|---|
+| Dateiname | Beliebige `.py`-Datei (Dateien mit `_` am Anfang werden ignoriert) |
+| `TYPE_NAME` | Muss ein nicht-leerer String sein, der nicht bereits von einem eingebauten Typ verwendet wird |
+| `PATTERNS` | Muss eine nicht-leere Liste von nicht-leeren Strings sein |
+| `render_file` | Optional; fehlt sie, wird `list_binary_file()` als Fallback genutzt |
+| Fehler | Defekte Plugins werden mit Warnung übersprungen; andere Plugins laden weiterhin |
+| Idempotenz | Ein Typname wird pro Sitzung nur einmal registriert |
+
+Das Beispiel-Plugin `plugins/example_proto.py` liegt CopyCat bei und dient als Kopiervorlage.
 
 
 ### Technik
@@ -479,7 +529,7 @@ README_GER.md
 
 3. `git commit -m "feat/fix/docs/test/ci: Beschreibung"`
 
-**Tests:** 238 Tests, 100 % Branch-Coverage (CLI, Serial, Gitignore, Draw.io, GUI, Watch, Templates, Diff, Merge, Hook, …)
+**Tests:** 262 Tests, 100 % Branch-Coverage (CLI, Serial, Gitignore, Draw.io, GUI, Watch, Templates, Diff, Merge, Hook, Plugins, …)
 
 **CI:** GitHub Actions → pytest + Coverage-Badges (Codecov)
 

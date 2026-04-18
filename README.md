@@ -24,6 +24,7 @@
 | Diff Mode		| Compare two reports (`--diff`)			|
 | Merge Mode		| Combine multiple reports (`--merge`)			|
 | Watch Mode		| Auto-rerun on file changes (`--watch`, `--cooldown`)	|
+| Plugin System		| Add custom file types via `.py` plugins (`--plugin-dir`)	|
 | Pre-commit Hook	| Install as Git hook (`--install-hook`)		|
 | Config File		| `copycat.conf` auto-loaded; CLI overrides		|
 | Performance		| Recursive/flat, size filter + progress		|
@@ -83,8 +84,8 @@ python CopyCat.py                             # uses copycat.conf if present
 | `-w`, `--watch`		| Watch mode: re-run on file changes; requires `pip install watchdog`	| off		|
 | `--cooldown`			| Seconds to wait after last change before re-running (watch mode)	| `2.0`		|
 | `--diff A B`			| Compare two CopyCat reports and show differences		| —		|
-| `--merge R [R ...]`		| Merge multiple CopyCat reports into one				| —		|
-| `--install-hook DIR`		| Install CopyCat as Git pre-commit hook in the given project folder	| —		|
+| `--merge R [R ...]`		| Merge multiple CopyCat reports into one				| —		|| `--plugin-dir DIR`		| Load plugins from this directory (default: `plugins/` next to CopyCat.py)	| —	|
+| `--list-plugins`		| Show loaded plugins and exit					| off		|| `--install-hook DIR`		| Install CopyCat as Git pre-commit hook in the given project folder	| —		|
 
 ### Flat vs Recursive
 
@@ -197,6 +198,53 @@ DIAGRAM Test_komplex.drawio: 152 Cells, 45 Texte, 23 Unique
 3. **Daily Report:** Cron/PS: 1 text file instead of 50+ files
 
 **Trainer:** "Show code+UML!" → CopyCat.py -t code,diagram
+
+
+### Plugin System
+
+
+CopyCat v2.9 supports custom file types via plugins. Place any `.py` file in the `plugins/` folder (next to `CopyCat.py`) or specify a custom directory with `--plugin-dir`.
+
+
+**Minimal plugin (`plugins/mytype.py`):**
+
+```python
+TYPE_NAME = "mytype"          # unique type name
+PATTERNS  = ["*.mytype"]      # glob patterns
+```
+
+**With custom renderer:**
+
+```python
+TYPE_NAME = "proto"
+PATTERNS  = ["*.proto"]
+
+def render_file(path, writer, args):
+    """Called once per file during TXT/Markdown report generation."""
+    writer.write(f"[PROTO: {path.name}]\n")
+    writer.write(path.read_text(encoding="utf-8"))
+```
+
+**CLI usage:**
+
+```bash
+python CopyCat.py --plugin-dir ./myplugins -t proto    # use plugin type
+python CopyCat.py --list-plugins                       # show loaded plugins
+python CopyCat.py --plugin-dir ./myplugins --list-plugins
+```
+
+**Rules:**
+
+| Rule | Detail |
+|---|---|
+| File naming | Any `.py` file (files starting with `_` are ignored) |
+| `TYPE_NAME` | Must be a non-empty string not already used by a built-in type |
+| `PATTERNS` | Must be a non-empty list of non-empty strings |
+| `render_file` | Optional; if absent, `list_binary_file()` is used as fallback |
+| Errors | Broken plugins are skipped with a warning; other plugins still load |
+| Idempotency | A type name is only registered once per session |
+
+The example plugin `plugins/example_proto.py` ships with CopyCat and serves as a copy-paste template.
 
 
 ### Technology
@@ -479,7 +527,7 @@ README_GER.md
 
 3. `git commit -m "feat/fix/docs/test/ci: description"`
 
-**Tests:** 238 tests, 100% branch coverage (CLI, serial, gitignore, Draw.io, GUI, watch, templates, diff, merge, hook, …)
+**Tests:** 262 tests, 100% branch coverage (CLI, serial, gitignore, Draw.io, GUI, watch, templates, diff, merge, hook, plugins, …)
 
 **CI:** GitHub Actions → pytest + coverage badges (Codecov)
 

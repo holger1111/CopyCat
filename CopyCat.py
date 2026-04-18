@@ -4,6 +4,7 @@ CopyCat v2.9
 
 import argparse
 import concurrent.futures
+import importlib.util
 import json
 import stat
 import threading
@@ -155,6 +156,18 @@ def parse_arguments(config_path=None):
         default=2.0,
         metavar="SEKUNDEN",
         help="Watch: Wartezeit nach letzter \u00c4nderung in Sekunden (Standard: 2.0)",
+    )
+
+    parser.add_argument(
+        "--plugin-dir",
+        metavar="DIR",
+        default=None,
+        help="Verzeichnis mit Plugin-Dateien (.py); Standard: plugins/ neben CopyCat.py",
+    )
+    parser.add_argument(
+        "--list-plugins",
+        action="store_true",
+        help="Geladene Plugins anzeigen und beenden",
     )
 
     # ── Config-Datei: Defaults aus copycat.conf (CLI überschreibt) ──────────
@@ -793,6 +806,75 @@ TYPE_FILTERS = {
     "notebook": ["*.ipynb"],
 }
 
+PLUGIN_RENDERERS: dict = {}
+_loaded_plugins: list = []
+
+
+def load_plugins(plugin_dir=None):
+    """Lade CopyCat-Plugins aus plugin_dir.
+
+    Jede .py-Datei (außer _*.py) muss definieren::
+
+        TYPE_NAME : str   – eindeutiger Typname
+        PATTERNS  : list  – Glob-Muster (z.B. ["*.proto"])
+
+    Optional::
+
+        render_file(path, writer, args)
+            Wird beim TXT/Markdown-Report für jede Datei aufgerufen.
+            Fehlt diese Funktion, erfolgt Ausgabe via list_binary_file().
+
+    Gibt eine Liste der erfolgreich geladenen Typnamen zurück.
+    Fehlerhafte Plugins werden übersprungen (Warnung im Log).
+    """
+    if plugin_dir is None:
+        plugin_dir = Path(__file__).parent / "plugins"
+    plugin_dir = Path(plugin_dir)
+    if not plugin_dir.is_dir():
+        return []
+    loaded = []
+    for plugin_path in sorted(plugin_dir.glob("*.py")):
+        if plugin_path.name.startswith("_"):
+            continue
+        module_name = plugin_path.stem
+        try:
+            spec = importlib.util.spec_from_file_location(module_name, plugin_path)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+        except Exception as exc:
+            logging.warning("Plugin '%s' konnte nicht geladen werden: %s", module_name, exc)
+            continue
+        type_name = getattr(module, "TYPE_NAME", None)
+        patterns = getattr(module, "PATTERNS", None)
+        if not isinstance(type_name, str) or not type_name:
+            logging.warning(
+                "Plugin '%s': TYPE_NAME fehlt oder ungültig – übersprungen", module_name
+            )
+            continue
+        if type_name in TYPE_FILTERS:
+            logging.warning(
+                "Plugin '%s': Typname '%s' ist bereits vergeben – übersprungen",
+                module_name,
+                type_name,
+            )
+            continue
+        if (
+            not isinstance(patterns, list)
+            or not patterns
+            or not all(isinstance(p, str) and p for p in patterns)
+        ):
+            logging.warning(
+                "Plugin '%s': PATTERNS fehlt oder ungültig – übersprungen", module_name
+            )
+            continue
+        TYPE_FILTERS[type_name] = patterns
+        renderer = getattr(module, "render_file", None)
+        PLUGIN_RENDERERS[type_name] = renderer if callable(renderer) else None
+        _loaded_plugins.append(type_name)
+        loaded.append(type_name)
+        logging.info("Plugin geladen: %s (%s)", type_name, ", ".join(patterns))
+    return loaded
+
 
 def _collect_files(args, input_dir, script_file):
     """Collect and return files dict based on args."""
@@ -888,7 +970,7 @@ def _write_txt(writer, files, args, input_dir, git_info, serial, search_pattern=
             writer.write("\n\n")
 
     types_to_process = [
-        t for t in (["all"] if process_all else selected_types) if t in TYPE_FILTERS
+        t for t in (list(TYPE_FILTERS) if process_all else selected_types) if t in TYPE_FILTERS
     ]
     for t in types_to_process:
         if t == "code" or not files[t]:
@@ -899,6 +981,11 @@ def _write_txt(writer, files, args, input_dir, git_info, serial, search_pattern=
                 extract_drawio(writer, bfile)
             elif t == "notebook":
                 extract_notebook(writer, bfile)
+            elif t in PLUGIN_RENDERERS and PLUGIN_RENDERERS[t] is not None:
+                try:
+                    PLUGIN_RENDERERS[t](bfile, writer, args)
+                except Exception as exc:
+                    writer.write(f"[Plugin-Fehler: {exc}]\n")
             else:
                 list_binary_file(writer, bfile)
                 if args.recursive:
@@ -1024,7 +1111,7 @@ def _write_md(writer, files, args, input_dir, git_info, serial, search_pattern=N
             writer.write(f"```\n\n")
 
     types_to_process = [
-        t for t in (["all"] if process_all else selected_types) if t in TYPE_FILTERS
+        t for t in (list(TYPE_FILTERS) if process_all else selected_types) if t in TYPE_FILTERS
     ]
     for t in types_to_process:
         if t == "code" or not files[t]:
@@ -1034,6 +1121,14 @@ def _write_md(writer, files, args, input_dir, git_info, serial, search_pattern=N
             for bfile in files[t]:
                 writer.write(f"### {bfile.name}\n\n```\n")
                 extract_notebook(writer, bfile)
+                writer.write("```\n\n")
+        elif t in PLUGIN_RENDERERS and PLUGIN_RENDERERS[t] is not None:
+            for bfile in files[t]:
+                writer.write(f"### {bfile.name}\n\n```\n")
+                try:
+                    PLUGIN_RENDERERS[t](bfile, writer, args)
+                except Exception as exc:
+                    writer.write(f"[Plugin-Fehler: {exc}]\n")
                 writer.write("```\n\n")
         else:
             writer.write("| Datei | Größe |\n|---|---|\n")
@@ -1053,6 +1148,9 @@ def _write_md(writer, files, args, input_dir, git_info, serial, search_pattern=N
 
 
 def run_copycat(args):
+    plugin_dir = getattr(args, "plugin_dir", None)
+    if plugin_dir:
+        load_plugins(plugin_dir)
     script_file = Path(__file__).resolve()
     script_dir = Path(__file__).parent
     input_dir = Path(args.input or str(script_dir))
@@ -1113,7 +1211,18 @@ if __name__ == "__main__":  # pragma: no cover
     else:
         _log_level = logging.INFO
     logging.basicConfig(level=_log_level, format="%(message)s")
-    if getattr(_args, "install_hook", None):
+    if getattr(_args, "list_plugins", False):
+        _plugin_dir = getattr(_args, "plugin_dir", None) or str(Path(__file__).parent / "plugins")
+        _loaded = load_plugins(_plugin_dir)
+        if _loaded:
+            print("Geladene Plugins:")
+            for _t in _loaded:
+                _pats = TYPE_FILTERS.get(_t, [])
+                _rinfo = "benutzerdefinierter Renderer" if PLUGIN_RENDERERS.get(_t) else "Standard-Renderer"
+                print(f"  {_t}: {', '.join(_pats)} ({_rinfo})")
+        else:
+            print(f"Keine Plugins in {_plugin_dir} gefunden.")
+    elif getattr(_args, "install_hook", None):
         hook = install_hook(Path(_args.install_hook))
         print(f"Hook installiert: {hook}")
     elif getattr(_args, "merge", None):
