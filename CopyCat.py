@@ -224,6 +224,20 @@ def parse_arguments(config_path=None):
 
     # ── Config-Datei: Defaults aus copycat.conf (CLI überschreibt) ──────────
     cfg = load_config(config_path)
+
+    _KNOWN_CONFIG_KEYS = {
+        "types", "recursive", "max_size_mb", "format", "search",
+        "input", "output", "exclude", "incremental", "stats",
+        "git_url", "ai_model", "ai_base_url",
+    }
+    for _key in cfg:
+        if _key not in _KNOWN_CONFIG_KEYS:
+            logging.warning(
+                "copycat.conf: unbekannter Schlüssel '%s' wird ignoriert "
+                "(Tippfehler? Gültige Schlüssel: %s)",
+                _key, ", ".join(sorted(_KNOWN_CONFIG_KEYS)),
+            )
+
     overrides = {}
     if "types" in cfg:
         parts = [t.strip() for t in cfg["types"].replace(",", " ").split()]

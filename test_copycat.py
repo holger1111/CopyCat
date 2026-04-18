@@ -1462,6 +1462,43 @@ def test_parse_arguments_config_empty_types(tmp_path):
     assert args.types == ["all"]
 
 
+def test_parse_arguments_config_unknown_key_warns(tmp_path, caplog):
+    """Unbekannter Config-Key erzeugt eine Warnung (Tippfehler-Erkennung)."""
+    conf = tmp_path / "copycat.conf"
+    conf.write_text("formatt = json\nrecursive = true\n", encoding="utf-8")
+    with patch("sys.argv", ["CopyCat.py"]):
+        import logging as _logging
+        with caplog.at_level(_logging.WARNING, logger="root"):
+            args = parse_arguments(config_path=str(conf))
+    assert any("formatt" in r.message for r in caplog.records)
+    assert args.recursive is True   # bekannter Key wurde trotzdem angewendet
+
+
+def test_parse_arguments_config_multiple_unknown_keys_all_warned(tmp_path, caplog):
+    """Mehrere unbekannte Keys erzeugen je eine Warnung."""
+    conf = tmp_path / "copycat.conf"
+    conf.write_text("typos = code\nout = /tmp\nformat = md\n", encoding="utf-8")
+    with patch("sys.argv", ["CopyCat.py"]):
+        import logging as _logging
+        with caplog.at_level(_logging.WARNING, logger="root"):
+            args = parse_arguments(config_path=str(conf))
+    warned = [r.message for r in caplog.records]
+    assert any("typos" in m for m in warned)
+    assert any("out" in m for m in warned)
+    assert args.format == "md"  # bekannter Key wurde angewendet
+
+
+def test_parse_arguments_config_no_unknown_key_no_warning(tmp_path, caplog):
+    """Keine unbekannten Keys → keine Warnung."""
+    conf = tmp_path / "copycat.conf"
+    conf.write_text("format = json\nrecursive = false\n", encoding="utf-8")
+    with patch("sys.argv", ["CopyCat.py"]):
+        import logging as _logging
+        with caplog.at_level(_logging.WARNING, logger="root"):
+            parse_arguments(config_path=str(conf))
+    assert not any("unbekannter" in r.message for r in caplog.records)
+
+
 def test_parse_arguments_no_config(tmp_path):
     """Missing config file → pure argparse defaults unchanged."""
     with patch("sys.argv", ["CopyCat.py"]):
