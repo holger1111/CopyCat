@@ -537,3 +537,65 @@ Enterprise-Ready
 ├── **README-Änderungen**: „Remote Repository" in Feature-Tabelle + `--git-url URL` in Parameter-Tabelle beider Readmes.
 
 └── **Risiken**: Netzwerk-Timeout, große Repos (gelöst: `--depth 1` Shallow-Clone); `git` muss installiert sein.
+
+### MEILENSTEIN 33: PDF-Export (`--format pdf`)
+
+##### ⏱️ 5h
+
+├── **Problem**: Formale Übergaben (Ausbilder, Kunden, Prüfer) erfordern oft ein PDF — TXT/HTML sind dort unüblich.
+
+├── **Lösung**: `--format pdf` rendert den Report über `weasyprint` (primär) oder `reportlab` (Fallback) als PDF; alle Abschnitte, Dateilisten und Code-Blöcke bleiben strukturiert erhalten; optionale Abhängigkeit.
+
+├── **Tests**: PDF-Datei wird erstellt; enthält Dateinamen und Inhalte; fehlendes `weasyprint`/`reportlab` → Fehlermeldung mit Installationshinweis; kein Crash.
+
+├── **README-Änderungen**: `pdf`-Zeile in Ausgabeformate-Tabelle; Installationshinweis (`pip install weasyprint`) in beiden Readmes.
+
+└── **Risiken**: `weasyprint` hat systemseitige Abhängigkeiten (GTK unter Windows); `reportlab` als leichterer Fallback; beide optional.
+
+
+
+### MEILENSTEIN 34: Docker-Image
+
+##### ⏱️ 4h
+
+├── **Problem**: Python-Installation und Abhängigkeiten sind auf CI-Servern oder fremden Maschinen mühsam; Setup-Fehler kosten Zeit.
+
+├── **Lösung**: Offizielles `Dockerfile` auf Basis `python:3-slim`; `docker run copycat /project` mappt einen lokalen Ordner per Volume-Mount und schreibt den Report direkt zurück; Image auf Docker Hub veröffentlicht; GitHub Actions baut und pusht das Image bei jedem Release-Tag.
+
+├── **Tests**: `docker build` schlägt nicht fehl; Report-Datei erscheint nach `docker run` im gemounteten Ordner; alle Kernoptionen (`-r`, `-f json`, `--stats`) funktionieren im Container.
+
+├── **README-Änderungen**: „Docker" Abschnitt mit `docker run`-Beispielen und Hub-Link in beiden Readmes.
+
+└── **Risiken**: Docker nicht überall verfügbar; Image-Größe (gelöst: `slim`-Base + `.dockerignore`); Windows-Pfadnotation im Volume-Mount.
+
+
+
+### MEILENSTEIN 35: AI-Zusammenfassung (`--ai-summary`)
+
+##### ⏱️ 6h
+
+├── **Problem**: Ein CopyCat-Report enthält alle Rohdaten, aber keinen menschenlesbaren Projektsteckbrief — dieser muss bisher manuell geschrieben werden.
+
+├── **Lösung**: `--ai-summary` sendet den generierten Report an eine LLM-API (OpenAI-kompatibel oder lokales Modell via Ollama); das Modell erstellt einen kompakten Freitext-Steckbrief (Projektzweck, Technologie-Stack, Auffälligkeiten); API-Key über Umgebungsvariable `COPYCAT_AI_KEY`; Ergebnis wird am Report-Ende angehängt.
+
+├── **Tests**: Mocked API-Call liefert erwarteten Steckbrief; fehlender API-Key → Fehlermeldung; Netzwerk-Fehler → Warnung, Report bleibt vollständig; kein Absturz ohne optionale Abhängigkeit.
+
+├── **README-Änderungen**: „AI-Zusammenfassung" Abschnitt mit Einrichtungsanleitung (API-Key), Modell-Konfiguration und lokalem Ollama-Beispiel in beiden Readmes.
+
+└── **Risiken**: API-Kosten und Datenschutz (Hinweis: Code wird an externen Server gesendet); lokale Alternative via Ollama empfohlen; optionale Abhängigkeit (`pip install openai`).
+
+
+
+### MEILENSTEIN 36: Report-Timeline (`--timeline`)
+
+##### ⏱️ 6h
+
+├── **Problem**: Mehrere CopyCat-Reports über Zeit existieren im Archiv, aber es gibt keine Möglichkeit, die Projektentwicklung visuell nachzuvollziehen — Wachstum, Umstrukturierungen und Trends bleiben unsichtbar.
+
+├── **Lösung**: `--timeline` liest alle Reports im `CopyCat_Archive/`-Ordner, wertet Dateianzahl, Typverteilung und Zeilenanzahl je Serial-Nummer aus und erzeugt eine Zeitreihe; Ausgabe als Markdown-Tabelle (Standard) oder als ASCII-Chart; optional als HTML mit eingebettetem Chart via `chart.js` (kein Server nötig).
+
+├── **Tests**: Archiv mit bekannten Reports → korrekte Zeitreihe; leeres Archiv → leere Ausgabe ohne Fehler; HTML-Ausgabe enthält valides Markup; ASCII-Chart entspricht den Daten.
+
+├── **README-Änderungen**: „Report-Timeline" Abschnitt mit Beispielausgabe und `--timeline`-Erklärung in beiden Readmes.
+
+└── **Risiken**: Archiv-Reports unterschiedlicher Versionen können abweichendes Format haben (gelöst: robustes Parsing mit Fallback auf verfügbare Felder).
