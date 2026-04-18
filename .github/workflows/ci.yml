@@ -15,14 +15,14 @@ jobs:
         python-version: '3.13'
         
     - name: Install system dependencies
-      run: sudo apt-get install -y python3-tk
+      run: sudo apt-get install -y python3-tk xvfb
 
     - name: Install pytest + cov
       run: pip install pytest pytest-cov jinja2 watchdog flask pygments
     
     - name: Run Tests with Coverage  
       run: |
-        pytest test_copycat.py -v --cov=. \
+        xvfb-run --auto-servernum pytest test_copycat.py -v --cov=. \
           --cov-config=.coveragerc \
           --cov-report=xml:coverage.xml \
           --cov-report=term-missing
