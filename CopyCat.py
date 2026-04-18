@@ -221,6 +221,18 @@ def parse_arguments(config_path=None):
         metavar="FORMAT",
         help="Format für --timeline: md (default), ascii, html",
     )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Trockenlauf: zeigt was gemacht würde, ohne Änderungen zu speichern",
+    )
+    parser.add_argument(
+        "--cache-max-age",
+        type=int,
+        default=None,
+        metavar="TAGE",
+        help="Cache-Einträge älter als N Tage löschen (z.B. --cache-max-age 30)",
+    )
 
     # ── Config-Datei: Defaults aus copycat.conf (CLI überschreibt) ──────────
     cfg = load_config(config_path)
@@ -366,8 +378,8 @@ def list_binary_file(writer, bin_file):
         writer.write(f"[BINARY SKIPPED: {bin_file.name} - Ungültiges Text-Encoding]\n")
     except (struct.error, OSError) as e:
         writer.write(f"[BINARY ERROR: {bin_file.name} - {str(e)}]\n")
-    except Exception as e:
-        logging.error(f"Unexpected error in list_binary_file {bin_file.name}: {e}")
+    except Exception:
+        logging.exception(f"Unexpected error in list_binary_file {bin_file.name}")
         writer.write(f"[ERROR: {bin_file.name}]\n")
 
 
@@ -1444,6 +1456,38 @@ def _hash_file(path: Path) -> str:
     return h.hexdigest()
 
 
+def _cleanup_cache(cache_dir: Path, max_age_days: int) -> int:
+    """Löscht Cache-Einträge älter als max_age_days. Gibt Anzahl gelöschter Einträge zurück."""
+    if not cache_dir.is_dir():
+        return 0
+    cache_file = cache_dir / "cache.json"
+    if not cache_file.is_file():
+        return 0
+    try:
+        import time
+        current_time = time.time()
+        with open(cache_file, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+        entries = data.get("entries", {})
+        deleted_count = 0
+        for key in list(entries.keys()):
+            entry = entries[key]
+            file_time = entry.get("timestamp", 0)
+            age_days = (current_time - file_time) / 86400
+            if age_days > max_age_days:
+                del entries[key]
+                deleted_count += 1
+        if deleted_count > 0:
+            data["entries"] = entries
+            with open(cache_file, "w", encoding="utf-8") as fh:
+                json.dump(data, fh, ensure_ascii=False, indent=2)
+            logging.info("Cache-Cleanup: %d alte Einträge gelöscht", deleted_count)
+        return deleted_count
+    except Exception:
+        logging.exception("Cache-Cleanup fehlgeschlagen")
+        return 0
+
+
 def _load_cache(cache_file: Path) -> dict:
     """Load incremental cache from JSON. Returns {} on missing/invalid file."""
     if not cache_file.is_file():
@@ -1459,9 +1503,15 @@ def _load_cache(cache_file: Path) -> dict:
 
 
 def _save_cache(cache_file: Path, entries: dict) -> None:
-    """Persist incremental cache entries to JSON."""
+    """Persist incremental cache entries to JSON with timestamps for cleanup."""
     try:
+        import time
         cache_file.parent.mkdir(exist_ok=True)
+        # Füge Timestamp hinzu falls nicht vorhanden (für Cache-Cleanup)
+        current_time = time.time()
+        for key in entries:
+            if "timestamp" not in entries[key]:
+                entries[key]["timestamp"] = current_time
         with open(cache_file, "w", encoding="utf-8") as fh:
             json.dump({"version": "1", "entries": entries}, fh, ensure_ascii=False, indent=2)
     except OSError:
@@ -2078,8 +2128,8 @@ def run_copycat(args):
             if any(char in git_url for char in dangerous_chars):
                 logging.error("Git-URL enthält verdächtige Zeichen")
                 return None
-        except Exception as e:
-            logging.error("Git-URL Validierung fehlgeschlagen: %s", str(e))
+        except Exception:
+            logging.exception("Git-URL Validierung fehlgeschlagen")
             return None
         _tmp_dir_obj = tempfile.TemporaryDirectory()
         tmp_clone = Path(_tmp_dir_obj.name) / "repo"
@@ -2142,6 +2192,12 @@ def run_copycat(args):
     if getattr(args, "incremental", False):
         cache_dir = output_dir / ".copycat_cache"
         cache_file = cache_dir / "cache.json"
+        
+        # ── Cache-Cleanup: Alte Einträge löschen wenn --cache-max-age gesetzt ───
+        cache_max_age = getattr(args, "cache_max_age", None)
+        if cache_max_age and cache_max_age > 0:
+            _cleanup_cache(cache_dir, cache_max_age)
+        
         raw_cache = _load_cache(cache_file)
         new_entries: dict = {}
         for code_file in files.get("code", []):
@@ -2187,6 +2243,19 @@ def run_copycat(args):
         )
 
     template_path = getattr(args, "template", None)
+    
+    # ── DRY-RUN: Zeige Zusammenfassung ohne zu schreiben ────────────────────
+    if getattr(args, "dry_run", False):
+        total_files = sum(len(flist) for flist in files.values())
+        logging.info("*** DRY-RUN MODE ***")
+        logging.info("Würde scannen: %d Dateien | Würde erstellen: 1 Report (%s)", total_files, fmt)
+        if getattr(args, "archive_move", False):
+            logging.info("Würde verschieben: Dateien ins Archiv")
+        print(f"\n✓ DRY-RUN: Würde {total_files} Dateien scannen und Report als {fmt} erstellen")
+        if _tmp_dir_obj:
+            _tmp_dir_obj.cleanup()
+        return None
+    
     if template_path:
         content = _write_template(
             template_path, files, args, input_dir, git_info, serial,
