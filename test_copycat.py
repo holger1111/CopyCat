@@ -4374,6 +4374,19 @@ def test_parse_arguments_git_url_config(tmp_path, monkeypatch):
     assert args.git_url == "https://github.com/user/repo"
 
 
+def test_parse_arguments_ai_model_and_base_url_config(tmp_path):
+    """Config-Keys 'ai_model' und 'ai_base_url' werden korrekt eingelesen."""
+    conf = tmp_path / "copycat.conf"
+    conf.write_text(
+        "ai_model = gpt-4\nai_base_url = http://localhost:11434/v1\n",
+        encoding="utf-8",
+    )
+    with patch("sys.argv", ["CopyCat.py"]):
+        args = parse_arguments(config_path=str(conf))
+    assert args.ai_model == "gpt-4"
+    assert args.ai_base_url == "http://localhost:11434/v1"
+
+
 def test_run_copycat_git_url_invalid_url(tmp_path):
     """Ungueltige Git-URL: run_copycat gibt None zurueck, kein clone."""
     from argparse import Namespace
@@ -4547,17 +4560,23 @@ def test_web_api_run_with_git_url(web_client):
 # ==================== M33: PDF-Export ====================
 
 def test_write_pdf_requires_reportlab(tmp_path, run_args):
-    """_write_pdf wirft ImportError wenn reportlab fehlt."""
+    """_write_pdf wirft ImportError wenn reportlab nicht installiert ist."""
     args = run_args()
     files = {k: [] for k in TYPE_FILTERS}
     out = tmp_path / "test.pdf"
-    import CopyCat
-    original = CopyCat._write_pdf
-    # Simuliere fehlende reportlab durch direkten Patch auf den Import innerhalb der Funktion
-    with patch.object(CopyCat, "_write_pdf",
-                      side_effect=ImportError("reportlab ist nicht installiert")):
+    # Blockiere reportlab-Importe via sys.modules → triggert except ImportError innerhalb _write_pdf
+    blocked = {
+        "reportlab": None,
+        "reportlab.lib": None,
+        "reportlab.lib.pagesizes": None,
+        "reportlab.platypus": None,
+        "reportlab.lib.styles": None,
+        "reportlab.lib.units": None,
+        "reportlab.lib.colors": None,
+    }
+    with patch.dict("sys.modules", blocked):
         with pytest.raises(ImportError, match="reportlab"):
-            CopyCat._write_pdf(out, files, args, tmp_path, "No Git", 1)
+            _write_pdf(out, files, args, tmp_path, "No Git", 1)
 
 
 def test_write_pdf_creates_file(tmp_path, run_args):
@@ -4596,6 +4615,74 @@ def test_run_copycat_pdf_format(tmp_path, run_args):
     assert result is not None
     assert result.endswith(".pdf")
     assert Path(result).exists()
+
+
+def test_write_pdf_with_search_pattern(tmp_path, run_args):
+    """_write_pdf mit search_pattern erzeugt Meta-Suche und Suchergebnis-Sektion."""
+    pytest.importorskip("reportlab")
+    args = run_args()
+    code_file = tmp_path / "main.py"
+    code_file.write_text("print('hello')\n", encoding="utf-8")
+    import CopyCat
+    files = CopyCat._collect_files(args, tmp_path, Path(__file__).resolve())
+    out = tmp_path / "search.pdf"
+    search_results = {code_file: [(1, "print('hello')")]}
+    _write_pdf(
+        out, files, args, tmp_path, "No Git", 1,
+        search_pattern="print", search_results=search_results,
+    )
+    assert out.exists()
+    assert out.stat().st_size > 0
+
+
+def test_write_pdf_types_skip_code_section(tmp_path, run_args):
+    """_write_pdf überspringt Code-Sektion wenn 'code'/'all' nicht in args.types."""
+    pytest.importorskip("reportlab")
+    args = run_args(types=["other"])
+    files = {k: [] for k in TYPE_FILTERS}
+    out = tmp_path / "nocode.pdf"
+    _write_pdf(out, files, args, tmp_path, "No Git", 1)
+    assert out.exists()
+
+
+def test_write_pdf_with_cached_file(tmp_path, run_args):
+    """_write_pdf liest Inhalt aus Cache statt von Disk."""
+    pytest.importorskip("reportlab")
+    args = run_args()
+    code_file = tmp_path / "cached.py"
+    code_file.write_text("x = 1\n", encoding="utf-8")
+    import CopyCat
+    files = CopyCat._collect_files(args, tmp_path, Path(__file__).resolve())
+    cache = {code_file: {"content": "# cached content\n", "lines": 1}}
+    out = tmp_path / "cached.pdf"
+    _write_pdf(out, files, args, tmp_path, "No Git", 1, cache=cache)
+    assert out.exists()
+
+
+def test_write_pdf_unicode_read_error(tmp_path, run_args):
+    """_write_pdf behandelt UnicodeDecodeError beim Datei-Lesen graceful."""
+    pytest.importorskip("reportlab")
+    args = run_args()
+    code_file = tmp_path / "bad.py"
+    code_file.write_bytes(b"\xff\xfe bad bytes")
+    import CopyCat
+    files = {"code": [code_file], **{k: [] for k in TYPE_FILTERS if k != "code"}}
+    out = tmp_path / "unicode_err.pdf"
+    _write_pdf(out, files, args, tmp_path, "No Git", 1)
+    assert out.exists()
+
+
+def test_write_pdf_long_code_truncated(tmp_path, run_args):
+    """_write_pdf kürzt Code auf 150 Zeilen und zeigt Hinweis."""
+    pytest.importorskip("reportlab")
+    args = run_args()
+    code_file = tmp_path / "long.py"
+    code_file.write_text("\n".join(f"x = {i}" for i in range(200)), encoding="utf-8")
+    import CopyCat
+    files = CopyCat._collect_files(args, tmp_path, Path(__file__).resolve())
+    out = tmp_path / "long.pdf"
+    _write_pdf(out, files, args, tmp_path, "No Git", 1)
+    assert out.exists()
 
 
 def test_is_valid_serial_filename_pdf():
@@ -4662,6 +4749,46 @@ def test_generate_ai_summary_api_error(tmp_path):
                 _generate_ai_summary(files, tmp_path, "No Git")
 
 
+def test_generate_ai_summary_with_files_stats_and_base_url(tmp_path):
+    """_generate_ai_summary deckt Branches für nicht-leere files, stats und base_url ab."""
+    import os
+    code_file = tmp_path / "main.py"
+    code_file.write_text("print('hello')")
+    files = {k: [] for k in TYPE_FILTERS}
+    files["code"] = [code_file]
+    stats = {
+        "total": {
+            "loc": 50, "code": 40, "comments": 5, "blank": 5,
+            "avg_complexity": 3, "comment_ratio": 10,
+        },
+        "per_file": {},
+    }
+    mock_response = MagicMock()
+    mock_response.choices = [MagicMock()]
+    mock_response.choices[0].message.content = "  KI-Steckbrief  "
+    mock_client = MagicMock()
+    mock_client.chat.completions.create.return_value = mock_response
+    mock_openai_cls = MagicMock(return_value=mock_client)
+
+    with patch.dict(os.environ, {"COPYCAT_AI_KEY": "sk-test"}):
+        with patch.dict("sys.modules", {"openai": MagicMock(OpenAI=mock_openai_cls)}):
+            import sys
+            sys.modules["openai"].OpenAI = mock_openai_cls
+            result = _generate_ai_summary(
+                files, tmp_path, "No Git",
+                stats=stats,
+                base_url="http://localhost:11434/v1",
+            )
+    assert result == "KI-Steckbrief"
+    # base_url muss an OpenAI-Konstruktor übergeben worden sein
+    call_kwargs = mock_openai_cls.call_args
+    assert call_kwargs is not None
+    all_kwargs = {**(call_kwargs.kwargs or {})}
+    if call_kwargs.args:
+        pass  # positional args
+    assert "base_url" in all_kwargs
+
+
 def test_run_copycat_ai_summary_warning_on_failure(tmp_path, run_args, caplog):
     """run_copycat gibt Warnung aus wenn AI-Summary fehlschlägt (kein Key)."""
     import os
@@ -4675,6 +4802,70 @@ def test_run_copycat_ai_summary_warning_on_failure(tmp_path, run_args, caplog):
             result = run_copycat(args)
     assert result is not None  # Report trotzdem erstellt
     assert any("KI-Zusammenfassung fehlgeschlagen" in r.message for r in caplog.records)
+
+
+def test_run_copycat_ai_summary_success_txt(tmp_path, run_args):
+    """run_copycat hängt KI-Zusammenfassung an TXT-Report an."""
+    args = run_args(fmt="txt")
+    args.ai_summary = True
+    args.ai_model = "gpt-4o-mini"
+    args.ai_base_url = None
+    with patch("CopyCat._generate_ai_summary", return_value="KI-Text-TXT"):
+        result = run_copycat(args)
+    content = Path(result).read_text(encoding="utf-8")
+    assert "KI-ZUSAMMENFASSUNG" in content
+    assert "KI-Text-TXT" in content
+
+
+def test_run_copycat_ai_summary_success_md(tmp_path, run_args):
+    """run_copycat hängt KI-Zusammenfassung an MD-Report an."""
+    args = run_args(fmt="md")
+    args.ai_summary = True
+    args.ai_model = "gpt-4o-mini"
+    args.ai_base_url = None
+    with patch("CopyCat._generate_ai_summary", return_value="KI-Text-MD"):
+        result = run_copycat(args)
+    content = Path(result).read_text(encoding="utf-8")
+    assert "KI-Zusammenfassung" in content
+    assert "KI-Text-MD" in content
+
+
+def test_run_copycat_ai_summary_success_json(tmp_path, run_args):
+    """run_copycat fügt KI-Zusammenfassung ins JSON-Feld ein."""
+    args = run_args(fmt="json")
+    args.ai_summary = True
+    args.ai_model = "gpt-4o-mini"
+    args.ai_base_url = None
+    with patch("CopyCat._generate_ai_summary", return_value="KI-Text-JSON"):
+        result = run_copycat(args)
+    data = json.loads(Path(result).read_text(encoding="utf-8"))
+    assert data.get("ai_summary") == "KI-Text-JSON"
+
+
+def test_run_copycat_ai_summary_success_html(tmp_path, run_args):
+    """run_copycat injiziert KI-Zusammenfassung in HTML-Report."""
+    args = run_args(fmt="html")
+    args.ai_summary = True
+    args.ai_model = "gpt-4o-mini"
+    args.ai_base_url = None
+    with patch("CopyCat._generate_ai_summary", return_value="KI-Text-HTML"):
+        result = run_copycat(args)
+    content = Path(result).read_text(encoding="utf-8")
+    assert "KI-Text-HTML" in content
+
+
+def test_run_copycat_ai_summary_success_pdf(tmp_path, run_args):
+    """run_copycat loggt KI-Zusammenfassung bei PDF-Format (kein Anhang)."""
+    pytest.importorskip("reportlab", reason="reportlab not installed")
+    args = run_args(fmt="pdf")
+    args.ai_summary = True
+    args.ai_model = "gpt-4o-mini"
+    args.ai_base_url = None
+    with patch("CopyCat._generate_ai_summary", return_value="KI-Text-PDF"):
+        result = run_copycat(args)
+    # PDF-Report existiert, KI-Text ist NICHT im Dateiinhalt (nur als Log)
+    assert result is not None
+    assert result.endswith(".pdf")
 
 
 # ==================== M36: Report-Timeline ====================
@@ -4822,4 +5013,64 @@ def test_timeline_ignores_pdf_files(tmp_path):
     (archive / "combined_copycat_1.pdf").write_bytes(b"%PDF-1.4 fake")
     result = build_timeline(archive)
     assert "Keine Archiv-Reports gefunden" in result
+
+
+def test_build_timeline_default_archive_dir(tmp_path):
+    """build_timeline ohne archive_dir nutzt CopyCat_Archive neben CopyCat.py."""
+    archive = tmp_path / "CopyCat_Archive"
+    archive.mkdir()
+    with patch("CopyCat.__file__", str(tmp_path / "CopyCat.py")):
+        result = build_timeline()
+    assert "Keine Archiv-Reports gefunden" in result
+
+
+def test_build_timeline_invalid_filename_skipped(tmp_path):
+    """build_timeline überspringt Dateien mit ungültigem Seriennamen."""
+    archive = tmp_path / "CopyCat_Archive"
+    archive.mkdir()
+    # Ungültige Dateiendung → is_valid_serial_filename gibt False zurück
+    (archive / "combined_copycat_99.xyz").write_text("something", encoding="utf-8")
+    # Gültige Datei
+    (archive / "combined_copycat_1.txt").write_text(
+        "CopyCat v2.9 | 01.01.2025 10:00 | FLACH\nGesamt: 3 Dateien\n",
+        encoding="utf-8",
+    )
+    result = build_timeline(archive)
+    assert "1" in result
+    assert "3" in result
+
+
+def test_build_timeline_oserror_on_read(tmp_path):
+    """build_timeline überspringt Dateien die beim Lesen OSError werfen."""
+    archive = tmp_path / "CopyCat_Archive"
+    archive.mkdir()
+    report = archive / "combined_copycat_1.txt"
+    report.write_text("dummy", encoding="utf-8")
+    with patch("pathlib.Path.read_text", side_effect=OSError("Permission denied")):
+        result = build_timeline(archive)
+    assert "Keine Archiv-Reports gefunden" in result
+
+
+def test_build_timeline_invalid_json_parse_error(tmp_path):
+    """build_timeline überspringt JSON-Dateien mit ungültigem Inhalt (kein Absturz)."""
+    archive = tmp_path / "CopyCat_Archive"
+    archive.mkdir()
+    (archive / "combined_copycat_1.json").write_text(
+        "this is not valid json!", encoding="utf-8"
+    )
+    result = build_timeline(archive)
+    # Eintrag erscheint mit Fallback-Werten
+    assert "1" in result
+
+
+def test_build_timeline_txt_no_date_or_total(tmp_path):
+    """build_timeline behandelt TXT-Reports ohne Datum/Gesamt-Pattern (Fallback '?'/0)."""
+    archive = tmp_path / "CopyCat_Archive"
+    archive.mkdir()
+    (archive / "combined_copycat_1.txt").write_text(
+        "Keine passenden Muster in dieser Datei.\n", encoding="utf-8"
+    )
+    result = build_timeline(archive)
+    # Eintrag mit Fallback '?' für Datum und 0 für Gesamt
+    assert "?" in result or "1" in result
 

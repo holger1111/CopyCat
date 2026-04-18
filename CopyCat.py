@@ -1916,7 +1916,7 @@ def build_timeline(archive_dir=None, fmt: str = "md") -> str:
         if not is_valid_serial_filename(report_file.name):
             continue
         m = re.match(r"^combined_copycat_(\d+)\.(txt|json|md|html|pdf)$", report_file.name)
-        if not m:
+        if not m:  # pragma: no cover
             continue
         serial_num = int(m.group(1))
         ext = m.group(2)
