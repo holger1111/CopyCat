@@ -134,6 +134,11 @@ _TEMPLATE = """<!DOCTYPE html>
             <input type="text" id="plugin_dir" name="plugin_dir" value="{{ form.plugin_dir }}" placeholder="plugins/">
           </div>
         </div>
+        <div class="row">
+          <div>
+            <label for="exclude">Ausschließen (Muster, kommagetrennt)</label>
+            <input type="text" id="exclude" name="exclude" value="{{ form.exclude }}" placeholder="*.min.js, dist/, node_modules/">
+          </div>
         <label style="display:flex;align-items:center;gap:.5rem;margin-bottom:.9rem;">
           <input type="checkbox" name="recursive" {% if form.recursive %}checked{% endif %}> Rekursiv
         </label>
@@ -189,6 +194,8 @@ def _build_args(form) -> Namespace:
     output_dir = form.get("output_dir", "").strip() or None
     search = form.get("search", "").strip() or None
     plugin_dir = form.get("plugin_dir", "").strip() or None
+    exclude_raw = form.get("exclude", "")
+    exclude = [p.strip() for p in exclude_raw.replace(",", " ").split() if p.strip()]
 
     return Namespace(
         input=input_dir,
@@ -208,6 +215,7 @@ def _build_args(form) -> Namespace:
         install_hook=None,
         verbose=False,
         quiet=True,
+        exclude=exclude,
     )
 
 
@@ -220,6 +228,7 @@ def _form_defaults():
         "max_size": "0",
         "search": "",
         "plugin_dir": "",
+        "exclude": "",
         "recursive": False,
     }
 
@@ -268,6 +277,7 @@ def run():
         "max_size": request.form.get("max_size", "0"),
         "search": request.form.get("search", "").strip(),
         "plugin_dir": request.form.get("plugin_dir", "").strip(),
+        "exclude": request.form.get("exclude", "").strip(),
         "recursive": "recursive" in request.form,
     }
 
@@ -374,6 +384,7 @@ def api_run():
         "max_size": str(data.get("max_size", 0)),
         "search": data.get("search", ""),
         "plugin_dir": data.get("plugin_dir", ""),
+        "exclude": data.get("exclude", ""),
     }
     if data.get("recursive"):
         form_like["recursive"] = "on"

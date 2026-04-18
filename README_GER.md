@@ -80,6 +80,7 @@ python CopyCat.py                             # nutzt copycat.conf falls vorhand
 | `-s`, `--max-size`		| Max Größe MB								| unbegrenzt	|
 | `-f`, `--format`		| Ausgabeformat: `txt`, `json`, `md`					| `txt`		|
 | `-S`, `--search`		| Regex-Suchmuster (z.B. `TODO\|FIXME`, `def `)			| None		|
+| `-E`, `--exclude`		| Glob-Muster oder Ordner ausschließen (z.B. `*.min.js` `dist/` `node_modules/`)	| None	|
 | `-v`, `--verbose`		| Ausführliche Ausgabe (DEBUG-Level)					| aus		|
 | `-q`, `--quiet`		| Nur Warnungen ausgeben						| aus		|
 | `--template`			| Pfad zu einer Jinja2-Template-Datei (`.j2`); erfordert `pip install jinja2`	| None	|

@@ -59,7 +59,7 @@ def mock_writer():
 @pytest.fixture
 def run_args(tmp_path):
     """Factory fixture for Namespace args."""
-    def _make_args(types=None, recursive=False, max_size=None, input_path=None, output_path=None, fmt="txt", search=None):
+    def _make_args(types=None, recursive=False, max_size=None, input_path=None, output_path=None, fmt="txt", search=None, exclude=None):
         return Namespace(
             input=str(input_path or tmp_path),
             output=str(output_path or tmp_path),
@@ -72,6 +72,7 @@ def run_args(tmp_path):
             watch=False,
             cooldown=2.0,
             plugin_dir=None,
+            exclude=exclude or [],
         )
     return _make_args
 
@@ -1433,6 +1434,7 @@ def gui():
     instance._progress = MagicMock()
     instance._template_var = _make_var("")
     instance._cooldown_var = _make_var("2.0")
+    instance._exclude_var = _make_var("")
     instance._watch_stop_event = None
     instance._watch_thread = None
     instance._watch_btn = MagicMock()
@@ -3295,4 +3297,282 @@ def test_web_api_run_recursive_flag(web_client):
     })
     assert resp.status_code == 200
 
+
+# ==================== EXCLUDE TESTS ====================
+
+from CopyCat import _should_exclude
+
+def test_should_exclude_no_patterns(tmp_path):
+    """Leere Pattern-Liste → nie ausschließen."""
+    f = tmp_path / "main.py"
+    f.touch()
+    assert _should_exclude(f, tmp_path, []) is False
+
+
+def test_should_exclude_none_patterns(tmp_path):
+    """None-Pattern → nie ausschließen."""
+    f = tmp_path / "main.py"
+    f.touch()
+    assert _should_exclude(f, tmp_path, None) is False
+
+
+def test_should_exclude_by_filename(tmp_path):
+    """*.min.js schließt bundle.min.js aus."""
+    f = tmp_path / "bundle.min.js"
+    f.touch()
+    assert _should_exclude(f, tmp_path, ["*.min.js"]) is True
+
+
+def test_should_exclude_no_match(tmp_path):
+    """*.min.js schließt bundle.js NICHT aus."""
+    f = tmp_path / "bundle.js"
+    f.touch()
+    assert _should_exclude(f, tmp_path, ["*.min.js"]) is False
+
+
+def test_should_exclude_by_relative_path(tmp_path):
+    """dist/bundle.js schließt dist/bundle.js aus."""
+    sub = tmp_path / "dist"
+    sub.mkdir()
+    f = sub / "bundle.js"
+    f.touch()
+    assert _should_exclude(f, tmp_path, ["dist/bundle.js"]) is True
+
+
+def test_should_exclude_directory_prefix(tmp_path):
+    """dist/ (mit Slash) schließt alle Dateien in dist/ aus."""
+    sub = tmp_path / "dist"
+    sub.mkdir()
+    f = sub / "app.js"
+    f.touch()
+    assert _should_exclude(f, tmp_path, ["dist/"]) is True
+
+
+def test_should_exclude_directory_prefix_no_match(tmp_path):
+    """dist/ schließt Dateien außerhalb von dist/ NICHT aus."""
+    f = tmp_path / "src" / "app.js"
+    (tmp_path / "src").mkdir()
+    f.touch()
+    assert _should_exclude(f, tmp_path, ["dist/"]) is False
+
+
+def test_should_exclude_multiple_patterns(tmp_path):
+    """Mehrere Muster: erstes match genügt."""
+    f = tmp_path / "test_helper.py"
+    f.touch()
+    assert _should_exclude(f, tmp_path, ["*.min.js", "test_*.py"]) is True
+
+
+def test_should_exclude_directory_exact(tmp_path):
+    """dist/ schließt auch eine Datei genau mit Name 'dist' aus (rel == p)."""
+    # Das ist ein Grenzfall: rel == p wenn Datei direkt dist heißt (kein Slash)
+    f = tmp_path / "dist"
+    f.touch()
+    assert _should_exclude(f, tmp_path, ["dist/"]) is True
+
+
+def test_should_exclude_outside_input_dir(tmp_path):
+    """Candidate außerhalb input_dir → fällt zurück auf candidate.name."""
+    other = tmp_path.parent / "other.py"
+    other.touch()
+    assert _should_exclude(other, tmp_path, ["other.py"]) is True
+
+
+def test_parse_arguments_exclude_flag(tmp_path):
+    """--exclude setzt args.exclude korrekt."""
+    import sys
+    with patch("sys.argv", ["copycat", "--input", str(tmp_path), "--exclude", "*.min.js", "dist/"]):
+        args = parse_arguments()
+    assert "*.min.js" in args.exclude
+    assert "dist/" in args.exclude
+
+
+def test_parse_arguments_exclude_comma_split(tmp_path):
+    """--exclude mit einem Argument das Kommas enthält → wird gesplittet."""
+    import sys
+    with patch("sys.argv", ["copycat", "--input", str(tmp_path), "--exclude", "*.min.js,dist/,node_modules/"]):
+        args = parse_arguments()
+    assert args.exclude == ["*.min.js", "dist/", "node_modules/"]
+
+
+def test_parse_arguments_exclude_config(tmp_path):
+    """copycat.conf mit exclude = *.log,tmp/ wird korrekt geladen."""
+    conf = tmp_path / "copycat.conf"
+    conf.write_text("exclude = *.log, tmp/\n", encoding="utf-8")
+    with patch("sys.argv", ["copycat", "--input", str(tmp_path)]):
+        args = parse_arguments(config_path=str(conf))
+    assert "*.log" in args.exclude
+    assert "tmp/" in args.exclude
+
+
+def test_collect_files_exclude_by_name(run_args, tmp_path):
+    """Dateien die auf *.min.js passen werden ausgeschlossen."""
+    (tmp_path / "app.min.js").write_text("x")
+    (tmp_path / "app.js").write_text("x")
+    args = run_args(types=["web"], exclude=["*.min.js"])
+    from CopyCat import _collect_files, TYPE_FILTERS
+    script_file = Path(__file__).resolve()
+    files = _collect_files(args, tmp_path, script_file)
+    web_names = [f.name for f in files.get("web", [])]
+    assert "app.min.js" not in web_names
+    assert "app.js" in web_names
+
+
+def test_collect_files_exclude_directory(run_args, tmp_path):
+    """Ordner mit Slash ausgeschlossen über plain-glob-Zweig."""
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    (dist / "bundle.js").write_text("x")
+    (tmp_path / "main.js").write_text("x")
+    args = run_args(types=["web"], exclude=["dist/"])
+    from CopyCat import _collect_files
+    script_file = Path(__file__).resolve()
+    files = _collect_files(args, tmp_path, script_file)
+    web_names = [f.name for f in files.get("web", [])]
+    assert "bundle.js" not in web_names
+    assert "main.js" in web_names
+
+
+def test_collect_files_exclude_recursive(run_args, tmp_path):
+    """Exclude funktioniert im rekursiven (size_filtered_glob) Zweig."""
+    sub = tmp_path / "node_modules"
+    sub.mkdir()
+    (sub / "dep.py").write_text("x")
+    (tmp_path / "main.py").write_text("x")
+    args = run_args(types=["code"], recursive=True, exclude=["node_modules/"])
+    from CopyCat import _collect_files
+    script_file = Path(__file__).resolve()
+    files = _collect_files(args, tmp_path, script_file)
+    code_names = [f.name for f in files.get("code", [])]
+    assert "dep.py" not in code_names
+    assert "main.py" in code_names
+
+
+def test_collect_files_exclude_empty_is_noop(run_args, tmp_path):
+    """Leere Exclude-Liste ändert nichts."""
+    (tmp_path / "app.js").write_text("x")
+    args = run_args(types=["web"], exclude=[])
+    from CopyCat import _collect_files
+    script_file = Path(__file__).resolve()
+    files = _collect_files(args, tmp_path, script_file)
+    assert any(f.name == "app.js" for f in files.get("web", []))
+
+
+def test_gui_build_args_exclude(gui):
+    """GUI _build_args() liefert korrekte exclude-Liste."""
+    gui._exclude_var.set("*.log, tmp/")
+    args = gui._build_args()
+    assert "*.log" in args.exclude
+    assert "tmp/" in args.exclude
+
+
+def test_gui_build_args_exclude_empty(gui):
+    """GUI _build_args() mit leerem Exclude-Feld → leere Liste."""
+    gui._exclude_var.set("")
+    args = gui._build_args()
+    assert args.exclude == []
+
+
+def test_gui_save_config_includes_exclude(gui, tmp_path):
+    """_save_config() schreibt exclude-Zeile."""
+    path = tmp_path / "test.conf"
+    gui._input_var.set("")
+    gui._output_var.set("")
+    gui._format_var.set("txt")
+    gui._exclude_var.set("*.log")
+    with patch("tkinter.filedialog.asksaveasfilename", return_value=str(path)), \
+         patch("tkinter.messagebox.showinfo"):
+        gui._save_config()
+    content = path.read_text(encoding="utf-8")
+    assert "exclude = *.log" in content
+
+
+def test_gui_load_config_sets_exclude(gui, tmp_path):
+    """_load_config() setzt _exclude_var aus Config."""
+    conf = tmp_path / "c.conf"
+    conf.write_text("exclude = *.log\n", encoding="utf-8")
+    with patch("tkinter.filedialog.askopenfilename", return_value=str(conf)):
+        gui._load_config()
+    assert gui._exclude_var.get() == "*.log"
+
+
+def test_web_build_args_exclude():
+    """_build_args parst exclude korrekt."""
+    from CopyCat_Web import _build_args as web_build_args
+
+    class FakeForm:
+        _data = {"input_dir": "/tmp", "exclude": "*.log, dist/"}
+        def get(self, key, default=""):
+            return self._data.get(key, default)
+        def getlist(self, key):
+            val = self._data.get(key, [])
+            return val if isinstance(val, list) else [val]
+        def __contains__(self, item):
+            return item in self._data
+
+    args = web_build_args(FakeForm())
+    assert "*.log" in args.exclude
+    assert "dist/" in args.exclude
+
+
+def test_web_build_args_exclude_empty():
+    """_build_args mit leerem exclude → leere Liste."""
+    from CopyCat_Web import _build_args as web_build_args
+
+    class FakeForm:
+        _data = {"input_dir": "/tmp", "exclude": ""}
+        def get(self, key, default=""):
+            return self._data.get(key, default)
+        def getlist(self, key):
+            val = self._data.get(key, [])
+            return val if isinstance(val, list) else [val]
+        def __contains__(self, item):
+            return item in self._data
+
+    args = web_build_args(FakeForm())
+    assert args.exclude == []
+
+
+def test_web_form_defaults_has_exclude():
+    """_form_defaults enthält exclude-Key."""
+    from CopyCat_Web import _form_defaults
+    defaults = _form_defaults()
+    assert "exclude" in defaults
+    assert defaults["exclude"] == ""
+
+
+def test_web_run_with_exclude(web_client):
+    """POST /run mit exclude schließt Datei aus."""
+    client, tmp = web_client
+    (tmp / "bundle.min.js").write_text("x")
+    resp = client.post("/run", data={
+        "input_dir": str(tmp),
+        "output_dir": str(tmp),
+        "types": ["web"],
+        "fmt": "txt",
+        "exclude": "*.min.js",
+    })
+    assert resp.status_code == 200
+
+
+def test_web_api_run_with_exclude(web_client):
+    """POST /api/run mit exclude-Key wird korrekt verarbeitet."""
+    client, tmp = web_client
+    (tmp / "app.py").write_text("x=1\n")
+    resp = client.post("/api/run", json={
+        "input": str(tmp),
+        "format": "txt",
+        "exclude": "*.log",
+    })
+    assert resp.status_code == 200
+
+
+def test_parse_arguments_exclude_config_empty_value(tmp_path):
+    """exclude = ,  (nur Komma) → kein Override gesetzt (leere Parts)."""
+    conf = tmp_path / "copycat.conf"
+    conf.write_text("exclude = ,\n", encoding="utf-8")
+    with patch("sys.argv", ["copycat"]):
+        args = parse_arguments(config_path=str(conf))
+    # keine Exception, exclude bleibt Default (leer)
+    assert args.exclude == []
 

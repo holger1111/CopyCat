@@ -54,6 +54,7 @@ class CopyCatGUI:
         self._search_var = tk.StringVar()
         self._template_var = tk.StringVar()
         self._cooldown_var = tk.StringVar(value="2.0")
+        self._exclude_var = tk.StringVar()
         self._watch_stop_event = None
         self._type_vars = {t: tk.BooleanVar(value=True) for t in TYPES}
 
@@ -124,16 +125,21 @@ class CopyCatGUI:
             row=1, column=1, columnspan=4, sticky="w", pady=(6, 0)
         )
 
-        ttk.Label(frm_opt, text="Template (.j2):").grid(row=2, column=0, sticky="w", padx=6, pady=(6, 0))
+        ttk.Label(frm_opt, text="Ausschließen:").grid(row=3, column=0, sticky="w", padx=6, pady=(6, 0))
+        ttk.Entry(frm_opt, textvariable=self._exclude_var, width=40).grid(
+            row=3, column=1, columnspan=4, sticky="w", pady=(6, 0)
+        )
+
+        ttk.Label(frm_opt, text="Template (.j2):").grid(row=4, column=0, sticky="w", padx=6, pady=(6, 0))
         ttk.Entry(frm_opt, textvariable=self._template_var, width=30).grid(
-            row=2, column=1, columnspan=2, sticky="w", padx=(0, 4), pady=(6, 0)
+            row=4, column=1, columnspan=2, sticky="w", padx=(0, 4), pady=(6, 0)
         )
         ttk.Button(frm_opt, text="…", width=3, command=self._browse_template).grid(
-            row=2, column=3, sticky="w", pady=(6, 0)
+            row=4, column=3, sticky="w", pady=(6, 0)
         )
-        ttk.Label(frm_opt, text="Cooldown (s):").grid(row=2, column=4, sticky="w", padx=(16, 4), pady=(6, 0))
+        ttk.Label(frm_opt, text="Cooldown (s):").grid(row=4, column=4, sticky="w", padx=(16, 4), pady=(6, 0))
         ttk.Entry(frm_opt, textvariable=self._cooldown_var, width=6).grid(
-            row=2, column=5, sticky="w", pady=(6, 0)
+            row=4, column=5, sticky="w", pady=(6, 0)
         )
 
         # Buttons
@@ -237,6 +243,8 @@ class CopyCatGUI:
             self._format_var.set(cfg["format"])
         if "search" in cfg:
             self._search_var.set(cfg["search"])
+        if "exclude" in cfg:
+            self._exclude_var.set(cfg["exclude"])
 
     def _save_config(self):
         path = filedialog.asksaveasfilename(
@@ -261,6 +269,9 @@ class CopyCatGUI:
         search = self._search_var.get().strip()
         if search:
             lines.append(f"search = {search}")
+        exclude = self._exclude_var.get().strip()
+        if exclude:
+            lines.append(f"exclude = {exclude}")
         try:
             Path(path).write_text("\n".join(lines) + "\n", encoding="utf-8")
             messagebox.showinfo("Gespeichert", f"Config gespeichert:\n{path}")
@@ -358,6 +369,8 @@ class CopyCatGUI:
             raise ValueError(f"Ungültige Max-Größe: '{max_size_str}' (Zahl erwartet)")
 
         search = self._search_var.get().strip() or None
+        exclude_raw = self._exclude_var.get().strip()
+        exclude = [p.strip() for p in exclude_raw.replace(",", " ").split() if p.strip()] if exclude_raw else []
 
         return argparse.Namespace(
             input=self._input_var.get().strip() or None,
@@ -370,6 +383,7 @@ class CopyCatGUI:
             template=self._template_var.get().strip() or None,
             cooldown=float(self._cooldown_var.get().strip() or "2.0"),
             watch=False,
+            exclude=exclude,
         )
 
     def _on_watch_toggle(self):  # pragma: no cover

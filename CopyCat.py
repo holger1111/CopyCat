@@ -169,6 +169,11 @@ def parse_arguments(config_path=None):
         action="store_true",
         help="Geladene Plugins anzeigen und beenden",
     )
+    parser.add_argument(
+        "--exclude", "-E",
+        nargs="*", default=[], metavar="PATTERN",
+        help="Glob-Muster oder Ordner zum Ausschließen, z.B. '*.min.js' 'dist/' 'node_modules/'",
+    )
 
     # ── Config-Datei: Defaults aus copycat.conf (CLI überschreibt) ──────────
     cfg = load_config(config_path)
@@ -195,6 +200,10 @@ def parse_arguments(config_path=None):
         overrides["input"] = cfg["input"]
     if "output" in cfg:
         overrides["output"] = cfg["output"]
+    if "exclude" in cfg:
+        parts = [p.strip() for p in cfg["exclude"].replace(",", " ").split() if p.strip()]
+        if parts:
+            overrides["exclude"] = parts
     if overrides:
         parser.set_defaults(**overrides)
     # ────────────────────────────────────────────────────────────────────────
@@ -203,6 +212,9 @@ def parse_arguments(config_path=None):
 
     if args.types and len(args.types) == 1 and ',' in args.types[0]:
         args.types = [t.strip() for t in args.types[0].split(',')]
+
+    if args.exclude and len(args.exclude) == 1 and ',' in args.exclude[0]:
+        args.exclude = [p.strip() for p in args.exclude[0].split(',') if p.strip()]
 
     return args
 
@@ -473,13 +485,15 @@ def get_plural(count):
     return "Datei" if count == 1 else "Dateien"
 
 
-def size_filtered_glob(search_method, patterns, max_bytes, script_file, input_dir):
+def size_filtered_glob(search_method, patterns, max_bytes, script_file, input_dir, exclude_patterns=None):
     total_checked = 0
     for pat in patterns:
         for candidate in search_method(pat):
             total_checked += 1
             try:
                 if should_skip_gitignore(input_dir, candidate):
+                    continue
+                if _should_exclude(candidate, input_dir, exclude_patterns or []):
                     continue
                 if candidate.stat().st_size < max_bytes:
                     if (
@@ -876,6 +890,27 @@ def load_plugins(plugin_dir=None):
     return loaded
 
 
+def _should_exclude(candidate, input_dir, exclude_patterns):
+    """Prüft ob candidate auf ein Exclude-Glob-Muster passt."""
+    if not exclude_patterns:
+        return False
+    try:
+        rel = str(candidate.relative_to(input_dir)).replace("\\", "/")
+    except ValueError:
+        rel = candidate.name
+    name = candidate.name
+    for pattern in exclude_patterns:
+        p = pattern.rstrip("/")
+        if pattern.endswith("/"):
+            if rel.startswith(p + "/") or rel == p:
+                return True
+        if fnmatch.fnmatch(name, p):
+            return True
+        if fnmatch.fnmatch(rel, p):
+            return True
+    return False
+
+
 def _collect_files(args, input_dir, script_file):
     """Collect and return files dict based on args."""
     files = {k: [] for k in TYPE_FILTERS}
@@ -884,6 +919,7 @@ def _collect_files(args, input_dir, script_file):
     search_method = input_dir.rglob if args.recursive else input_dir.glob
     use_filter = args.recursive or args.max_size != float("inf")
     limit_bytes = args.max_size * 1024 * 1024
+    exclude_patterns = getattr(args, 'exclude', None) or []
 
     logging.info("Suche %s in %s", "rekursiv" if args.recursive else "flach", input_dir)
     if use_filter:
@@ -893,13 +929,15 @@ def _collect_files(args, input_dir, script_file):
         if process_all or t in selected_types:
             if use_filter:
                 for candidate in size_filtered_glob(
-                    search_method, patterns, limit_bytes, script_file, input_dir
+                    search_method, patterns, limit_bytes, script_file, input_dir, exclude_patterns
                 ):
                     files[t].append(candidate)
             else:
                 for pat in patterns:
                     for candidate in search_method(pat):
                         if should_skip_gitignore(input_dir, candidate):
+                            continue
+                        if _should_exclude(candidate, input_dir, exclude_patterns):
                             continue
                         if (
                             candidate.resolve() != script_file
