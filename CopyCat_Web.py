@@ -450,8 +450,11 @@ def run():
 
 def _validate_report_path(path_str: str) -> Path:
     """Validiert Pfad gegen Path-Traversal. Gibt Path zurück oder wirft ValueError."""
-    if not path_str or path_str.startswith("/") or ".." in path_str:
+    if not path_str:
         raise ValueError("Ungültiger Pfad")
+    # Blockiere nur echte Traversal-Attacken (../) aber erlaube absolute und relative Pfade
+    if "../" in path_str or "\\..\\" in path_str:  # Windows und Unix Varianten
+        raise ValueError("Ungültiger Pfad: Path-Traversal erkannt")
     p = Path(path_str).resolve()
     # Prüfe Filename-Pattern
     if not re.fullmatch(r"combined_copycat_\d+\.(txt|json|md|html|pdf)", p.name):
