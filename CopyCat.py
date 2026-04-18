@@ -5,6 +5,7 @@ CopyCat v2.9
 import argparse
 import concurrent.futures
 import json
+import stat
 import xml.etree.ElementTree as ET
 import shutil
 import re
@@ -121,6 +122,18 @@ def parse_arguments(config_path=None):
         nargs=2,
         metavar=("REPORT_A", "REPORT_B"),
         help="Vergleiche zwei CopyCat-Reports und zeige Unterschiede (TXT oder JSON)",
+    )
+    parser.add_argument(
+        "--merge",
+        nargs="+",
+        metavar="REPORT",
+        help="Füge mehrere CopyCat-Reports zu einem Merge-Report zusammen",
+    )
+    parser.add_argument(
+        "--install-hook",
+        metavar="PROJECT_DIR",
+        default=None,
+        help="Installiere CopyCat als Git pre-commit Hook im angegebenen Projektordner",
     )
 
     # ── Config-Datei: Defaults aus copycat.conf (CLI überschreibt) ──────────
@@ -559,6 +572,82 @@ def diff_reports(path_a: Path, path_b: Path) -> str:
     return "\n".join(lines) + "\n"
 
 
+def install_hook(project_dir: Path) -> Path:
+    """Install a CopyCat pre-commit Git hook in project_dir/.git/hooks/pre-commit.
+
+    The hook runs CopyCat (--quiet) before every commit and stages the
+    generated report automatically.
+
+    Raises FileNotFoundError when no .git/hooks directory is found.
+    """
+    hook_dir = project_dir / ".git" / "hooks"
+    if not hook_dir.is_dir():
+        raise FileNotFoundError(
+            f"Kein Git-Repository in '{project_dir}' (.git/hooks fehlt)"
+        )
+    script_path = Path(__file__).resolve()
+    hook_path = hook_dir / "pre-commit"
+    hook_content = (
+        "#!/bin/sh\n"
+        "# CopyCat pre-commit hook – automatisch installiert\n"
+        f'python "{script_path}" --quiet\n'
+        "git add combined_copycat_*.txt combined_copycat_*.json "
+        "combined_copycat_*.md 2>/dev/null || true\n"
+    )
+    hook_path.write_text(hook_content, encoding="utf-8")
+    try:
+        hook_path.chmod(
+            hook_path.stat().st_mode
+            | stat.S_IXUSR
+            | stat.S_IXGRP
+            | stat.S_IXOTH
+        )
+    except OSError:
+        pass
+    return hook_path
+
+
+def merge_reports(paths: list, output: Path = None) -> str:
+    """Merge multiple CopyCat TXT/JSON reports into one combined report string.
+
+    Each report is included as a labelled section.  If *output* is given, the
+    merged text is also written to that file.
+    """
+    sections = []
+    for path in paths:
+        text = path.read_text(encoding="utf-8")
+        if path.suffix.lower() == ".json":
+            try:
+                data = json.loads(text)
+                header = f"=== {path.name}  ({data.get('generated', '?')}) ==="
+                sub_lines = [header]
+                for t, entries in data.get("details", {}).items():
+                    if entries:
+                        sub_lines.append(
+                            f"{t.upper()}: {len(entries)} {get_plural(len(entries))}"
+                        )
+                        for e in entries:
+                            sub_lines.append(f"  {e.get('path', e.get('name', '?'))}")
+                sections.append("\n".join(sub_lines))
+            except (json.JSONDecodeError, KeyError) as exc:
+                sections.append(f"=== {path.name} [FEHLER: {exc}] ===")
+        else:
+            sections.append(f"=== {path.name} ===\n{text.strip()}")
+
+    separator = "\n\n" + "\u2500" * 60 + "\n\n"
+    merged = (
+        "=" * 60 + "\n"
+        f"CopyCat Merge-Report | {datetime.now().strftime('%d.%m.%Y %H:%M')}\n"
+        f"{len(paths)} {get_plural(len(paths))} zusammengef\u00fchrt\n"
+        + "=" * 60 + "\n\n"
+        + separator.join(sections)
+        + "\n"
+    )
+    if output is not None:
+        output.write_text(merged, encoding="utf-8")
+    return merged
+
+
 TYPE_FILTERS = {
     "code": ["*.java", "*.py", "*.spec", "*.cpp", "*.c"],
     "web": ["*.html", "*.css", "*.js", "*.ts", "*.jsx"],
@@ -884,7 +973,12 @@ if __name__ == "__main__":  # pragma: no cover
     else:
         _log_level = logging.INFO
     logging.basicConfig(level=_log_level, format="%(message)s")
-    if getattr(_args, "diff", None):
+    if getattr(_args, "install_hook", None):
+        hook = install_hook(Path(_args.install_hook))
+        print(f"Hook installiert: {hook}")
+    elif getattr(_args, "merge", None):
+        print(merge_reports([Path(p) for p in _args.merge]))
+    elif getattr(_args, "diff", None):
         print(diff_reports(Path(_args.diff[0]), Path(_args.diff[1])))
     else:
         run_copycat(_args)

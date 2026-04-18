@@ -12,7 +12,7 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
-from CopyCat import diff_reports, load_config, run_copycat
+from CopyCat import diff_reports, install_hook, load_config, merge_reports, run_copycat
 
 try:  # pragma: no cover
     from tkinterdnd2 import DND_FILES, TkinterDnD
@@ -136,6 +136,8 @@ class CopyCatGUI:
         ttk.Button(frm_btn, text="📥  Config laden", command=self._load_config).pack(side="left", padx=4)
         ttk.Button(frm_btn, text="💾  Config speichern", command=self._save_config).pack(side="left", padx=4)
         ttk.Button(frm_btn, text="⇄  Diff", command=self._on_diff).pack(side="left", padx=4)
+        ttk.Button(frm_btn, text="📄  Merge", command=self._on_merge).pack(side="left", padx=4)
+        ttk.Button(frm_btn, text="🔗  Hook", command=self._on_install_hook).pack(side="left", padx=4)
 
         ttk.Button(frm_btn, text="✖  Ausgabe leeren", command=self._clear_output).pack(side="right", padx=4)
 
@@ -277,6 +279,45 @@ class CopyCatGUI:
         self._output_text.configure(state="normal")
         self._output_text.insert("end", result)
         self._output_text.configure(state="disabled")
+
+    # ── Merge ─────────────────────────────────────────────────────────────────
+
+    def _on_merge(self):
+        paths = filedialog.askopenfilenames(
+            title="Reports zum Zusammenführen wählen",
+            filetypes=[("CopyCat Reports", "*.txt *.json *.md"), ("Alle Dateien", "*.*")],
+        )
+        if not paths:
+            return
+        if len(paths) < 2:
+            messagebox.showwarning("Merge", "Bitte mindestens 2 Reports auswählen.")
+            return
+        try:
+            result = merge_reports([Path(p) for p in paths])
+        except Exception as exc:
+            messagebox.showerror("Merge-Fehler", str(exc))
+            return
+        self._clear_output()
+        self._output_text.configure(state="normal")
+        self._output_text.insert("end", result)
+        self._output_text.configure(state="disabled")
+
+    # ── Hook ─────────────────────────────────────────────────────────────────
+
+    def _on_install_hook(self):
+        project_dir = filedialog.askdirectory(
+            title="Git-Projektordner wählen (enthält .git/)"
+        )
+        if not project_dir:
+            return
+        try:
+            hook_path = install_hook(Path(project_dir))
+            messagebox.showinfo(
+                "Hook installiert",
+                f"CopyCat pre-commit Hook installiert:\n{hook_path}",
+            )
+        except FileNotFoundError as exc:
+            messagebox.showerror("Hook-Fehler", str(exc))
 
     # ── Run ───────────────────────────────────────────────────────────────────
 

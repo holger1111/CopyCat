@@ -35,6 +35,8 @@ from CopyCat import (
     _write_md,
     _write_txt,
     diff_reports,
+    install_hook,
+    merge_reports,
     TYPE_FILTERS,
 )
 
@@ -2007,4 +2009,208 @@ def test_gui_on_diff_error(gui, tmp_path):
          patch("tkinter.messagebox.showerror") as mock_err:
         gui._on_diff()
     mock_err.assert_called_once()
+
+
+# ==================== IDEE 10: PRE-COMMIT HOOK ====================
+
+def test_install_hook_creates_file(tmp_path):
+    """install_hook schreibt pre-commit Skript in .git/hooks/."""
+    (tmp_path / ".git" / "hooks").mkdir(parents=True)
+    hook = install_hook(tmp_path)
+    assert hook.exists()
+    content = hook.read_text(encoding="utf-8")
+    assert "#!/bin/sh" in content
+    assert "--quiet" in content
+    assert "git add combined_copycat_" in content
+
+
+def test_install_hook_no_git_raises(tmp_path):
+    """install_hook wirft FileNotFoundError wenn kein .git/hooks vorhanden."""
+    with pytest.raises(FileNotFoundError, match="Kein Git-Repository"):
+        install_hook(tmp_path)
+
+
+def test_install_hook_chmod_fail(tmp_path, monkeypatch):
+    """install_hook ignoriert OSError beim chmod-Schritt."""
+    (tmp_path / ".git" / "hooks").mkdir(parents=True)
+    original_chmod = Path.chmod
+
+    def bad_chmod(self, mode):
+        raise OSError("chmod fehlgeschlagen")
+
+    monkeypatch.setattr(Path, "chmod", bad_chmod)
+    hook = install_hook(tmp_path)
+    assert hook.exists()
+
+
+def test_parse_arguments_install_hook():
+    """--install-hook Argument wird korrekt geparst."""
+    with patch("sys.argv", ["CopyCat.py", "--install-hook", "/some/project"]):
+        args = parse_arguments()
+    assert args.install_hook == "/some/project"
+
+
+def test_gui_on_install_hook_success(gui, tmp_path):
+    """_on_install_hook zeigt Erfolg-Dialog nach Hookinstallation."""
+    (tmp_path / ".git" / "hooks").mkdir(parents=True)
+    with patch("tkinter.filedialog.askdirectory", return_value=str(tmp_path)), \
+         patch("tkinter.messagebox.showinfo") as mock_info:
+        gui._on_install_hook()
+    mock_info.assert_called_once()
+    assert "Hook installiert" in mock_info.call_args[0][0]
+
+
+def test_gui_on_install_hook_cancel(gui):
+    """_on_install_hook bricht ab wenn Dialog abgebrochen."""
+    with patch("tkinter.filedialog.askdirectory", return_value=""):
+        gui._on_install_hook()  # keine Exception
+
+
+def test_gui_on_install_hook_no_git(gui, tmp_path):
+    """_on_install_hook zeigt Fehler wenn Ordner kein Git-Repo ist."""
+    with patch("tkinter.filedialog.askdirectory", return_value=str(tmp_path)), \
+         patch("tkinter.messagebox.showerror") as mock_err:
+        gui._on_install_hook()
+    mock_err.assert_called_once()
+
+
+# ==================== IDEE 12: MERGE MEHRERER PROJEKTE ====================
+
+def _make_txt_for_merge(tmp_path, name, filenames):
+    """Hilfsfunktion: minimales TXT-Report."""
+    lines = [
+        "=" * 60,
+        f"CopyCat v2.9 | 01.01.2025 10:00 | FLACH (Default)",
+        str(tmp_path), "GIT: No Git", "",
+        f"Gesamt: {len(filenames)} Dateien", "Serial #1",
+        "=" * 60, "CODE-Details:",
+    ]
+    for fname in filenames:
+        lines += [f"  {fname}: 5 Zeilen", f"----- {fname} -----", "x = 1", ""]
+    p = tmp_path / name
+    p.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return p
+
+
+def test_merge_reports_txt(tmp_path):
+    """merge_reports kombiniert zwei TXT-Reports korrekt."""
+    rep_a = _make_txt_for_merge(tmp_path, "a.txt", ["alpha.py"])
+    rep_b = _make_txt_for_merge(tmp_path, "b.txt", ["beta.py"])
+    result = merge_reports([rep_a, rep_b])
+    assert "Merge-Report" in result
+    assert "=== a.txt ===" in result
+    assert "=== b.txt ===" in result
+    assert "2 Dateien zusammengeführt" in result
+
+
+def test_merge_reports_writes_output_file(tmp_path):
+    """merge_reports schreibt Datei wenn output= angegeben."""
+    rep_a = _make_txt_for_merge(tmp_path, "a.txt", ["x.py"])
+    rep_b = _make_txt_for_merge(tmp_path, "b.txt", ["y.py"])
+    out = tmp_path / "merged.txt"
+    merge_reports([rep_a, rep_b], output=out)
+    assert out.exists()
+    assert "Merge-Report" in out.read_text(encoding="utf-8")
+
+
+def test_merge_reports_json(tmp_path):
+    """merge_reports verarbeitet JSON-Reports korrekt."""
+    def _json_rep(name, code_files):
+        data = {
+            "version": "2.9", "generated": "01.01.2025 10:00",
+            "mode": "flat", "input": str(tmp_path),
+            "serial": 1, "git": None,
+            "files": len(code_files),
+            "types": {"code": len(code_files)},
+            "search": None,
+            "details": {"code": [{"name": f, "path": f, "size": 0} for f in code_files]},
+        }
+        p = tmp_path / name
+        p.write_text(json.dumps(data), encoding="utf-8")
+        return p
+
+    rep_a = _json_rep("a.json", ["main.py"])
+    rep_b = _json_rep("b.json", ["utils.py"])
+    result = merge_reports([rep_a, rep_b])
+    assert "a.json" in result
+    assert "main.py" in result
+    assert "utils.py" in result
+
+
+def test_merge_reports_invalid_json(tmp_path):
+    """merge_reports markiert fehlerhaften JSON-Report als [FEHLER]."""
+    bad = tmp_path / "bad.json"
+    bad.write_text("{invalid json", encoding="utf-8")
+    good = _make_txt_for_merge(tmp_path, "good.txt", ["ok.py"])
+    result = merge_reports([bad, good])
+    assert "FEHLER" in result
+
+
+def test_merge_reports_single_file_label(tmp_path):
+    """merge_reports kennzeichnet jede Quelle mit ihrem Dateinamen."""
+    rep = _make_txt_for_merge(tmp_path, "only.txt", ["sole.py"])
+    result = merge_reports([rep, rep])
+    assert "=== only.txt ===" in result
+
+
+def test_parse_arguments_merge():
+    """--merge Argument nimmt mehrere Pfade."""
+    with patch("sys.argv", ["CopyCat.py", "--merge", "a.txt", "b.txt", "c.txt"]):
+        args = parse_arguments()
+    assert args.merge == ["a.txt", "b.txt", "c.txt"]
+
+
+def test_gui_on_merge_success(gui, tmp_path):
+    """_on_merge zeigt Merge-Ergebnis im Ausgabefeld."""
+    rep_a = _make_txt_for_merge(tmp_path, "a.txt", ["x.py"])
+    rep_b = _make_txt_for_merge(tmp_path, "b.txt", ["y.py"])
+    with patch("tkinter.filedialog.askopenfilenames", return_value=(str(rep_a), str(rep_b))):
+        gui._on_merge()
+    inserted = "".join(call.args[1] for call in gui._output_text.insert.call_args_list)
+    assert "Merge" in inserted
+
+
+def test_gui_on_merge_cancel(gui):
+    """_on_merge bricht ab wenn Dialog ohne Auswahl geschlossen wird."""
+    with patch("tkinter.filedialog.askopenfilenames", return_value=()):
+        gui._on_merge()  # keine Exception
+
+
+def test_gui_on_merge_only_one_file(gui, tmp_path):
+    """_on_merge zeigt Warnung wenn nur eine Datei gewählt."""
+    rep = _make_txt_for_merge(tmp_path, "a.txt", ["x.py"])
+    with patch("tkinter.filedialog.askopenfilenames", return_value=(str(rep),)), \
+         patch("tkinter.messagebox.showwarning") as mock_warn:
+        gui._on_merge()
+    mock_warn.assert_called_once()
+
+
+def test_gui_on_merge_error(gui, tmp_path):
+    """_on_merge zeigt Fehler wenn merge_reports Exception wirft."""
+    rep_a = _make_txt_for_merge(tmp_path, "a.txt", ["x.py"])
+    rep_b = _make_txt_for_merge(tmp_path, "b.txt", ["y.py"])
+    with patch("tkinter.filedialog.askopenfilenames", return_value=(str(rep_a), str(rep_b))), \
+         patch("CopyCat_GUI.merge_reports", side_effect=OSError("boom")), \
+         patch("tkinter.messagebox.showerror") as mock_err:
+        gui._on_merge()
+    mock_err.assert_called_once()
+
+
+def test_merge_reports_json_entry_without_path_key(tmp_path):
+    """merge_reports fällt auf 'name' zurück wenn JSON-Eintrag kein 'path' hat."""
+    data = {
+        "version": "2.9", "generated": "01.01.2025",
+        "mode": "flat", "input": str(tmp_path),
+        "serial": 1, "git": None, "files": 1,
+        "types": {"code": 1}, "search": None,
+        "details": {
+            "code": [{"name": "fallback.py", "size": 0}],  # no 'path' key
+            "web": [],  # empty entries → if entries: branch = False
+        },
+    }
+    p = tmp_path / "nopath.json"
+    p.write_text(json.dumps(data), encoding="utf-8")
+    result = merge_reports([p, p])
+    assert "fallback.py" in result
+
 
