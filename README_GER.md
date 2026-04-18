@@ -19,7 +19,7 @@
 | Selbstschutz		| Ignoriert CopyCat.py & alte Reports			|
 | Serial-System		| Automatisches Archiv (CopyCat_Archive)		|
 | Git-Integration	| Branch + Commit-Hash					|
-| Ausgabeformate	| TXT / JSON / Markdown / **HTML** (mit Syntax-Highlighting) / Jinja2-Template (`--format`, `--template`)	|
+| Ausgabeformate	| TXT / JSON / Markdown / **HTML** (mit Syntax-Highlighting) / **PDF** / Jinja2-Template (`--format`, `--template`)	|
 | Inkrementeller Cache	| Nur geänderte Dateien neu scannen; SHA-256-Cache in `.copycat_cache/` (`--incremental`)	|
 | Code-Statistiken	| LOC, Kommentaranteil, Leerzeilen, zyklomatische Komplexität pro Datei (`--stats`)	|
 | Remote-Repository	| Beliebiges Git-Repo klonen und direkt scannen (`--git-url`)			|
@@ -30,10 +30,13 @@
 | Plugin-System		| Eigene Dateitypen per `.py`-Plugin hinzufügen (`--plugin-dir`)	|
 | Pre-commit Hook	| Als Git-Hook installieren (`--install-hook`)		|
 | Konfigurationsdatei	| `copycat.conf` auto-geladen; CLI überschreibt	|
+| KI-Zusammenfassung	| KI-Projektbrief via OpenAI-kompatibler API (`--ai-summary`)	|
+| Zeitstrahl		| Visuelle Historie archivierter Reports (`--timeline`)	|
+| Docker		| CopyCat ohne Python-Installation (`docker run`)	|
 | Performance		| Rekursiv/Flach, Size-Filter + Progress		|
-| GUI			| Grafische Oberfläche via `CopyCat_GUI.py` (Drag & Drop)	|
-| Web-Interface		| Browser-UI via Flask (`python CopyCat_Web.py`)	|
-| VS Code Extension	| Reports direkt aus dem Editor starten (`copycat-vscode/`)	|
+| GUI			| Grafische Oberfläche via `CopyCat_GUI.py` (Drag & Drop, Output-Vorschau)	|
+| Web-Interface		| Browser-UI via Flask mit optionaler Token-Authentifizierung (`--auth-token`)	|
+| VS Code Extension	| Reports direkt aus dem Editor mit Jest Unit-Tests starten (`copycat-vscode/`)	|
 | CI-Artefakte		| PyInstaller `.exe`-Builds via GitHub Actions		|
 
 

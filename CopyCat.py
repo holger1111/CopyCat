@@ -1807,9 +1807,7 @@ def _write_pdf(path, files, args, input_dir, git_info, serial,
                 code_text = "\n".join(code_lines[:_MAX_LINES_PDF]) + (
                     f"\n... [{len(code_lines) - _MAX_LINES_PDF} weitere Zeilen ausgelassen]"
                 )
-            safe_code = (
-                code_text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-            )
+            safe_code = _html_escape(code_text)
             story.append(Preformatted(safe_code, code_style))
             story.append(Spacer(1, 2 * mm))
 

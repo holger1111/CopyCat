@@ -35,9 +35,9 @@
 | Report Timeline	| Visual history of archived reports (`--timeline`)	|
 | Docker		| Run CopyCat without Python installation (`docker run`)	|
 | Performance		| Recursive/flat, size filter + progress		|
-| GUI			| Graphical interface via `CopyCat_GUI.py` (drag & drop, Timeline button)	|
-| Web Interface		| Browser UI via Flask (`python CopyCat_Web.py`)	|
-| VS Code Extension	| Run reports from the editor (`copycat-vscode/`)	|
+| GUI			| Graphical interface via `CopyCat_GUI.py` (drag & drop, output preview)	|
+| Web Interface		| Browser UI via Flask with optional token authentication (`--auth-token`)	|
+| VS Code Extension	| Run reports from the editor with Jest unit tests (`copycat-vscode/`)	|
 | CI Artifacts		| PyInstaller `.exe` builds via GitHub Actions		|
 
 
@@ -51,9 +51,32 @@ All CLI options are available as UI controls. Progress output is displayed live 
 Requires Python with tkinter (included in standard installation).
 
 
-### VS Code Extension
+### Web Interface
 
-The `copycat-vscode/` folder contains a TypeScript extension that integrates CopyCat into VS Code.
+```bash
+python CopyCat_Web.py                    # Start web UI on http://localhost:5000
+python CopyCat_Web.py --port 8080        # Custom port
+python CopyCat_Web.py --host 0.0.0.0     # Listen on all interfaces
+```
+
+**Security:**
+
+By default, the web interface listens on `127.0.0.1` (localhost only) without authentication.
+
+To enable token-based authentication:
+
+```bash
+# Option 1: Command-line argument
+python CopyCat_Web.py --host 0.0.0.0 --auth-token "your-secret-token-here"
+
+# Option 2: Environment variable
+set COPYCAT_WEB_TOKEN=your-secret-token-here
+python CopyCat_Web.py --host 0.0.0.0
+```
+
+When a token is configured, users must login with the token before accessing the interface. The token is compared using HMAC timing-safe comparison (`hmac.compare_digest()`) to prevent timing attacks.
+
+**Warning:** Running with `--host 0.0.0.0` without authentication exposes the server to the network. Always use `--auth-token` for remote access.
 
 **Commands (Command Palette / Status Bar):**
 
