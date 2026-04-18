@@ -444,4 +444,96 @@ Enterprise-Ready
 
 └── **Risiken**: Flask als optionale Abhängigkeit (`pip install flask`); Download-Route erlaubt ausschließlich `combined_copycat_*.{txt,json,md}` (Pfad-Traversal-Schutz).
 
+### MEILENSTEIN 27: VS Code Extension
 
+##### ⏱️ 8h
+
+├── **Problem**: CopyCat nur per Terminal nutzbar; kein IDE-Integration; Entwickler müssen für Reports den Editor verlassen.
+
+├── **Lösung**: TypeScript-Extension in `copycat-vscode/`; Befehle `Report erstellen` und `Report erstellen (rekursiv)` in Befehlspalette und Statusleiste; alle Optionen konfigurierbar über VS Code Settings (`copycat.pythonPath`, `copycat.outputFormat`, `copycat.excludePatterns` u. a.).
+
+├── **Tests**: Extension-Aktivierung, Befehlsausführung, Settings-Lesen; Build via `npm run compile`; Paketierung als `.vsix`.
+
+├── **README-Änderungen**: "VS Code Extension" Abschnitt mit Befehls-Tabelle, Settings-Tabelle und Build-Anleitung in beiden Readmes.
+
+└── **Risiken**: Python-Pfad muss korrekt konfiguriert sein; `copycat-vscode/` ist optionaler Bestandteil (gelöst: auto-detect + Einstellung).
+
+
+
+### MEILENSTEIN 28: Exclude-Patterns (`--exclude`)
+
+##### ⏱️ 3h
+
+├── **Problem**: Bestimmte Ordner und Dateien (z. B. `node_modules/`, `dist/`, `.venv/`) landen ungewollt im Report und blähen ihn auf.
+
+├── **Lösung**: `-E/--exclude` akzeptiert beliebig viele Glob-Muster; `fnmatch`-basierter Abgleich beim Dateiscan überspringt passende Pfade vor der Typerkennung.
+
+├── **Tests**: Dateien mit passendem Muster erscheinen nicht im Report; mehrere Muster kombinierbar; kein Muster = kein Ausschluss.
+
+├── **README-Änderungen**: `-E`, `--exclude` in Parameter-Tabelle beider Readmes.
+
+└── **Risiken**: Zu breite Muster können gewünschte Dateien ausschließen (Nutzer-Verantwortung; Dokumentation weist darauf hin).
+
+
+
+### MEILENSTEIN 29: HTML-Report mit Syntax-Highlighting
+
+##### ⏱️ 5h
+
+├── **Problem**: TXT/MD-Reports sind in Browsern schwer lesbar; Syntax-Hervorhebung für Code fehlt völlig.
+
+├── **Lösung**: `--format html` erzeugt eigenständige HTML-Datei mit klappbaren `<details>`-Sektionen pro Datei; Pygments liefert Syntax-Highlighting (optional; Fallback: einfache `<pre>`-Blöcke).
+
+├── **Tests**: HTML-Ausgabe enthält valides Markup; Pygments vorhanden → Highlighting aktiv; Pygments fehlt → kein Crash, plain `<pre>`; alle anderen Formate unverändert.
+
+├── **README-Änderungen**: Ausgabeformate-Tabelle um `html`-Zeile ergänzt; Pygments-Hinweis in beiden Readmes.
+
+└── **Risiken**: Pygments optionale Abhängigkeit (`pip install pygments`); sehr große Dateien → HTML kann groß werden (gelöst: `--max-size` greift).
+
+
+
+### MEILENSTEIN 30: Inkrementelle Reports / Cache (`--incremental`)
+
+##### ⏱️ 4h
+
+├── **Problem**: Bei großen Projekten werden alle Dateien bei jedem Lauf neu gelesen, auch wenn sich nichts geändert hat — unnötiger Zeitaufwand.
+
+├── **Lösung**: `--incremental` speichert SHA-256-Hashes der Dateien in `.copycat_cache/`; beim nächsten Lauf werden nur geänderte oder neue Dateien neu gescannt.
+
+├── **Tests**: Zweiter Lauf bei unverändertem Projekt überspringt Dateien; geänderte Datei wird neu gelesen; Cache-Verzeichnis wird automatisch angelegt.
+
+├── **README-Änderungen**: `-I`, `--incremental` in Parameter-Tabelle + „Inkrementeller Cache" in Feature-Tabelle beider Readmes.
+
+└── **Risiken**: Cache veraltet bei manuellen Datei-Umbenennungen (unkritisch: nächster Lauf erkennt fehlenden Hash und scannt neu).
+
+
+
+### MEILENSTEIN 31: Code-Statistiken (`--stats`)
+
+##### ⏱️ 4h
+
+├── **Problem**: Reports zeigen Dateiinhalte, aber keine aggregierten Metriken — Code-Qualität und -Umfang bleiben unsichtbar.
+
+├── **Lösung**: `--stats` berechnet pro Datei LOC, Kommentaranteil, Leerzeilen und zyklomatische Komplexität (McCabe-Approximation); Zusammenfassung am Report-Ende.
+
+├── **Tests**: Bekannte Testdateien liefern erwartete Werte; Komplexitätsberechnung korrekt; `--stats` ohne `--format`-Abhängigkeit.
+
+├── **README-Änderungen**: `--stats`-Flag in Parameter-Tabelle + „Code-Statistiken" in Feature-Tabelle beider Readmes.
+
+└── **Risiken**: Komplexitätsberechnung ist eine Schätzung ohne vollständiges AST-Parsing (für den Anwendungsfall ausreichend).
+
+
+
+### MEILENSTEIN 32: Remote-Repository-Scan (`--git-url`)
+
+##### ⏱️ 5h
+
+├── **Problem**: Fremde Repos müssen manuell geklont, gescannt und danach gelöscht werden — mehrere fehleranfällige Schritte.
+
+├── **Lösung**: `--git-url URL` klont das Repo per `git clone --depth 1` in ein temporäres Verzeichnis (`tempfile.TemporaryDirectory`), scannt es vollständig und räumt danach automatisch auf; URL-Validierung per Regex.
+
+├── **Tests**: Ungültige URL → Fehlermeldung; Clone-Fehler → Fehlermeldung; Erfolg → Report erstellt; temporäres Verzeichnis nach Lauf bereinigt (15 neue Tests).
+
+├── **README-Änderungen**: „Remote Repository" in Feature-Tabelle + `--git-url URL` in Parameter-Tabelle beider Readmes.
+
+└── **Risiken**: Netzwerk-Timeout, große Repos (gelöst: `--depth 1` Shallow-Clone); `git` muss installiert sein.
