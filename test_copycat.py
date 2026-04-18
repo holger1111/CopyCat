@@ -5359,3 +5359,115 @@ def test_build_timeline_txt_no_date_or_total(tmp_path):
     # Eintrag mit Fallback '?' für Datum und 0 für Gesamt
     assert "?" in result or "1" in result
 
+
+# ── Tests für Fix #4-#6: Error-Context, Cache-Cleanup, Dry-Run ──────────────
+
+def test_cleanup_cache_removes_old_entries(tmp_path):
+    """_cleanup_cache() löscht Einträge älter als max_age_days."""
+    from CopyCat import _cleanup_cache
+    import time
+    
+    cache_dir = tmp_path / ".copycat_cache"
+    cache_dir.mkdir()
+    cache_file = cache_dir / "cache.json"
+    
+    # Alte Einträge (99 Tage alt)
+    old_time = time.time() - (99 * 86400)
+    # Neue Einträge (aktuell)
+    new_time = time.time()
+    
+    cache_data = {
+        "version": "1",
+        "entries": {
+            "old_file.py": {"hash": "abc", "timestamp": old_time, "lines": 10, "content": "x"},
+            "new_file.py": {"hash": "def", "timestamp": new_time, "lines": 20, "content": "y"},
+        }
+    }
+    cache_file.write_text(json.dumps(cache_data), encoding="utf-8")
+    
+    # Cleanup: Einträge älter als 30 Tage löschen
+    deleted = _cleanup_cache(cache_dir, 30)
+    assert deleted == 1
+    
+    # Prüfe: alte_datei gelöscht, neue_datei bleibt
+    data = json.loads(cache_file.read_text(encoding="utf-8"))
+    assert "old_file.py" not in data["entries"]
+    assert "new_file.py" in data["entries"]
+
+
+def test_cleanup_cache_nonexistent_dir(tmp_path):
+    """_cleanup_cache() mit nicht-existierendem Verzeichnis → 0 gelöschte."""
+    from CopyCat import _cleanup_cache
+    
+    deleted = _cleanup_cache(tmp_path / "nonexistent", 30)
+    assert deleted == 0
+
+
+def test_parse_arguments_cache_max_age(tmp_path):
+    """--cache-max-age Flag wird korrekt geparst."""
+    from CopyCat import parse_arguments
+    
+    with patch("sys.argv", ["copycat", "--cache-max-age", "30"]):
+        args = parse_arguments()
+    assert args.cache_max_age == 30
+
+
+def test_parse_arguments_dry_run(tmp_path):
+    """--dry-run Flag wird korrekt geparst."""
+    from CopyCat import parse_arguments
+    
+    with patch("sys.argv", ["copycat", "--dry-run"]):
+        args = parse_arguments()
+    assert args.dry_run is True
+
+
+def test_run_copycat_dry_run_no_files_created(tmp_path):
+    """--dry-run erstellt keine Reports oder Archive."""
+    from CopyCat import run_copycat, parse_arguments
+    
+    code_file = tmp_path / "test.py"
+    code_file.write_text("x = 1")
+    
+    with patch("sys.argv", ["copycat", "--input", str(tmp_path), "--dry-run", "-o", str(tmp_path)]):
+        args = parse_arguments()
+    result = run_copycat(args)
+    
+    # Mit --dry-run sollte None zurückgegeben werden und kein Report erstellt sein
+    assert result is None
+    # Keine combined_copycat_* Dateien sollten erstellt sein
+    reports = list(tmp_path.glob("combined_copycat_*"))
+    assert len(reports) == 0
+
+
+def test_run_copycat_cache_cleanup_triggers(tmp_path):
+    """--cache-max-age triggert Cache-Cleanup während run_copycat."""
+    from CopyCat import run_copycat, parse_arguments
+    import time
+    
+    # Setup: Input mit 1 Datei
+    code_file = tmp_path / "test.py"
+    code_file.write_text("x = 1\n")
+    
+    cache_dir = tmp_path / ".copycat_cache"
+    cache_dir.mkdir()
+    cache_file = cache_dir / "cache.json"
+    
+    # Alte Einträge
+    old_time = time.time() - (99 * 86400)
+    cache_data = {
+        "version": "1",
+        "entries": {
+            "old_file.py": {"hash": "abc", "timestamp": old_time, "lines": 10, "content": "x"},
+        }
+    }
+    cache_file.write_text(json.dumps(cache_data), encoding="utf-8")
+    
+    with patch("sys.argv", ["copycat", "--input", str(tmp_path), "--incremental", "--cache-max-age", "30", "-o", str(tmp_path)]):
+        args = parse_arguments()
+    
+    result = run_copycat(args)
+    
+    # Cache sollte Cleanup durchgeführt haben
+    updated_data = json.loads(cache_file.read_text(encoding="utf-8"))
+    assert "old_file.py" not in updated_data["entries"]
+
