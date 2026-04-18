@@ -44,7 +44,7 @@ export function deactivate(): void {
  * Ermittelt den Python-Interpreter-Pfad.
  * Priorität: copycat.pythonPath → python.defaultInterpreterPath → 'python'
  */
-function resolvePython(): string {
+export function resolvePython(): string {
     const cfg = vscode.workspace.getConfiguration('copycat');
     const explicit = cfg.get<string>('pythonPath', '').trim();
     if (explicit) {
@@ -65,7 +65,7 @@ function resolvePython(): string {
  * Ermittelt den Pfad zu CopyCat.py.
  * Priorität: copycat.scriptPath → CopyCat.py im Workspace-Stammverzeichnis
  */
-function resolveScript(): string | undefined {
+export function resolveScript(): string | undefined {
     const cfg = vscode.workspace.getConfiguration('copycat');
     const explicit = cfg.get<string>('scriptPath', '').trim();
     if (explicit && fs.existsSync(explicit)) {
@@ -83,11 +83,11 @@ function resolveScript(): string | undefined {
 
 // ── Hauptlogik ────────────────────────────────────────────────────────────────
 
-interface RunOptions {
+export interface RunOptions {
     recursive: boolean;
 }
 
-function runCopyCat(opts: RunOptions): void {
+export function runCopyCat(opts: RunOptions): void {
     // Workspace prüfen
     const folders = vscode.workspace.workspaceFolders;
     if (!folders || folders.length === 0) {
