@@ -3,6 +3,7 @@ source = .
 omit = 
     test_copycat.py
     */__pycache__/*
+    plugins/*
 branch = True
 
 [report]
