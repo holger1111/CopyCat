@@ -30,6 +30,7 @@
 | Performance		| Rekursiv/Flach, Size-Filter + Progress		|
 | GUI			| Grafische Oberfläche via `CopyCat_GUI.py` (Drag & Drop)	|
 | Web-Interface		| Browser-UI via Flask (`python CopyCat_Web.py`)	|
+| VS Code Extension	| Reports direkt aus dem Editor starten (`copycat-vscode/`)	|
 | CI-Artefakte		| PyInstaller `.exe`-Builds via GitHub Actions		|
 
 
@@ -41,6 +42,38 @@ python CopyCat_GUI.py    # Öffnet die grafische Oberfläche
 
 Alle CLI-Optionen sind als UI-Elemente verfügbar. Der Fortschritts-Output wird live im Fenster angezeigt.
 Erfordert Python mit tkinter (in der Standardinstallation enthalten).
+
+
+### VS Code Extension
+
+Der Ordner `copycat-vscode/` enthält eine TypeScript-Extension, die CopyCat direkt in VS Code integriert.
+
+**Befehle (Befehlspalette / Status Bar):**
+
+| Befehl | Beschreibung |
+|---|---|
+| `CopyCat: Report erstellen` | Flachen Report für den aktuellen Workspace erstellen |
+| `CopyCat: Report erstellen (rekursiv)` | Rekursiven Report erstellen |
+
+**Einstellungen (`Datei → Einstellungen → Einstellungen → CopyCat`):**
+
+| Einstellung | Beschreibung | Standard |
+|---|---|---|
+| `copycat.pythonPath` | Pfad zum Python-Interpreter | auto-detect |
+| `copycat.scriptPath` | Pfad zu `CopyCat.py` | Workspace-Root |
+| `copycat.outputFormat` | `txt` / `json` / `md` | `txt` |
+| `copycat.maxSizeMb` | Max. Dateigröße in MB (0 = unbegrenzt) | `0` |
+| `copycat.excludePatterns` | Glob-Muster zum Ausschließen, z.B. `["dist/", "*.min.js"]` | `[]` |
+| `copycat.extraArgs` | Zusätzliche CLI-Argumente | `[]` |
+
+**Build & Installation:**
+```bash
+cd copycat-vscode
+npm install
+npm run compile       # TypeScript → out/extension.js
+npm run package       # erstellt copycat-0.1.0.vsix
+# VS Code: Erweiterungen → ⋯ → VSIX installieren
+```
 
 
 ### Konsolenbefehle

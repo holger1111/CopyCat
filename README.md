@@ -30,6 +30,7 @@
 | Performance		| Recursive/flat, size filter + progress		|
 | GUI			| Graphical interface via `CopyCat_GUI.py` (drag & drop)	|
 | Web Interface		| Browser UI via Flask (`python CopyCat_Web.py`)	|
+| VS Code Extension	| Run reports from the editor (`copycat-vscode/`)	|
 | CI Artifacts		| PyInstaller `.exe` builds via GitHub Actions		|
 
 
@@ -41,6 +42,38 @@ python CopyCat_GUI.py    # Opens the graphical interface
 
 All CLI options are available as UI controls. Progress output is displayed live in the window.
 Requires Python with tkinter (included in standard installation).
+
+
+### VS Code Extension
+
+The `copycat-vscode/` folder contains a TypeScript extension that integrates CopyCat into VS Code.
+
+**Commands (Command Palette / Status Bar):**
+
+| Command | Description |
+|---|---|
+| `CopyCat: Report erstellen` | Run flat report for current workspace |
+| `CopyCat: Report erstellen (rekursiv)` | Run recursive report |
+
+**Settings (`File → Preferences → Settings → CopyCat`):**
+
+| Setting | Description | Default |
+|---|---|---|
+| `copycat.pythonPath` | Python interpreter path | auto-detect |
+| `copycat.scriptPath` | Path to `CopyCat.py` | workspace root |
+| `copycat.outputFormat` | `txt` / `json` / `md` | `txt` |
+| `copycat.maxSizeMb` | Max file size in MB (0 = unlimited) | `0` |
+| `copycat.excludePatterns` | Glob patterns to exclude, e.g. `["dist/", "*.min.js"]` | `[]` |
+| `copycat.extraArgs` | Additional CLI arguments | `[]` |
+
+**Build & install:**
+```bash
+cd copycat-vscode
+npm install
+npm run compile       # TypeScript → out/extension.js
+npm run package       # creates copycat-0.1.0.vsix
+# VS Code: Extensions → ⋯ → Install from VSIX
+```
 
 
 ### Console Commands
@@ -87,8 +120,10 @@ python CopyCat.py                             # uses copycat.conf if present
 | `-w`, `--watch`		| Watch mode: re-run on file changes; requires `pip install watchdog`	| off		|
 | `--cooldown`			| Seconds to wait after last change before re-running (watch mode)	| `2.0`		|
 | `--diff A B`			| Compare two CopyCat reports and show differences		| —		|
-| `--merge R [R ...]`		| Merge multiple CopyCat reports into one				| —		|| `--plugin-dir DIR`		| Load plugins from this directory (default: `plugins/` next to CopyCat.py)	| —	|
-| `--list-plugins`		| Show loaded plugins and exit					| off		|| `--install-hook DIR`		| Install CopyCat as Git pre-commit hook in the given project folder	| —		|
+| `--merge R [R ...]`		| Merge multiple CopyCat reports into one			| —		|
+| `--plugin-dir DIR`		| Load plugins from this directory (default: `plugins/` next to CopyCat.py)	| —	|
+| `--list-plugins`		| Show loaded plugins and exit					| off		|
+| `--install-hook DIR`		| Install CopyCat as Git pre-commit hook in the given project folder	| —		|
 
 ### Flat vs Recursive
 
