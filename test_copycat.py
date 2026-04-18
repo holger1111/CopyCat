@@ -4705,6 +4705,143 @@ def test_web_api_run_with_git_url(web_client):
     assert data["status"] == "ok"
 
 
+# ==================== Authentifizierung ====================
+
+@pytest.fixture
+def web_client_auth(tmp_path):
+    """Flask-Test-Client mit gesetztem AUTH_TOKEN."""
+    import importlib, sys
+    if "CopyCat_Web" in sys.modules:
+        del sys.modules["CopyCat_Web"]
+    import CopyCat_Web
+    import hashlib
+    _token = "test-secret-token-123"
+    CopyCat_Web.app.config["TESTING"] = True
+    CopyCat_Web.app.config["AUTH_TOKEN"] = _token
+    CopyCat_Web.app.secret_key = hashlib.sha256(_token.encode()).digest()
+    with CopyCat_Web.app.test_client() as client:
+        yield client, tmp_path, _token
+
+
+def test_web_auth_no_token_index_accessible(web_client):
+    """Ohne konfiguriertes Token sind alle Routen frei zugänglich."""
+    client, _ = web_client
+    resp = client.get("/")
+    assert resp.status_code == 200
+
+
+def test_web_auth_no_token_api_accessible(web_client):
+    """Ohne konfiguriertes Token ist /api/run ohne Auth erreichbar."""
+    client, _ = web_client
+    resp = client.post("/api/run", json={})
+    # 400 wegen fehlendem input-Feld, aber kein 401
+    assert resp.status_code == 400
+
+
+def test_web_auth_token_set_index_redirects_to_login(web_client_auth):
+    """Mit Token: GET / ohne Auth → Redirect zu /login."""
+    client, _, _ = web_client_auth
+    resp = client.get("/")
+    assert resp.status_code == 302
+    assert "/login" in resp.headers["Location"]
+
+
+def test_web_auth_token_set_api_returns_401(web_client_auth):
+    """Mit Token: POST /api/run ohne Auth → 401 JSON."""
+    client, _, _ = web_client_auth
+    resp = client.post("/api/run", json={"input": "/some/path"})
+    assert resp.status_code == 401
+    assert resp.get_json()["error"] == "Nicht autorisiert"
+
+
+def test_web_auth_bearer_token_allows_api(web_client_auth, tmp_path):
+    """Mit Token: Bearer-Header → /api/run erreichbar."""
+    client, _, token = web_client_auth
+    resp = client.post(
+        "/api/run",
+        json={"input": str(tmp_path)},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    # 200 oder 500 (run_copycat schlägt ggf. fehl), aber kein 401
+    assert resp.status_code != 401
+
+
+def test_web_auth_bearer_wrong_token_returns_401(web_client_auth):
+    """Mit Token: falscher Bearer-Token → 401."""
+    client, _, _ = web_client_auth
+    resp = client.post(
+        "/api/run",
+        json={"input": "/some/path"},
+        headers={"Authorization": "Bearer wrong-token"},
+    )
+    assert resp.status_code == 401
+
+
+def test_web_auth_login_get_returns_form(web_client_auth):
+    """GET /login liefert Login-Formular."""
+    client, _, _ = web_client_auth
+    resp = client.get("/login")
+    assert resp.status_code == 200
+    assert b"token" in resp.data
+
+
+def test_web_auth_login_post_correct_token_redirects(web_client_auth):
+    """POST /login mit korrektem Token → Session + Redirect zu /."""
+    client, _, token = web_client_auth
+    resp = client.post("/login", data={"token": token})
+    assert resp.status_code == 302
+    assert "/" in resp.headers["Location"]
+
+
+def test_web_auth_login_post_wrong_token_shows_error(web_client_auth):
+    """POST /login mit falschem Token → Fehlermeldung auf Login-Seite."""
+    client, _, _ = web_client_auth
+    resp = client.post("/login", data={"token": "wrong"})
+    assert resp.status_code == 200
+    assert "Ung" in resp.data.decode("utf-8")
+
+
+def test_web_auth_session_allows_index(web_client_auth):
+    """Nach erfolgreichem Login ist / ohne Header erreichbar."""
+    client, _, token = web_client_auth
+    # Login
+    client.post("/login", data={"token": token})
+    # Danach Index abrufen
+    resp = client.get("/")
+    assert resp.status_code == 200
+
+
+def test_web_auth_login_get_no_token_configured(web_client):
+    """GET /login ist auch ohne konfiguriertes Token erreichbar (passthrough)."""
+    client, _ = web_client
+    resp = client.get("/login")
+    assert resp.status_code == 200
+
+
+def test_web_auth_check_token_no_config(web_client):
+    """_check_token gibt False zurück wenn kein AUTH_TOKEN konfiguriert."""
+    import CopyCat_Web
+    CopyCat_Web.app.config.pop("AUTH_TOKEN", None)
+    with CopyCat_Web.app.app_context():
+        assert CopyCat_Web._check_token("anything") is False
+
+
+def test_web_parse_web_args_auth_token(monkeypatch):
+    """_parse_web_args: --auth-token wird korrekt geparst."""
+    import CopyCat_Web, sys
+    monkeypatch.setattr(sys, "argv", ["CopyCat_Web.py", "--auth-token", "mysecret"])
+    args = CopyCat_Web._parse_web_args()
+    assert args.auth_token == "mysecret"
+
+
+def test_web_parse_web_args_auth_token_default(monkeypatch):
+    """_parse_web_args: --auth-token Default ist None."""
+    import CopyCat_Web, sys
+    monkeypatch.setattr(sys, "argv", ["CopyCat_Web.py"])
+    args = CopyCat_Web._parse_web_args()
+    assert args.auth_token is None
+
+
 # ==================== M33: PDF-Export ====================
 
 def test_write_pdf_requires_reportlab(tmp_path, run_args):

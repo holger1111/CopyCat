@@ -9,7 +9,10 @@ Erfordert: pip install flask
 """
 
 import argparse
+import hashlib
+import hmac
 import logging
+import os
 import re
 import sys
 import threading
@@ -17,7 +20,7 @@ from argparse import Namespace
 from pathlib import Path
 
 try:
-    from flask import Flask, Response, jsonify, redirect, render_template_string, request, url_for
+    from flask import Flask, Response, jsonify, redirect, render_template_string, request, session, url_for
 except ImportError as _e:  # pragma: no cover
     print("Flask ist nicht installiert. Bitte: pip install flask")  # pragma: no cover
     sys.exit(1)  # pragma: no cover
@@ -26,7 +29,88 @@ from CopyCat import TYPE_FILTERS, load_plugins, run_copycat
 
 # ── Flask-App ────────────────────────────────────────────────────────────────
 app = Flask(__name__)
+app.secret_key = os.urandom(32)  # wird in __main__ ggf. überschrieben
 _run_lock = threading.Lock()
+
+
+# ── Authentifizierung ────────────────────────────────────────────────────────
+_LOGIN_TEMPLATE = """<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <title>CopyCat – Login</title>
+  <style>
+    body { font-family: system-ui, sans-serif; background: #f0f2f5; display: flex;
+           align-items: center; justify-content: center; min-height: 100vh; }
+    .box { background: #fff; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,.12);
+           padding: 2rem 2.5rem; min-width: 320px; }
+    h1 { font-size: 1.2rem; margin-bottom: 1.2rem; color: #16213e; }
+    label { display: block; font-size: .85rem; font-weight: 500; margin-bottom: .3rem; }
+    input[type=password] { width: 100%; padding: .5rem .75rem; border: 1px solid #cdd5e0;
+      border-radius: 6px; font-size: .9rem; margin-bottom: 1rem; }
+    button { background: #16213e; color: #fff; border: none; border-radius: 6px;
+             padding: .6rem 1.5rem; font-size: .9rem; cursor: pointer; }
+    .err { color: #c0392b; font-size: .85rem; margin-bottom: .8rem; }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <h1>&#128008; CopyCat Login</h1>
+    {% if error %}<p class="err">{{ error }}</p>{% endif %}
+    <form method="post" action="/login">
+      <label for="token">Zugriffstoken</label>
+      <input type="password" id="token" name="token" autofocus>
+      <button type="submit">Anmelden</button>
+    </form>
+  </div>
+</body>
+</html>"""
+
+
+def _check_token(provided: str) -> bool:
+    """Timing-sicherer Token-Vergleich. Gibt False zurück wenn kein Token konfiguriert."""
+    expected = app.config.get("AUTH_TOKEN")
+    if not expected:
+        return False
+    return hmac.compare_digest(
+        expected.encode("utf-8"),
+        provided.encode("utf-8"),
+    )
+
+
+@app.before_request
+def _require_auth():
+    """Erzwingt Auth wenn AUTH_TOKEN gesetzt. Passthrough wenn kein Token konfiguriert."""
+    if not app.config.get("AUTH_TOKEN"):
+        return None
+    # Login-Route immer erlauben
+    if request.path in ("/login",):
+        return None
+    # Session-Cookie vorhanden → erlaubt
+    if session.get("authenticated"):
+        return None
+    # Authorization: Bearer <token> Header prüfen
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        provided = auth_header[len("Bearer "):].strip()
+        if _check_token(provided):
+            return None
+    # API-Aufruf → 401 JSON
+    if request.path.startswith("/api/"):
+        return jsonify({"error": "Nicht autorisiert"}), 401
+    # HTML-Routen → Login-Redirect
+    return redirect(url_for("login"))
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if request.method == "GET":
+        return render_template_string(_LOGIN_TEMPLATE, error=None)
+    provided = request.form.get("token", "")
+    if _check_token(provided):
+        session["authenticated"] = True
+        return redirect(url_for("index"))
+    return render_template_string(_LOGIN_TEMPLATE, error="Ungültiges Token. Bitte erneut versuchen.")
 
 # ── HTML-Template (inline, kein separates templates/-Verzeichnis nötig) ──────
 _TEMPLATE = """<!DOCTYPE html>
@@ -451,11 +535,24 @@ def _parse_web_args():
     parser.add_argument("--host", default="127.0.0.1", help="Bind-Adresse (default: 127.0.0.1)")
     parser.add_argument("--port", type=int, default=5000, help="Port (default: 5000)")
     parser.add_argument("--debug", action="store_true", help="Flask Debug-Modus")
+    parser.add_argument("--auth-token", default=None, dest="auth_token",
+                        help="Zugriffstoken für Web-Authentifizierung (optional)")
     return parser.parse_args()
 
 
 if __name__ == "__main__":  # pragma: no cover
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     web_args = _parse_web_args()
+    # Token-Quelle: --auth-token > Env COPYCAT_WEB_TOKEN > None
+    token = web_args.auth_token or os.environ.get("COPYCAT_WEB_TOKEN") or None
+    if token:
+        app.config["AUTH_TOKEN"] = token
+        app.secret_key = hashlib.sha256(token.encode("utf-8")).digest()
+    if web_args.host != "127.0.0.1" and not token:
+        logging.warning(
+            "WARNUNG: Server läuft auf %s ohne Authentifizierung. "
+            "Setze --auth-token oder COPYCAT_WEB_TOKEN um den Zugriff zu beschränken.",
+            web_args.host,
+        )
     print(f"CopyCat Web-Interface läuft auf http://{web_args.host}:{web_args.port}")
     app.run(host=web_args.host, port=web_args.port, debug=web_args.debug)
