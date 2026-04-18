@@ -27,11 +27,13 @@
 
 ```bash
 
-git clone https://github.com/holge-l/CopyCat.git
+git clone https://github.com/holger1111/CopyCat.git
 
 cd CopyCat
 
-py -m pytest test_copycat.py -v --cov # 100% Core-Coverage
+pip install jinja2 watchdog tkinterdnd2   # optionale Abhängigkeiten
+
+py -m pytest test_copycat.py --cov=. --cov-config=.coveragerc --cov-report=term-missing
 
 ```
 
@@ -42,13 +44,13 @@ py -m pytest test_copycat.py -v --cov # 100% Core-Coverage
 
 ```bash
 
-py -m pytest test_copycat.py -v --cov-report=term-missing
+py -m pytest test_copycat.py --cov=. --cov-config=.coveragerc --cov-report=term-missing
 
 ```
 
 
 
-**Coverage: 100% Core (CLI, Serial, Draw.io)**
+**Coverage: 100 % (238 Tests, Branch-Coverage aktiv)**
 
 
 
@@ -56,15 +58,17 @@ py -m pytest test_copycat.py -v --cov-report=term-missing
 
 
 
-**feat**: Add neuer Typ (audio/flac)
+**feat**: Neue Funktion (z.B. Watch-Modus, Jinja2-Templates)
 
-**fix**: Serial ignoriert ungültige Namen
+**fix**: Fehlerkorrektur (z.B. Serial ignoriert ungültige Namen)
 
 **docs**: README synchronisiert
 
-**test**: 100% Coverage für extract\_drawio
+**test**: Coverage verbessert / neue Tests
 
-**style**: PEP8 Formatierung
+**ci**: CI-Pipeline angepasst
+
+**style**: PEP8-Formatierung / Bereinigung
 
 
 

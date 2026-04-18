@@ -65,6 +65,9 @@ def run_args(tmp_path):
             max_size=max_size or float("inf"),
             format=fmt,
             search=search,
+            template=None,
+            watch=False,
+            cooldown=2.0,
         )
     return _make_args
 
@@ -1411,6 +1414,7 @@ def gui():
     instance._template_var = _make_var("")
     instance._cooldown_var = _make_var("2.0")
     instance._watch_stop_event = None
+    instance._watch_thread = None
     instance._watch_btn = MagicMock()
     return instance
 

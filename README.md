@@ -15,14 +15,19 @@
 | Code Analysis		| Line count + source code (Java/Python/C++/etc.)	|
 | Draw.io		| Extraction of all cells (ID, text, position), ZIP + compressed support	|
 | Media			| MIME type, size, audio duration (WAV/MP3/FLAC)	|
+| Notebooks/CSV		| Jupyter `.ipynb` cell extraction + `.csv` support	|
 | Self-Protection	| Ignores CopyCat.py & old reports			|
 | Serial System		| Automatic archive (CopyCat_Archive)			|
 | Git Integration	| Branch + commit hash					|
-| Output Formats	| TXT / JSON / Markdown (`--format`)			|
-| Content Search	| Regex search across files (`--search`)		|
+| Output Formats	| TXT / JSON / Markdown / Jinja2 template (`--format`, `--template`)	|
+| Content Search	| Parallel regex search across files (`--search`)	|
+| Diff Mode		| Compare two reports (`--diff`)			|
+| Merge Mode		| Combine multiple reports (`--merge`)			|
+| Watch Mode		| Auto-rerun on file changes (`--watch`, `--cooldown`)	|
+| Pre-commit Hook	| Install as Git hook (`--install-hook`)		|
 | Config File		| `copycat.conf` auto-loaded; CLI overrides		|
 | Performance		| Recursive/flat, size filter + progress		|
-| GUI			| Graphical interface via `CopyCat_GUI.py`		|
+| GUI			| Graphical interface via `CopyCat_GUI.py` (drag & drop)	|
 
 
 ### GUI
@@ -39,32 +44,47 @@ Requires Python with tkinter (included in standard installation).
 
 
 ```bash
-python CopyCat.py                    # Default (flat, all types, txt)
-python CopyCat.py -i C:\Project      # Input folder
-python CopyCat.py -o docs            # Output folder
-python CopyCat.py -t code,diagram    # Code + diagrams only
-python CopyCat.py -r -s 5            # Recursive, max 5MB
-python CopyCat.py -f json            # JSON output
-python CopyCat.py -f md              # Markdown output
-python CopyCat.py -S "TODO|FIXME"    # Search for TODOs
-python CopyCat.py --help             # Help
+python CopyCat.py                              # Default (flat, all types, txt)
+python CopyCat.py -i C:\Project               # Input folder
+python CopyCat.py -o docs                     # Output folder
+python CopyCat.py -t code,diagram             # Code + diagrams only
+python CopyCat.py -r -s 5                     # Recursive, max 5MB
+python CopyCat.py -f json                     # JSON output
+python CopyCat.py -f md                       # Markdown output
+python CopyCat.py -S "TODO|FIXME"             # Search for TODOs
+python CopyCat.py --template report.j2        # Custom Jinja2 output
+python CopyCat.py -w --cooldown 3             # Watch mode, 3 s cooldown
+python CopyCat.py --diff report1.txt report2.txt  # Compare two reports
+python CopyCat.py --merge r1.txt r2.txt       # Merge reports
+python CopyCat.py --install-hook C:\Project   # Install Git pre-commit hook
+python CopyCat.py -v                          # Verbose (DEBUG)
+python CopyCat.py -q                          # Quiet (warnings only)
+python CopyCat.py --help                      # Help
 # Config file auto-loaded from CWD or script dir:
-python CopyCat.py                    # uses copycat.conf if present
+python CopyCat.py                             # uses copycat.conf if present
 ```
 
 
 ### Parameters
 
 
-| Flag				| Beschreibung								| Default	|
+| Flag				| Description								| Default	|
 |-------------------------------|-----------------------------------------------------------------------|---------------|
-| -i,--input			| Input folder								| Script folder	|
-| -o,--output			| Output folder								| Input folder	|
-| -t,--types			| Types: 'code web db config docs deps img audio diagram' or 'all'	| 'all'		|
-| -r,--recursive		| Recursive search in subfolders					| false (flat)	|
-| -s,--max-size			| Max file size in MB							| Unlimited	|
-| -f,--format			| Output format: txt, json, md					| txt		|
-| -S,--search			| Regex search pattern (e.g. 'TODO\|FIXME', 'def ')		| None		|
+| `-i`, `--input`		| Input folder								| Script folder	|
+| `-o`, `--output`		| Output folder								| Input folder	|
+| `-t`, `--types`		| Types: `code web db config docs deps img audio diagram notebook` or `all`	| `all`	|
+| `-r`, `--recursive`		| Recursive search in subfolders					| false		|
+| `-s`, `--max-size`		| Max file size in MB							| unlimited	|
+| `-f`, `--format`		| Output format: `txt`, `json`, `md`					| `txt`		|
+| `-S`, `--search`		| Regex search pattern (e.g. `TODO\|FIXME`, `def `)		| None		|
+| `-v`, `--verbose`		| Verbose output (DEBUG level)						| off		|
+| `-q`, `--quiet`		| Quiet mode (warnings only)						| off		|
+| `--template`			| Path to a Jinja2 template file (`.j2`); requires `pip install jinja2`	| None		|
+| `-w`, `--watch`		| Watch mode: re-run on file changes; requires `pip install watchdog`	| off		|
+| `--cooldown`			| Seconds to wait after last change before re-running (watch mode)	| `2.0`		|
+| `--diff A B`			| Compare two CopyCat reports and show differences		| —		|
+| `--merge R [R ...]`		| Merge multiple CopyCat reports into one				| —		|
+| `--install-hook DIR`		| Install CopyCat as Git pre-commit hook in the given project folder	| —		|
 
 ### Flat vs Recursive
 
@@ -89,6 +109,7 @@ python CopyCat.py                    # uses copycat.conf if present
 | img		| \*.png, \*.jpg, \*.gif, \*.bmp, \*.webp, \*.svg, \*.ico       | 7 files	|
 | audio		| \*.mp3, \*.wav, \*.ogg, \*.m4a, \*.flac			| 5 files	|
 | diagram	| \*.drawio, \*.dia, \*.puml					| 6 edge cases	|
+| notebook	| \*.ipynb, \*.csv						| included	|
 
 
 ### CLI Examples:
@@ -198,6 +219,10 @@ DIAGRAM Test_komplex.drawio: 152 Cells, 45 Texte, 23 Unique
 - base64 + zlib + urllib.parse.unquote: draw.io compressed diagram decoding
 
 - configparser (stdlib): `copycat.conf` key=value config loader
+- `concurrent.futures.ThreadPoolExecutor`: parallel regex search across files
+- `threading` + `watchdog`: watch mode (auto-rerun on file changes)
+- `jinja2` (optional): custom template output (`pip install jinja2`)
+- `tkinterdnd2` (optional): drag & drop support in GUI (`pip install tkinterdnd2`)
 
 
 ### Error Handling
@@ -448,17 +473,20 @@ README_GER.md
 
 **Before every commit (100% sync):**
 
-1. pytest test_copycat.py -v --cov → 100% PASSED
+1. `py -m pytest test_copycat.py --cov=. --cov-config=.coveragerc --cov-report=term-missing` → 100% PASSED
 
 2. README.md + README_GER.md + Code SYNCHRONIZED
 
-3. git commit -m "feat: X | Tests 1000%"
+3. `git commit -m "feat/fix/docs/test/ci: description"`
 
-**Tests:** 100% coverage (CLI, serial, gitignore, Draw.io, max-size, GUI, 1000+ edge cases)
+**Tests:** 238 tests, 100% branch coverage (CLI, serial, gitignore, Draw.io, GUI, watch, templates, diff, merge, hook, …)
 
 **CI:** GitHub Actions → pytest + coverage badges (Codecov)
 
-**Question:** Is CopyCat now easier to understand/maintain?
+**Install optional dependencies:**
+```bash
+pip install jinja2 watchdog tkinterdnd2
+```
 
 - ✓ pathlib filesystem
 - ✓ argparse CLI
@@ -466,6 +494,9 @@ README_GER.md
 - ✓ Targeted exception handling
 - ✓ Binary analysis (struct)
 - ✓ Glob vs rglob (performance)
+- ✓ ThreadPoolExecutor parallel search
+- ✓ Jinja2 template rendering
+- ✓ watchdog file-system events
 
 
 ### IT Specialist Demo
