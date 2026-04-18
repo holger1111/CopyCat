@@ -114,7 +114,7 @@ _TEMPLATE = """<!DOCTYPE html>
           <div>
             <label for="fmt">Ausgabeformat</label>
             <select id="fmt" name="fmt">
-              {% for f in ['txt', 'json', 'md'] %}
+              {% for f in ['txt', 'json', 'md', 'html'] %}
               <option value="{{ f }}" {% if form.fmt == f %}selected{% endif %}>{{ f }}</option>
               {% endfor %}
             </select>
@@ -139,8 +139,12 @@ _TEMPLATE = """<!DOCTYPE html>
             <label for="exclude">Ausschließen (Muster, kommagetrennt)</label>
             <input type="text" id="exclude" name="exclude" value="{{ form.exclude }}" placeholder="*.min.js, dist/, node_modules/">
           </div>
+        </div>
         <label style="display:flex;align-items:center;gap:.5rem;margin-bottom:.9rem;">
           <input type="checkbox" name="recursive" {% if form.recursive %}checked{% endif %}> Rekursiv
+        </label>
+        <label style="display:flex;align-items:center;gap:.5rem;margin-bottom:.9rem;">
+          <input type="checkbox" name="incremental" {% if form.incremental %}checked{% endif %}> Inkrementell (Cache)
         </label>
       </div>
 
@@ -216,6 +220,7 @@ def _build_args(form) -> Namespace:
         verbose=False,
         quiet=True,
         exclude=exclude,
+      incremental="incremental" in form,
     )
 
 
@@ -230,6 +235,7 @@ def _form_defaults():
         "plugin_dir": "",
         "exclude": "",
         "recursive": False,
+        "incremental": False,
     }
 
 
@@ -279,6 +285,7 @@ def run():
         "plugin_dir": request.form.get("plugin_dir", "").strip(),
         "exclude": request.form.get("exclude", "").strip(),
         "recursive": "recursive" in request.form,
+      "incremental": "incremental" in request.form,
     }
 
     # Pflichtfeld: Eingabeordner
@@ -351,11 +358,11 @@ def download():
     p = Path(path_str)
     if not p.is_file():
         return "Datei nicht gefunden.", 404
-    # Sicherheitscheck: nur combined_copycat_*.{txt,json,md} erlaubt
-    if not re.fullmatch(r"combined_copycat_\d+\.(txt|json|md)", p.name):
+    # Sicherheitscheck: nur combined_copycat_*.{txt,json,md,html} erlaubt
+    if not re.fullmatch(r"combined_copycat_\d+\.(txt|json|md|html)", p.name):
         return "Nicht erlaubt.", 403
     content = p.read_bytes()
-    mime = {"txt": "text/plain", "json": "application/json", "md": "text/markdown"}.get(
+    mime = {"txt": "text/plain", "json": "application/json", "md": "text/markdown", "html": "text/html"}.get(
         p.suffix.lstrip("."), "application/octet-stream"
     )
     return Response(
@@ -388,6 +395,8 @@ def api_run():
     }
     if data.get("recursive"):
         form_like["recursive"] = "on"
+    if data.get("incremental"):
+      form_like["incremental"] = "on"
 
     class _FakeForm:
         def get(self, key, default=""):

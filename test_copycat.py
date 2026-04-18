@@ -43,6 +43,11 @@ from CopyCat import (
     load_plugins,
     PLUGIN_RENDERERS,
     _loaded_plugins,
+    _html_escape,
+    _hash_file,
+    _load_cache,
+    _save_cache,
+    _write_html,
 )
 
 
@@ -59,7 +64,7 @@ def mock_writer():
 @pytest.fixture
 def run_args(tmp_path):
     """Factory fixture for Namespace args."""
-    def _make_args(types=None, recursive=False, max_size=None, input_path=None, output_path=None, fmt="txt", search=None, exclude=None):
+    def _make_args(types=None, recursive=False, max_size=None, input_path=None, output_path=None, fmt="txt", search=None, exclude=None, incremental=False):
         return Namespace(
             input=str(input_path or tmp_path),
             output=str(output_path or tmp_path),
@@ -73,6 +78,7 @@ def run_args(tmp_path):
             cooldown=2.0,
             plugin_dir=None,
             exclude=exclude or [],
+            incremental=incremental,
         )
     return _make_args
 
@@ -104,7 +110,9 @@ def clean_plugins():
     (["test_copycat.py", "-r", "-t", "code"], {"recursive": True, "types": ["code"]}),
     (["test_copycat.py", "-f", "json"], {"format": "json"}),
     (["test_copycat.py", "-f", "md"], {"format": "md"}),
+    (["test_copycat.py", "-f", "html"], {"format": "html"}),
     (["test_copycat.py", "--format", "txt"], {"format": "txt"}),
+    (["test_copycat.py", "-I"], {"incremental": True}),
 ])
 def test_parse_arguments(argv, expected):
     """Test argument parsing with various combinations."""
@@ -136,6 +144,7 @@ def test_get_next_serial_number(tmp_path, files, expected):
     ("combined_copycat_1.txt", True),
     ("combined_copycat_5.json", True),
     ("combined_copycat_3.md", True),
+    ("combined_copycat_9.html", True),
     ("combined_copycat.txt", False),
     ("other_file.txt", False),
     ("combined_copycat_1.csv", False),
@@ -968,6 +977,51 @@ def test_run_copycat_format_md_read_exception(tmp_path, run_args):
     assert "Fehler beim Lesen" in content
 
 
+def test_run_copycat_format_html_basic(tmp_path, run_args):
+    """HTML-Format erstellt einen Report mit erwarteten Kernsektionen."""
+    (tmp_path / "app.py").write_text("print('ok')\n", encoding="utf-8")
+    run_copycat(run_args(fmt="html"))
+
+    reports = list(tmp_path.glob("combined_copycat_*.html"))
+    assert len(reports) == 1
+    content = reports[0].read_text(encoding="utf-8")
+    assert "<!DOCTYPE html>" in content
+    assert "CopyCat v2.9 Report" in content
+    assert "Code-Details" in content
+    assert "app.py" in content
+
+
+def test_run_copycat_incremental_cache_hit(tmp_path, run_args):
+    """Zweiter inkrementeller Lauf nutzt den Cache für unveränderte Dateien."""
+    src = tmp_path / "cached.py"
+    src.write_text("x = 1\n", encoding="utf-8")
+
+    run_copycat(run_args(incremental=True))
+    run_copycat(run_args(incremental=True))
+
+    cache_file = tmp_path / ".copycat_cache" / "cache.json"
+    assert cache_file.exists()
+
+    latest = sorted(tmp_path.glob("combined_copycat_*.txt"))[-1]
+    text = latest.read_text(encoding="utf-8")
+    assert "Cache-Treffer" in text
+
+
+def test_run_copycat_incremental_cache_miss_on_change(tmp_path, run_args):
+    """Nach Änderung einer Datei wird sie im nächsten Lauf nicht als Cache-Treffer markiert."""
+    src = tmp_path / "changed.py"
+    src.write_text("x = 1\n", encoding="utf-8")
+
+    run_copycat(run_args(incremental=True))
+    src.write_text("x = 2\n", encoding="utf-8")
+    run_copycat(run_args(incremental=True))
+
+    latest = sorted(tmp_path.glob("combined_copycat_*.txt"))[-1]
+    text = latest.read_text(encoding="utf-8")
+    assert "changed.py" in text
+    assert "Cache-Treffer" not in text
+
+
 def test_run_copycat_archive_cross_format(tmp_path, run_args):
     """Test that archive picks up files of all extensions."""
     (tmp_path / "combined_copycat_1.txt").write_text("old txt")
@@ -1342,6 +1396,15 @@ def test_parse_arguments_config_max_size_format_search(tmp_path):
     assert args.search == "TODO"
 
 
+def test_parse_arguments_config_incremental(tmp_path):
+    """Config setzt incremental=true als Default."""
+    conf = tmp_path / "copycat.conf"
+    conf.write_text("incremental = true\n")
+    with patch("sys.argv", ["CopyCat.py"]):
+        args = parse_arguments(config_path=str(conf))
+    assert args.incremental is True
+
+
 def test_parse_arguments_config_input_output(tmp_path):
     """Config sets input and output paths as defaults."""
     conf = tmp_path / "copycat.conf"
@@ -1435,6 +1498,7 @@ def gui():
     instance._template_var = _make_var("")
     instance._cooldown_var = _make_var("2.0")
     instance._exclude_var = _make_var("")
+    instance._incremental_var = _make_var(False)
     instance._watch_stop_event = None
     instance._watch_thread = None
     instance._watch_btn = MagicMock()
@@ -1469,6 +1533,7 @@ def test_build_args_defaults(gui):
     assert args.max_size == float("inf")
     assert args.format == "txt"
     assert args.search is None
+    assert args.incremental is False
 
 
 def test_build_args_with_values(gui):
@@ -1478,6 +1543,7 @@ def test_build_args_with_values(gui):
     gui._max_size_var.set("5.0")
     gui._format_var.set("json")
     gui._search_var.set("TODO")
+    gui._incremental_var.set(True)
     args = gui._build_args()
     assert args.input == "/some/path"
     assert args.output == "/out/path"
@@ -1485,6 +1551,7 @@ def test_build_args_with_values(gui):
     assert args.max_size == 5.0
     assert args.format == "json"
     assert args.search == "TODO"
+    assert args.incremental is True
 
 
 def test_build_args_invalid_max_size(gui):
@@ -1732,7 +1799,7 @@ def test_load_config_applies_values(gui, tmp_path):
     conf = tmp_path / "test.conf"
     conf.write_text(
         "input = /my/input\noutput = /my/output\ntypes = code,docs\n"
-        "recursive = true\nmax_size_mb = 10\nformat = json\nsearch = TODO\n",
+        "recursive = true\nmax_size_mb = 10\nformat = json\nsearch = TODO\nincremental = true\n",
         encoding="utf-8",
     )
     with patch("tkinter.filedialog.askopenfilename", return_value=str(conf)):
@@ -1743,6 +1810,7 @@ def test_load_config_applies_values(gui, tmp_path):
     assert gui._max_size_var.get() == "10"
     assert gui._format_var.get() == "json"
     assert gui._search_var.get() == "TODO"
+    assert gui._incremental_var.get() is True
     assert gui._type_vars["code"].get() is True
     assert gui._type_vars["docs"].get() is True
     assert gui._type_vars["web"].get() is False
@@ -1761,6 +1829,7 @@ def test_save_config_writes_file(gui, tmp_path):
     gui._format_var.set("md")
     gui._max_size_var.set("5")
     gui._search_var.set("def")
+    gui._incremental_var.set(True)
     with patch("tkinter.filedialog.asksaveasfilename", return_value=str(out)), \
          patch("tkinter.messagebox.showinfo"):
         gui._save_config()
@@ -1770,6 +1839,7 @@ def test_save_config_writes_file(gui, tmp_path):
     assert "format = md" in content
     assert "max_size_mb = 5" in content
     assert "search = def" in content
+    assert "incremental = true" in content
 
 
 def test_save_config_cancelled(gui):
@@ -2928,6 +2998,7 @@ def test_web_index_contains_form_fields(web_client):
     assert b'name="output_dir"' in html
     assert b'name="fmt"' in html
     assert b'name="recursive"' in html
+    assert b'name="incremental"' in html
     assert b'name="search"' in html
 
 
@@ -2991,6 +3062,20 @@ def test_web_run_format_json(web_client):
     assert b"report-box" in resp.data or b"combined_copycat" in resp.data
 
 
+def test_web_run_format_html(web_client):
+    """POST /run mit format=html funktioniert und erstellt Report-Link."""
+    client, tmp = web_client
+    (tmp / "modhtml.py").write_text("x = 1\n", encoding="utf-8")
+    resp = client.post("/run", data={
+        "input_dir": str(tmp),
+        "output_dir": str(tmp),
+        "types": ["code"],
+        "fmt": "html",
+    })
+    assert resp.status_code == 200
+    assert b"combined_copycat" in resp.data
+
+
 def test_web_run_with_search(web_client):
     """POST /run mit search → kein Fehler."""
     client, tmp = web_client
@@ -3013,6 +3098,16 @@ def test_web_download_valid(web_client):
     resp = client.get(f"/download?path={report}")
     assert resp.status_code == 200
     assert b"Test Report" in resp.data
+
+
+def test_web_download_valid_html(web_client):
+    """GET /download mit html-Report ist erlaubt."""
+    client, tmp = web_client
+    report = tmp / "combined_copycat_2.html"
+    report.write_text("<html><body>ok</body></html>", encoding="utf-8")
+    resp = client.get(f"/download?path={report}")
+    assert resp.status_code == 200
+    assert b"ok" in resp.data
 
 
 def test_web_download_missing_path(web_client):
@@ -3088,6 +3183,7 @@ def test_web_build_args_defaults():
     assert args.types == ["all"]
     assert args.max_size == float("inf")
     assert args.recursive is False
+    assert args.incremental is False
 
 
 def test_web_build_args_specific_types():
@@ -3096,12 +3192,13 @@ def test_web_build_args_specific_types():
     class _F:
         def get(self, k, d=""): return {"input_dir": "/tmp", "fmt": "json", "max_size": "5"}.get(k, d)
         def getlist(self, k): return ["code", "web"] if k == "types" else []
-        def __contains__(self, i): return i == "recursive"
+        def __contains__(self, i): return i in ("recursive", "incremental")
     args = CopyCat_Web._build_args(_F())
     assert args.types == ["code", "web"]
     assert args.max_size == 5.0
     assert args.recursive is True
     assert args.format == "json"
+    assert args.incremental is True
 
 
 def test_web_build_args_invalid_max_size():
@@ -3575,4 +3672,354 @@ def test_parse_arguments_exclude_config_empty_value(tmp_path):
         args = parse_arguments(config_path=str(conf))
     # keine Exception, exclude bleibt Default (leer)
     assert args.exclude == []
+
+
+# ==================== HTML-REPORT + INKREMENTELLER CACHE (Idee 3 & 4) ====================
+
+# --- _html_escape ---
+
+def test_html_escape_ampersand():
+    assert _html_escape("a & b") == "a &amp; b"
+
+
+def test_html_escape_less_than_greater_than():
+    assert _html_escape("<tag>") == "&lt;tag&gt;"
+
+
+def test_html_escape_double_quote():
+    assert _html_escape('"val"') == "&quot;val&quot;"
+
+
+def test_html_escape_no_special():
+    assert _html_escape("hello world") == "hello world"
+
+
+# --- _hash_file ---
+
+def test_hash_file_valid(tmp_path):
+    import hashlib
+    f = tmp_path / "data.bin"
+    f.write_bytes(b"hello")
+    assert _hash_file(f) == hashlib.sha256(b"hello").hexdigest()
+
+
+def test_hash_file_oserror():
+    assert _hash_file(Path("/no/such/missing_file.py")) == ""
+
+
+# --- _load_cache ---
+
+def test_load_cache_missing_file(tmp_path):
+    assert _load_cache(tmp_path / "no_cache.json") == {}
+
+
+def test_load_cache_wrong_version(tmp_path):
+    f = tmp_path / "cache.json"
+    f.write_text('{"version": "99", "entries": {}}', encoding="utf-8")
+    assert _load_cache(f) == {}
+
+
+def test_load_cache_json_error(tmp_path):
+    f = tmp_path / "cache.json"
+    f.write_text("not valid json !!!", encoding="utf-8")
+    assert _load_cache(f) == {}
+
+
+def test_load_cache_valid(tmp_path):
+    f = tmp_path / "cache.json"
+    entries = {"a.py": {"hash": "abc", "lines": 5, "content": "x=1"}}
+    f.write_text(json.dumps({"version": "1", "entries": entries}), encoding="utf-8")
+    assert _load_cache(f) == entries
+
+
+# --- _save_cache ---
+
+def test_save_cache_write_and_read(tmp_path):
+    f = tmp_path / "sub" / "cache.json"
+    entries = {"x.py": {"hash": "deadbeef", "lines": 3, "content": "y=2"}}
+    _save_cache(f, entries)
+    assert _load_cache(f) == entries
+
+
+def test_save_cache_oserror(tmp_path):
+    """_save_cache swallows OSError silently when parent is a file."""
+    blocker = tmp_path / "block"
+    blocker.write_text("I am a file, not a dir")
+    _save_cache(blocker / "cache.json", {"a.py": {}})  # Must not raise
+
+
+# --- _write_json with cache ---
+
+def test_write_json_with_cache(tmp_path):
+    """_write_json reads 'lines' from cache when available (line 1082)."""
+    files = {k: [] for k in TYPE_FILTERS}
+    code_file = tmp_path / "cached.py"
+    code_file.write_text("x = 1\n", encoding="utf-8")
+    files["code"] = [code_file]
+    cache = {code_file: {"lines": 42, "content": "x = 1\n", "from_cache": True}}
+
+    out_path = tmp_path / "out.json"
+    args = Namespace(recursive=False, types=["code"], max_size=float("inf"), format="json")
+    _write_json(out_path, files, args, tmp_path, "No Git", 1, cache=cache)
+
+    data = json.loads(out_path.read_text(encoding="utf-8"))
+    assert data["details"]["code"][0]["lines"] == 42
+
+
+# --- _write_md with cache ---
+
+def test_write_md_cache_from_cache_badge(tmp_path):
+    """_write_md shows Cache-Treffer badge (lines 1157-1158) and reads content (line 1170)."""
+    files = {k: [] for k in TYPE_FILTERS}
+    code_file = tmp_path / "cached.py"
+    code_file.write_text("x = 1\n", encoding="utf-8")
+    files["code"] = [code_file]
+    cache = {code_file: {"lines": 7, "content": "x = 1\n", "from_cache": True}}
+
+    buf = StringIO()
+    args = Namespace(recursive=False, types=["code"], max_size=float("inf"), format="md")
+    _write_md(buf, files, args, tmp_path, "No Git", 2, cache=cache)
+
+    out = buf.getvalue()
+    assert "Cache-Treffer" in out
+    assert "7 Zeilen" in out
+
+
+def test_write_md_cache_not_from_cache(tmp_path):
+    """_write_md reads content from cache when from_cache=False (line 1157 branch)."""
+    files = {k: [] for k in TYPE_FILTERS}
+    code_file = tmp_path / "fresh.py"
+    code_file.write_text("y = 2\n", encoding="utf-8")
+    files["code"] = [code_file]
+    cache = {code_file: {"lines": 3, "content": "y = 2\n", "from_cache": False}}
+
+    buf = StringIO()
+    args = Namespace(recursive=False, types=["code"], max_size=float("inf"), format="md")
+    _write_md(buf, files, args, tmp_path, "No Git", 3, cache=cache)
+
+    out = buf.getvalue()
+    assert "Cache-Treffer" not in out
+    assert "3 Zeilen" in out
+
+
+# --- _write_html tests ---
+
+def _make_html_args(types=None, recursive=False):
+    return Namespace(recursive=recursive, types=types, max_size=float("inf"), format="html")
+
+
+def test_write_html_basic(tmp_path):
+    """_write_html produces a valid HTML report."""
+    files = {k: [] for k in TYPE_FILTERS}
+    code_file = tmp_path / "hello.py"
+    code_file.write_text("print('hello')\n", encoding="utf-8")
+    files["code"] = [code_file]
+
+    out = tmp_path / "report.html"
+    _write_html(out, files, _make_html_args(), tmp_path, "Branch: main | Last Commit: abc", 1)
+
+    html = out.read_text(encoding="utf-8")
+    assert "<!DOCTYPE html>" in html
+    assert "hello.py" in html
+
+
+def test_write_html_cache_hit_badge(tmp_path):
+    """_write_html shows Cache-Treffer badge for cached files (lines 1316-1318)."""
+    files = {k: [] for k in TYPE_FILTERS}
+    code_file = tmp_path / "cached.py"
+    code_file.write_text("x = 1\n", encoding="utf-8")
+    files["code"] = [code_file]
+    cache = {code_file: {"lines": 5, "content": "x = 1\n", "from_cache": True}}
+
+    out = tmp_path / "report.html"
+    _write_html(out, files, _make_html_args(), tmp_path, "No Git", 2, cache=cache)
+
+    html = out.read_text(encoding="utf-8")
+    assert "Cache-Treffer" in html
+
+
+def test_write_html_search_meta_row(tmp_path):
+    """_write_html includes search summary row when search_pattern given (lines 1304-1305)."""
+    files = {k: [] for k in TYPE_FILTERS}
+    code_file = tmp_path / "main.py"
+    code_file.write_text("x = 1\n", encoding="utf-8")
+    files["code"] = [code_file]
+
+    out = tmp_path / "report.html"
+    _write_html(out, files, _make_html_args(), tmp_path, "No Git", 3,
+                search_pattern="TODO", search_results={})
+
+    html = out.read_text(encoding="utf-8")
+    assert "TODO" in html
+    assert "0 Treffer" in html
+
+
+def test_write_html_search_results_section(tmp_path):
+    """_write_html renders search results table when hits exist (lines 1364-1371)."""
+    files = {k: [] for k in TYPE_FILTERS}
+    code_file = tmp_path / "main.py"
+    code_file.write_text("# TODO: fix\n", encoding="utf-8")
+    files["code"] = [code_file]
+    sr = {code_file: [(1, "# TODO: fix")]}
+
+    out = tmp_path / "report.html"
+    _write_html(out, files, _make_html_args(), tmp_path, "No Git", 4,
+                search_pattern="TODO", search_results=sr)
+
+    html = out.read_text(encoding="utf-8")
+    assert "Suchergebnisse" in html
+    assert "TODO" in html
+
+
+def test_write_html_no_code_in_types(tmp_path):
+    """_write_html skips code section when 'code' not in selected types (branch 1312->1345)."""
+    files = {k: [] for k in TYPE_FILTERS}
+    code_file = tmp_path / "main.py"
+    code_file.write_text("x = 1\n", encoding="utf-8")
+    files["code"] = [code_file]
+    img_file = tmp_path / "logo.png"
+    img_file.write_bytes(b"PNG")
+    files["img"] = [img_file]
+
+    out = tmp_path / "report.html"
+    _write_html(out, files, _make_html_args(types=["img"]), tmp_path, "No Git", 5)
+
+    html = out.read_text(encoding="utf-8")
+    assert "IMG" in html
+    assert "logo.png" in html
+    assert "main.py" not in html
+
+
+def test_write_html_other_type_section(tmp_path):
+    """_write_html renders non-code file section in HTML output (lines 1352-1356)."""
+    files = {k: [] for k in TYPE_FILTERS}
+    img_file = tmp_path / "banner.png"
+    img_file.write_bytes(b"PNG")
+    files["img"] = [img_file]
+
+    out = tmp_path / "report.html"
+    _write_html(out, files, _make_html_args(), tmp_path, "No Git", 6)
+
+    html = out.read_text(encoding="utf-8")
+    assert "IMG" in html
+    assert "banner.png" in html
+
+
+def test_write_html_unicode_decode_error(tmp_path):
+    """_write_html handles UnicodeDecodeError when reading code file (lines 1325-1327)."""
+    files = {k: [] for k in TYPE_FILTERS}
+    code_file = tmp_path / "binary.py"
+    code_file.write_bytes(b"\xff\xfe\x00\x01 invalid utf-8 bytes")
+    files["code"] = [code_file]
+
+    out = tmp_path / "report.html"
+    _write_html(out, files, _make_html_args(), tmp_path, "No Git", 7)
+
+    html = out.read_text(encoding="utf-8")
+    assert "binary.py" in html
+    assert "bersprungen" in html  # part of "übersprungen"
+
+
+def test_write_html_read_exception(tmp_path):
+    """_write_html handles generic read Exception gracefully (lines 1329-1330)."""
+    files = {k: [] for k in TYPE_FILTERS}
+    code_file = tmp_path / "error.py"
+    code_file.write_text("x = 1\n", encoding="utf-8")
+    files["code"] = [code_file]
+
+    out = tmp_path / "report.html"
+    original_read_text = Path.read_text
+
+    def patched(self, *args, **kwargs):
+        if self == code_file:
+            raise PermissionError("no read access")
+        return original_read_text(self, *args, **kwargs)
+
+    with patch.object(Path, "read_text", patched):
+        _write_html(out, files, _make_html_args(), tmp_path, "No Git", 8)
+
+    html = out.read_text(encoding="utf-8")
+    # "Fehler beim Lesen" may be split across Pygments spans, so check the filename
+    assert "error.py" in html
+    # Ensure the fallback text was used (Pygments splits it into tokens, but "Lesen" appears)
+    assert "Lesen" in html
+
+
+def test_write_html_without_pygments(tmp_path):
+    """_write_html uses plain <pre><code> fallback when pygments not available (lines 1274-1276, 1280)."""
+    import sys
+    files = {k: [] for k in TYPE_FILTERS}
+    code_file = tmp_path / "script.py"
+    code_file.write_text("x = 1\n", encoding="utf-8")
+    files["code"] = [code_file]
+
+    out = tmp_path / "report.html"
+    pygments_nulls = {k: None for k in list(sys.modules) if k == "pygments" or k.startswith("pygments.")}
+    pygments_nulls.setdefault("pygments", None)
+    with patch.dict("sys.modules", pygments_nulls):
+        _write_html(out, files, _make_html_args(), tmp_path, "No Git", 9)
+
+    html = out.read_text(encoding="utf-8")
+    assert "script.py" in html
+    assert "pip install pygments" in html
+
+
+def test_write_html_pygments_class_not_found(tmp_path):
+    """_write_html falls back to TextLexer for unrecognized extension (lines 1283-1284)."""
+    pytest.importorskip("pygments")
+    files = {k: [] for k in TYPE_FILTERS}
+    code_file = tmp_path / "config.unknownxyz"
+    code_file.write_text("hello = world\n", encoding="utf-8")
+    files["code"] = [code_file]
+
+    out = tmp_path / "report.html"
+    _write_html(out, files, _make_html_args(), tmp_path, "No Git", 10)
+
+    html = out.read_text(encoding="utf-8")
+    assert "config.unknownxyz" in html
+    assert "hello = world" in html
+
+
+# --- Incremental error branches in run_copycat ---
+
+def test_run_copycat_incremental_unicode_decode_error(tmp_path, run_args):
+    """Incremental mode handles UnicodeDecodeError gracefully (lines 1485-1487)."""
+    code_file = tmp_path / "binary.py"
+    code_file.write_bytes(b"\xff\xfe\x00 bad encoding bytes")
+
+    run_copycat(run_args(incremental=True))
+
+    reports = list(tmp_path.glob("combined_copycat_*.txt"))
+    assert reports
+
+
+def test_run_copycat_incremental_read_exception(tmp_path, run_args):
+    """Incremental mode handles generic Exception gracefully (lines 1488-1490)."""
+    code_file = tmp_path / "error.py"
+    code_file.write_text("x = 1\n", encoding="utf-8")
+
+    original_read_text = Path.read_text
+
+    def patched(self, *args, **kwargs):
+        if self == code_file:
+            raise PermissionError("no access")
+        return original_read_text(self, *args, **kwargs)
+
+    with patch.object(Path, "read_text", patched):
+        run_copycat(run_args(incremental=True))
+
+    reports = list(tmp_path.glob("combined_copycat_*.txt"))
+    assert reports
+
+
+def test_web_api_run_with_incremental(web_client):
+    """POST /api/run mit incremental=True setzt form_like['incremental'] (Zeile 399)."""
+    client, tmp = web_client
+    (tmp / "app.py").write_text("x=1\n")
+    resp = client.post("/api/run", json={
+        "input": str(tmp),
+        "format": "txt",
+        "incremental": True,
+    })
+    assert resp.status_code == 200
 

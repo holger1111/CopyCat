@@ -19,7 +19,8 @@
 | Self-Protection	| Ignores CopyCat.py & old reports			|
 | Serial System		| Automatic archive (CopyCat_Archive)			|
 | Git Integration	| Branch + commit hash					|
-| Output Formats	| TXT / JSON / Markdown / Jinja2 template (`--format`, `--template`)	|
+| Output Formats	| TXT / JSON / Markdown / **HTML** (with syntax highlighting) / Jinja2 template (`--format`, `--template`)	|
+| Incremental Cache	| Only re-scan changed files; SHA-256 cache in `.copycat_cache/` (`--incremental`)	|
 | Content Search	| Parallel regex search across files (`--search`)	|
 | Diff Mode		| Compare two reports (`--diff`)			|
 | Merge Mode		| Combine multiple reports (`--merge`)			|
@@ -61,7 +62,7 @@ The `copycat-vscode/` folder contains a TypeScript extension that integrates Cop
 |---|---|---|
 | `copycat.pythonPath` | Python interpreter path | auto-detect |
 | `copycat.scriptPath` | Path to `CopyCat.py` | workspace root |
-| `copycat.outputFormat` | `txt` / `json` / `md` | `txt` |
+| `copycat.outputFormat` | `txt` / `json` / `md` / `html` | `txt` |
 | `copycat.maxSizeMb` | Max file size in MB (0 = unlimited) | `0` |
 | `copycat.excludePatterns` | Glob patterns to exclude, e.g. `["dist/", "*.min.js"]` | `[]` |
 | `copycat.extraArgs` | Additional CLI arguments | `[]` |
@@ -111,9 +112,10 @@ python CopyCat.py                             # uses copycat.conf if present
 | `-t`, `--types`		| Types: `code web db config docs deps img audio diagram notebook` or `all`	| `all`	|
 | `-r`, `--recursive`		| Recursive search in subfolders					| false		|
 | `-s`, `--max-size`		| Max file size in MB							| unlimited	|
-| `-f`, `--format`		| Output format: `txt`, `json`, `md`					| `txt`		|
+| `-f`, `--format`		| Output format: `txt`, `json`, `md`, `html`					| `txt`		|
 | `-S`, `--search`		| Regex search pattern (e.g. `TODO\|FIXME`, `def `)		| None		|
 | `-E`, `--exclude`		| Glob patterns or folders to exclude (e.g. `*.min.js` `dist/` `node_modules/`)	| None	|
+| `-I`, `--incremental`	| Incremental mode: only re-scan changed files, cache in `.copycat_cache/`	| off	|
 | `-v`, `--verbose`		| Verbose output (DEBUG level)						| off		|
 | `-q`, `--quiet`		| Quiet mode (warnings only)						| off		|
 | `--template`			| Path to a Jinja2 template file (`.j2`); requires `pip install jinja2`	| None		|
@@ -394,7 +396,7 @@ Filter output: → 1274 geprüft, Filter OK
 ### Output Formats
 
 
-CopyCat v2.9 supports three output formats via the `-f` / `--format` flag:
+CopyCat v2.9 supports four output formats via the `-f` / `--format` flag:
 
 
 | Format | Flag | Output File | Description |
@@ -402,6 +404,7 @@ CopyCat v2.9 supports three output formats via the `-f` / `--format` flag:
 | **TXT** | `-f txt` (default) | `combined_copycat_N.txt` | Human-readable text report |
 | **JSON** | `-f json` | `combined_copycat_N.json` | Structured machine-readable data |
 | **Markdown** | `-f md` | `combined_copycat_N.md` | GitHub-ready documentation |
+| **HTML** | `-f html` | `combined_copycat_N.html` | Self-contained HTML with syntax highlighting |
 
 
 **JSON Schema Example:**
@@ -428,6 +431,8 @@ CopyCat v2.9 supports three output formats via the `-f` / `--format` flag:
 
 
 **Markdown output** includes `#` headers, summary tables, fenced code blocks for each source file, and file tables for binary types.
+
+**HTML output** is a self-contained single file with collapsible `<details>` sections per file. Syntax highlighting is applied automatically when [Pygments](https://pygments.org/) is installed (`pip install pygments`); without it, plain `<pre>` blocks are used instead.
 
 
 ```bash
@@ -512,10 +517,12 @@ format = md
 | `types` | list | `code, diagram` | File type categories (comma or space separated) |
 | `recursive` | bool | `true` | Recursive search (`true`/`false`/`yes`/`no`/`1`/`0`) |
 | `max_size_mb` | float | `5` | Max file size in MB |
-| `format` | string | `md` | Output format: `txt`, `json`, `md` |
+| `format` | string | `md` | Output format: `txt`, `json`, `md`, `html` |
 | `search` | string | `TODO\|FIXME` | Regex search pattern |
 | `input` | path | `src` | Input folder |
 | `output` | path | `reports` | Output folder |
+| `exclude` | string | `*.min.js, dist/` | Glob patterns to exclude |
+| `incremental` | bool | `true` | Enable incremental cache (`true`/`false`) |
 
 
 **Lookup order:** CWD → script directory. First file found wins.

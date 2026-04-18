@@ -55,6 +55,7 @@ class CopyCatGUI:
         self._template_var = tk.StringVar()
         self._cooldown_var = tk.StringVar(value="2.0")
         self._exclude_var = tk.StringVar()
+        self._incremental_var = tk.BooleanVar(value=False)
         self._watch_stop_event = None
         self._type_vars = {t: tk.BooleanVar(value=True) for t in TYPES}
 
@@ -115,7 +116,7 @@ class CopyCatGUI:
         ttk.Combobox(
             frm_opt,
             textvariable=self._format_var,
-            values=["txt", "json", "md"],
+            values=["txt", "json", "md", "html"],
             state="readonly",
             width=6,
         ).grid(row=0, column=4, sticky="w")
@@ -128,6 +129,10 @@ class CopyCatGUI:
         ttk.Label(frm_opt, text="Ausschließen:").grid(row=3, column=0, sticky="w", padx=6, pady=(6, 0))
         ttk.Entry(frm_opt, textvariable=self._exclude_var, width=40).grid(
             row=3, column=1, columnspan=4, sticky="w", pady=(6, 0)
+        )
+
+        ttk.Checkbutton(frm_opt, text="Inkrementell (Cache)", variable=self._incremental_var).grid(
+            row=3, column=4, columnspan=2, sticky="w", padx=(16, 0), pady=(6, 0)
         )
 
         ttk.Label(frm_opt, text="Template (.j2):").grid(row=4, column=0, sticky="w", padx=6, pady=(6, 0))
@@ -239,12 +244,14 @@ class CopyCatGUI:
             self._recursive_var.set(cfg["recursive"].lower() in ("true", "yes", "1"))
         if "max_size_mb" in cfg:
             self._max_size_var.set(cfg["max_size_mb"])
-        if "format" in cfg and cfg["format"] in ("txt", "json", "md"):
+        if "format" in cfg and cfg["format"] in ("txt", "json", "md", "html"):
             self._format_var.set(cfg["format"])
         if "search" in cfg:
             self._search_var.set(cfg["search"])
         if "exclude" in cfg:
             self._exclude_var.set(cfg["exclude"])
+        if "incremental" in cfg:
+            self._incremental_var.set(cfg["incremental"].lower() in ("true", "yes", "1"))
 
     def _save_config(self):
         path = filedialog.asksaveasfilename(
@@ -272,6 +279,8 @@ class CopyCatGUI:
         exclude = self._exclude_var.get().strip()
         if exclude:
             lines.append(f"exclude = {exclude}")
+        if self._incremental_var.get():
+            lines.append("incremental = true")
         try:
             Path(path).write_text("\n".join(lines) + "\n", encoding="utf-8")
             messagebox.showinfo("Gespeichert", f"Config gespeichert:\n{path}")
@@ -384,6 +393,7 @@ class CopyCatGUI:
             cooldown=float(self._cooldown_var.get().strip() or "2.0"),
             watch=False,
             exclude=exclude,
+            incremental=self._incremental_var.get(),
         )
 
     def _on_watch_toggle(self):  # pragma: no cover

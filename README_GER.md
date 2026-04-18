@@ -19,7 +19,8 @@
 | Selbstschutz		| Ignoriert CopyCat.py & alte Reports			|
 | Serial-System		| Automatisches Archiv (CopyCat_Archive)		|
 | Git-Integration	| Branch + Commit-Hash					|
-| Ausgabeformate	| TXT / JSON / Markdown / Jinja2-Template (`--format`, `--template`)	|
+| Ausgabeformate	| TXT / JSON / Markdown / **HTML** (mit Syntax-Highlighting) / Jinja2-Template (`--format`, `--template`)	|
+| Inkrementeller Cache	| Nur geänderte Dateien neu scannen; SHA-256-Cache in `.copycat_cache/` (`--incremental`)	|
 | Inhaltssuche		| Parallele Regex-Suche über Dateiinhalte (`--search`)	|
 | Diff-Modus		| Zwei Reports vergleichen (`--diff`)			|
 | Merge-Modus		| Mehrere Reports zusammenführen (`--merge`)		|
@@ -61,7 +62,7 @@ Der Ordner `copycat-vscode/` enthält eine TypeScript-Extension, die CopyCat dir
 |---|---|---|
 | `copycat.pythonPath` | Pfad zum Python-Interpreter | auto-detect |
 | `copycat.scriptPath` | Pfad zu `CopyCat.py` | Workspace-Root |
-| `copycat.outputFormat` | `txt` / `json` / `md` | `txt` |
+| `copycat.outputFormat` | `txt` / `json` / `md` / `html` | `txt` |
 | `copycat.maxSizeMb` | Max. Dateigröße in MB (0 = unbegrenzt) | `0` |
 | `copycat.excludePatterns` | Glob-Muster zum Ausschließen, z.B. `["dist/", "*.min.js"]` | `[]` |
 | `copycat.extraArgs` | Zusätzliche CLI-Argumente | `[]` |
@@ -111,9 +112,10 @@ python CopyCat.py                             # nutzt copycat.conf falls vorhand
 | `-t`, `--types`		| Typen: `code web db config docs deps img audio diagram notebook` oder `all`	| `all`	|
 | `-r`, `--recursive`		| Rekursive Suche in Unterordnern					| false		|
 | `-s`, `--max-size`		| Max Größe MB								| unbegrenzt	|
-| `-f`, `--format`		| Ausgabeformat: `txt`, `json`, `md`					| `txt`		|
+| `-f`, `--format`		| Ausgabeformat: `txt`, `json`, `md`, `html`					| `txt`		|
 | `-S`, `--search`		| Regex-Suchmuster (z.B. `TODO\|FIXME`, `def `)			| None		|
 | `-E`, `--exclude`		| Glob-Muster oder Ordner ausschließen (z.B. `*.min.js` `dist/` `node_modules/`)	| None	|
+| `-I`, `--incremental`	| Inkrementeller Modus: nur geänderte Dateien neu scannen, Cache in `.copycat_cache/`	| aus	|
 | `-v`, `--verbose`		| Ausführliche Ausgabe (DEBUG-Level)					| aus		|
 | `-q`, `--quiet`		| Nur Warnungen ausgeben						| aus		|
 | `--template`			| Pfad zu einer Jinja2-Template-Datei (`.j2`); erfordert `pip install jinja2`	| None	|
@@ -394,7 +396,7 @@ Ausgabe bei Filter: → 1274 geprüft, Filter OK
 ### Ausgabeformate
 
 
-CopyCat v2.9 unterstützt drei Ausgabeformate über das `-f` / `--format`-Flag:
+CopyCat v2.9 unterstützt vier Ausgabeformate über das `-f` / `--format`-Flag:
 
 
 | Format | Flag | Ausgabedatei | Beschreibung |
@@ -402,6 +404,7 @@ CopyCat v2.9 unterstützt drei Ausgabeformate über das `-f` / `--format`-Flag:
 | **TXT** | `-f txt` (Standard) | `combined_copycat_N.txt` | Menschenlesbarer Text-Report |
 | **JSON** | `-f json` | `combined_copycat_N.json` | Strukturierte maschinenlesbare Daten |
 | **Markdown** | `-f md` | `combined_copycat_N.md` | GitHub-fertige Dokumentation |
+| **HTML** | `-f html` | `combined_copycat_N.html` | Eigenständiges HTML mit Syntax-Highlighting |
 
 
 **JSON-Schema-Beispiel:**
@@ -428,6 +431,8 @@ CopyCat v2.9 unterstützt drei Ausgabeformate über das `-f` / `--format`-Flag:
 
 
 **Markdown-Ausgabe** enthält `#`-Überschriften, Übersichtstabellen, Fenced-Code-Blöcke für jede Quelldatei sowie Dateitabellen für Binärtypen.
+
+**HTML-Ausgabe** ist eine eigenständige Datei mit klappbaren `<details>`-Sektionen pro Datei. Syntax-Highlighting wird automatisch angewendet, wenn [Pygments](https://pygments.org/) installiert ist (`pip install pygments`); ohne Pygments werden einfache `<pre>`-Blöcke verwendet.
 
 
 ```bash
@@ -512,10 +517,12 @@ format = md
 | `types` | Liste | `code, diagram` | Dateityp-Kategorien (Komma oder Leerzeichen) |
 | `recursive` | bool | `true` | Rekursive Suche (`true`/`false`/`yes`/`no`/`1`/`0`) |
 | `max_size_mb` | float | `5` | Maximale Dateigröße in MB |
-| `format` | string | `md` | Ausgabeformat: `txt`, `json`, `md` |
+| `format` | string | `md` | Ausgabeformat: `txt`, `json`, `md`, `html` |
 | `search` | string | `TODO\|FIXME` | Regex-Suchmuster |
 | `input` | Pfad | `src` | Eingabeordner |
 | `output` | Pfad | `reports` | Ausgabeordner |
+| `exclude` | string | `*.min.js, dist/` | Glob-Muster zum Ausschließen |
+| `incremental` | bool | `true` | Inkrementellen Cache aktivieren (`true`/`false`) |
 
 
 **Suchreihenfolge:** Aktuelles Verzeichnis → Skript-Verzeichnis. Erste gefundene Datei gewinnt.

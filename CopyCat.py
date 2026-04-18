@@ -4,6 +4,7 @@ CopyCat v2.9
 
 import argparse
 import concurrent.futures
+import hashlib
 import importlib.util
 import json
 import stat
@@ -98,9 +99,9 @@ def parse_arguments(config_path=None):
     parser.add_argument(
         "--format",
         "-f",
-        choices=["txt", "json", "md"],
+        choices=["txt", "json", "md", "html"],
         default="txt",
-        help="Ausgabeformat: txt (default), json, md",
+        help="Ausgabeformat: txt (default), json, md, html",
     )
     parser.add_argument(
         "--search",
@@ -174,6 +175,11 @@ def parse_arguments(config_path=None):
         nargs="*", default=[], metavar="PATTERN",
         help="Glob-Muster oder Ordner zum Ausschließen, z.B. '*.min.js' 'dist/' 'node_modules/'",
     )
+    parser.add_argument(
+        "--incremental", "-I",
+        action="store_true",
+        help="Inkrementeller Modus: nur geänderte Dateien neu scannen, Cache in .copycat_cache/",
+    )
 
     # ── Config-Datei: Defaults aus copycat.conf (CLI überschreibt) ──────────
     cfg = load_config(config_path)
@@ -190,7 +196,7 @@ def parse_arguments(config_path=None):
         except ValueError:
             logging.warning("copycat.conf: ungültiger max_size_mb-Wert wird ignoriert")
     if "format" in cfg:
-        if cfg["format"] in ("txt", "json", "md"):
+        if cfg["format"] in ("txt", "json", "md", "html"):
             overrides["format"] = cfg["format"]
         else:
             logging.warning("copycat.conf: ungültiger format-Wert wird ignoriert")
@@ -204,6 +210,8 @@ def parse_arguments(config_path=None):
         parts = [p.strip() for p in cfg["exclude"].replace(",", " ").split() if p.strip()]
         if parts:
             overrides["exclude"] = parts
+    if "incremental" in cfg:
+        overrides["incremental"] = cfg["incremental"].lower() in ("true", "yes", "1")
     if overrides:
         parser.set_defaults(**overrides)
     # ────────────────────────────────────────────────────────────────────────
@@ -220,7 +228,7 @@ def parse_arguments(config_path=None):
 
 
 def is_valid_serial_filename(filename: str) -> bool:
-    pattern = r"^combined_copycat_(\d+)\.(txt|json|md)$"
+    pattern = r"^combined_copycat_(\d+)\.(txt|json|md|html)$"
     return bool(re.match(pattern, filename))
 
 
@@ -230,7 +238,7 @@ def get_next_serial_number(base_path: Path) -> int:
     for p in existing:
         if is_valid_serial_filename(p.name):
             try:
-                match = re.match(r"^combined_copycat_(\d+)\.(txt|json|md)$", p.name)
+                match = re.match(r"^combined_copycat_(\d+)\.(txt|json|md|html)$", p.name)
                 num = int(match.group(1))
                 max_num = max(max_num, num)
             except (ValueError, AttributeError):  # pragma: no cover
@@ -640,7 +648,7 @@ def install_hook(project_dir: Path) -> Path:
         "# CopyCat pre-commit hook – automatisch installiert\n"
         f'python "{script_path}" --quiet\n'
         "git add combined_copycat_*.txt combined_copycat_*.json "
-        "combined_copycat_*.md 2>/dev/null || true\n"
+        "combined_copycat_*.md combined_copycat_*.html 2>/dev/null || true\n"
     )
     hook_path.write_text(hook_content, encoding="utf-8")
     try:
@@ -947,7 +955,7 @@ def _collect_files(args, input_dir, script_file):
     return files
 
 
-def _write_txt(writer, files, args, input_dir, git_info, serial, search_pattern=None, search_results=None):
+def _write_txt(writer, files, args, input_dir, git_info, serial, search_pattern=None, search_results=None, cache=None):
     """Write TXT report."""
     mode_text = "REKURSIV" if args.recursive else "FLACH (Default)"
     writer.write(
@@ -978,6 +986,7 @@ def _write_txt(writer, files, args, input_dir, git_info, serial, search_pattern=
 
     selected_types = args.types if args.types else ["all"]
     process_all = "all" in selected_types
+    cache = cache or {}
 
     if process_all or "code" in selected_types:
         writer.write("CODE-Details:\n")
@@ -985,26 +994,34 @@ def _write_txt(writer, files, args, input_dir, git_info, serial, search_pattern=
             rel_path = code_file.relative_to(input_dir)
             folder = rel_path.parent.name if rel_path.parent.name != "." else ""
             bracket = f" [{folder}]" if folder else ""
-            try:
-                lines = sum(
-                    1 for line in open(code_file, encoding="utf-8") if line.strip()
-                )
-                writer.write(f"  {code_file.name}: {lines} Zeilen{bracket}")
-            except UnicodeDecodeError:
-                writer.write(f"  {code_file.name}: 1 Zeilen{bracket}")
-            except Exception:
-                writer.write(f"  {code_file.name}: [FEHLER]")
+            if code_file in cache:
+                lines = cache[code_file].get("lines", 0)
+                cached_marker = " [Cache-Treffer]" if cache[code_file].get("from_cache") else ""
+                writer.write(f"  {code_file.name}: {lines} Zeilen{bracket}{cached_marker}")
+            else:
+                try:
+                    lines = sum(
+                        1 for line in open(code_file, encoding="utf-8") if line.strip()
+                    )
+                    writer.write(f"  {code_file.name}: {lines} Zeilen{bracket}")
+                except UnicodeDecodeError:
+                    writer.write(f"  {code_file.name}: 1 Zeilen{bracket}")
+                except Exception:
+                    writer.write(f"  {code_file.name}: [FEHLER]")
 
             writer.write("\n")
             writer.write(f"----- {code_file.name} -----\n")
 
-            try:
-                with open(code_file, "r", encoding="utf-8") as f:
-                    writer.writelines(f.readlines())
-            except UnicodeDecodeError:
-                writer.write("(Binary oder ungültiges Encoding - übersprungen)\n")
-            except Exception:
-                writer.write("(Fehler beim Lesen)\n")
+            if code_file in cache:
+                writer.write(cache[code_file].get("content", ""))
+            else:
+                try:
+                    with open(code_file, "r", encoding="utf-8") as f:
+                        writer.writelines(f.readlines())
+                except UnicodeDecodeError:
+                    writer.write("(Binary oder ung\u00fcltiges Encoding - \u00fcbersprungen)\n")
+                except Exception:
+                    writer.write("(Fehler beim Lesen)\n")
             writer.write("\n\n")
 
     types_to_process = [
@@ -1039,7 +1056,7 @@ def _write_txt(writer, files, args, input_dir, git_info, serial, search_pattern=
                 writer.write(f"    L{lineno}: {text}\n")
 
 
-def _write_json(path, files, args, input_dir, git_info, serial, search_pattern=None, search_results=None):
+def _write_json(path, files, args, input_dir, git_info, serial, search_pattern=None, search_results=None, cache=None):
     """Write JSON report."""
     selected_types = args.types if args.types else ["all"]
     process_all = "all" in selected_types
@@ -1047,6 +1064,7 @@ def _write_json(path, files, args, input_dir, git_info, serial, search_pattern=N
     git_parts = git_info.split(" | ") if git_info != "No Git" else []
     branch = git_parts[0].replace("Branch: ", "") if len(git_parts) > 0 else None
     commit = git_parts[1].replace("Last Commit: ", "") if len(git_parts) > 1 else None
+    cache = cache or {}
 
     types_out = {}
     for t, flist in files.items():
@@ -1060,12 +1078,15 @@ def _write_json(path, files, args, input_dir, git_info, serial, search_pattern=N
                 "size": f.stat().st_size,
             }
             if t == "code":
-                try:
-                    entry["lines"] = sum(
-                        1 for line in open(f, encoding="utf-8") if line.strip()
-                    )
-                except Exception:
-                    entry["lines"] = None
+                if f in cache:
+                    entry["lines"] = cache[f].get("lines")
+                else:
+                    try:
+                        entry["lines"] = sum(
+                            1 for line in open(f, encoding="utf-8") if line.strip()
+                        )
+                    except Exception:
+                        entry["lines"] = None
             if search_pattern is not None:
                 hits = (search_results or {}).get(f, [])
                 entry["matches"] = [{"line": ln, "text": txt} for ln, txt in hits]
@@ -1099,12 +1120,13 @@ def _write_json(path, files, args, input_dir, git_info, serial, search_pattern=N
         json.dump(report, f, ensure_ascii=False, indent=2)
 
 
-def _write_md(writer, files, args, input_dir, git_info, serial, search_pattern=None, search_results=None):
+def _write_md(writer, files, args, input_dir, git_info, serial, search_pattern=None, search_results=None, cache=None):
     """Write Markdown report."""
     mode_text = "Rekursiv" if args.recursive else "Flach"
     total_files = sum(len(files[t]) for t in files)
     selected_types = args.types if args.types else ["all"]
     process_all = "all" in selected_types
+    cache = cache or {}
 
     writer.write(f"# CopyCat v2.9 Report\n\n")
     writer.write(f"| | |\n|---|---|\n")
@@ -1131,21 +1153,29 @@ def _write_md(writer, files, args, input_dir, git_info, serial, search_pattern=N
         writer.write("## Code-Details\n\n")
         for code_file in files["code"]:
             rel_path = code_file.relative_to(input_dir)
-            try:
-                lines = sum(
-                    1 for line in open(code_file, encoding="utf-8") if line.strip()
-                )
-            except Exception:
-                lines = "?"
-            writer.write(f"### `{rel_path.as_posix()}` ({lines} Zeilen)\n\n")
+            if code_file in cache:
+                lines = cache[code_file].get("lines", 0)
+                cached_badge = " *(Cache-Treffer)*" if cache[code_file].get("from_cache") else ""
+            else:
+                try:
+                    lines = sum(
+                        1 for line in open(code_file, encoding="utf-8") if line.strip()
+                    )
+                except Exception:
+                    lines = "?"
+                cached_badge = ""
+            writer.write(f"### `{rel_path.as_posix()}` ({lines} Zeilen){cached_badge}\n\n")
             writer.write(f"```\n")
-            try:
-                with open(code_file, "r", encoding="utf-8") as f:
-                    writer.write(f.read())
-            except UnicodeDecodeError:
-                writer.write("(Binary oder ungültiges Encoding - übersprungen)\n")
-            except Exception:
-                writer.write("(Fehler beim Lesen)\n")
+            if code_file in cache:
+                writer.write(cache[code_file].get("content", ""))
+            else:
+                try:
+                    with open(code_file, "r", encoding="utf-8") as f:
+                        writer.write(f.read())
+                except UnicodeDecodeError:
+                    writer.write("(Binary oder ung\u00fcltiges Encoding - \u00fcbersprungen)\n")
+                except Exception:
+                    writer.write("(Fehler beim Lesen)\n")
             writer.write(f"```\n\n")
 
     types_to_process = [
@@ -1185,6 +1215,215 @@ def _write_md(writer, files, args, input_dir, git_info, serial, search_pattern=N
         writer.write("\n")
 
 
+# ── Cache-Hilfsfunktionen (Idee 4: Inkrementelle Reports) ────────────────────
+
+def _html_escape(s: str) -> str:
+    """Escape special HTML characters."""
+    return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
+
+
+def _hash_file(path: Path) -> str:
+    """Return SHA-256 hex digest of a file's binary content. Returns '' on error."""
+    h = hashlib.sha256()
+    try:
+        with open(path, "rb") as fh:
+            for chunk in iter(lambda: fh.read(65536), b""):
+                h.update(chunk)
+    except OSError:
+        return ""
+    return h.hexdigest()
+
+
+def _load_cache(cache_file: Path) -> dict:
+    """Load incremental cache from JSON. Returns {} on missing/invalid file."""
+    if not cache_file.is_file():
+        return {}
+    try:
+        with open(cache_file, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+        if data.get("version") != "1":
+            return {}
+        return data.get("entries", {})
+    except (OSError, json.JSONDecodeError, KeyError):
+        return {}
+
+
+def _save_cache(cache_file: Path, entries: dict) -> None:
+    """Persist incremental cache entries to JSON."""
+    try:
+        cache_file.parent.mkdir(exist_ok=True)
+        with open(cache_file, "w", encoding="utf-8") as fh:
+            json.dump({"version": "1", "entries": entries}, fh, ensure_ascii=False, indent=2)
+    except OSError:
+        pass
+
+
+# ── HTML-Report (Idee 3) ──────────────────────────────────────────────────────
+
+def _write_html(path, files, args, input_dir, git_info, serial,
+                search_pattern=None, search_results=None, cache=None):
+    """Write a self-contained HTML report with optional Pygments syntax highlighting."""
+    try:
+        from pygments import highlight
+        from pygments.lexers import get_lexer_for_filename
+        from pygments.formatters import HtmlFormatter
+        from pygments.util import ClassNotFound
+        from pygments.lexers import TextLexer
+        _formatter = HtmlFormatter(style="friendly", inline_styles=True, nowrap=True)
+        _has_pygments = True
+    except ImportError:
+        _has_pygments = False
+        _formatter = None
+
+    def _highlight_code(text: str, filename: str) -> str:
+        if not _has_pygments:
+            return f"<pre><code>{_html_escape(text)}</code></pre>"
+        try:
+            lexer = get_lexer_for_filename(filename, stripall=True)
+        except ClassNotFound:
+            lexer = TextLexer()
+        return f"<pre>{highlight(text, lexer, _formatter)}</pre>"
+
+    mode_text = "Rekursiv" if args.recursive else "Flach"
+    total_files = sum(len(files[t]) for t in files)
+    selected_types = args.types if args.types else ["all"]
+    process_all = "all" in selected_types
+    cache = cache or {}
+    sr = search_results or {}
+    now = datetime.now().strftime("%d.%m.%Y %H:%M")
+
+    # Build overview rows
+    overview_rows = "".join(
+        f"<tr><td>{_html_escape(t.upper())}</td><td>{len(flist)}</td></tr>"
+        for t, flist in files.items() if flist
+    )
+
+    # Search summary row
+    search_meta = ""
+    if search_pattern:
+        total_hits = sum(len(v) for v in sr.values())
+        search_meta = (
+            f"<tr><th>Suche</th><td><code>{_html_escape(search_pattern)}</code>"
+            f" \u2192 {total_hits} Treffer in {len(sr)} {get_plural(len(sr))}</td></tr>"
+        )
+
+    # Code sections
+    code_html_parts = []
+    if process_all or "code" in selected_types:
+        for code_file in files["code"]:
+            rel_path = code_file.relative_to(input_dir)
+            if code_file in cache:
+                lines_count = cache[code_file].get("lines", 0)
+                code_text = cache[code_file].get("content", "")
+                badge = (' <span style="background:#e8f5e9;border:1px solid #a5d6a7;'
+                         'border-radius:3px;padding:1px 5px;font-size:.8em;color:#2e7d32">'
+                         'Cache-Treffer</span>') if cache[code_file].get("from_cache") else ""
+            else:
+                try:
+                    code_text = code_file.read_text(encoding="utf-8")
+                    lines_count = sum(1 for line in code_text.splitlines() if line.strip())
+                except UnicodeDecodeError:
+                    code_text = "(Binary oder ung\u00fcltiges Encoding - \u00fcbersprungen)"
+                    lines_count = 1
+                except Exception:
+                    code_text = "(Fehler beim Lesen)"
+                    lines_count = 0
+                badge = ""
+            folder = rel_path.parent.name if rel_path.parent.name != "." else ""
+            folder_str = (f' <span style="color:#666;font-size:.9em">[{_html_escape(folder)}]</span>'
+                          if folder else "")
+            highlighted = _highlight_code(code_text, code_file.name)
+            code_html_parts.append(
+                f'<details open>\n'
+                f'<summary><strong>{_html_escape(code_file.name)}</strong>{folder_str} '
+                f'<em style="color:#555">{lines_count} Zeilen</em>{badge}</summary>\n'
+                f'<div style="overflow-x:auto">{highlighted}</div>\n'
+                f'</details>\n'
+            )
+
+    # Other type sections
+    other_sections = []
+    types_to_process = [
+        t for t in (list(TYPE_FILTERS) if process_all else selected_types) if t in TYPE_FILTERS
+    ]
+    for t in types_to_process:
+        if t == "code" or not files[t]:
+            continue
+        rows = "".join(
+            f'<tr><td>{_html_escape(bfile.name)}</td><td>{bfile.stat().st_size} bytes</td></tr>'
+            for bfile in files[t]
+        )
+        other_sections.append(
+            f'<h2>{_html_escape(t.upper())}</h2>\n'
+            f'<table><tr><th>Datei</th><th>Gr\u00f6\u00dfe</th></tr>{rows}</table>\n'
+        )
+
+    # Search results section
+    search_section = ""
+    if search_pattern and sr:
+        total_hits = sum(len(v) for v in sr.values())
+        rows = ""
+        for f_path, hits in sr.items():
+            for lineno, text in hits:
+                rows += (f'<tr><td>{_html_escape(f_path.name)}</td>'
+                         f'<td>{lineno}</td>'
+                         f'<td><code>{_html_escape(text.strip())}</code></td></tr>\n')
+        search_section = (
+            f'<h2>Suchergebnisse: <code>{_html_escape(search_pattern)}</code>'
+            f' ({total_hits} Treffer)</h2>\n'
+            f'<table><tr><th>Datei</th><th>Zeile</th><th>Treffer</th></tr>\n'
+            f'{rows}</table>\n'
+        )
+
+    pygments_note = "" if _has_pygments else (
+        '<p style="color:#888;font-size:.85em">'
+        'Syntax-Highlighting nicht verf\u00fcgbar (pip install pygments).</p>'
+    )
+
+    html = (
+        f'<!DOCTYPE html>\n<html lang="de">\n<head>\n'
+        f'<meta charset="UTF-8">\n'
+        f'<meta name="viewport" content="width=device-width, initial-scale=1">\n'
+        f'<title>CopyCat Report #{serial}</title>\n'
+        f'<style>\n'
+        f'body{{font-family:"Segoe UI",Arial,sans-serif;max-width:1200px;margin:0 auto;padding:20px;background:#f5f5f5;color:#212121}}\n'
+        f'header{{background:#1565c0;color:#fff;padding:16px 24px;border-radius:8px;margin-bottom:20px}}\n'
+        f'header h1{{margin:0 0 4px 0;font-size:1.5em}}\n'
+        f'table{{border-collapse:collapse;margin-bottom:16px;background:#fff;border-radius:4px;box-shadow:0 1px 3px rgba(0,0,0,.1)}}\n'
+        f'th,td{{padding:7px 14px;border:1px solid #e0e0e0;text-align:left}}\n'
+        f'th{{background:#e3f2fd;font-weight:600}}\n'
+        f'details{{background:#fff;border:1px solid #e0e0e0;border-radius:6px;margin:6px 0;box-shadow:0 1px 2px rgba(0,0,0,.06)}}\n'
+        f'summary{{padding:10px 16px;cursor:pointer;font-size:1em;background:#f8f9fa;border-radius:6px;user-select:none}}\n'
+        f'summary:hover{{background:#e8eaf6}}\n'
+        f'pre{{margin:0;padding:14px 16px;overflow-x:auto;font-size:.88em;line-height:1.5;border-top:1px solid #e0e0e0}}\n'
+        f'h2{{color:#1565c0;border-bottom:2px solid #e3f2fd;padding-bottom:4px;margin-top:28px}}\n'
+        f'code{{background:#f5f5f5;padding:1px 4px;border-radius:3px;font-size:.92em}}\n'
+        f'</style>\n</head>\n<body>\n'
+        f'<header><h1>&#128008; CopyCat v2.9 Report</h1></header>\n'
+        f'<section>\n'
+        f'<table>\n'
+        f'<tr><th>Datum</th><td>{now}</td></tr>\n'
+        f'<tr><th>Modus</th><td>{mode_text}</td></tr>\n'
+        f'<tr><th>Pfad</th><td><code>{_html_escape(str(input_dir))}</code></td></tr>\n'
+        f'<tr><th>Git</th><td>{_html_escape(git_info)}</td></tr>\n'
+        f'<tr><th>Gesamt</th><td>{total_files} {get_plural(total_files)}</td></tr>\n'
+        f'<tr><th>Serial</th><td>#{serial}</td></tr>\n'
+        f'{search_meta}\n'
+        f'</table>\n</section>\n'
+        f'<section>\n<h2>\u00dcbersicht</h2>\n'
+        f'<table><tr><th>Typ</th><th>Anzahl</th></tr>\n{overview_rows}</table>\n</section>\n'
+        f'<section>\n<h2>Code-Details</h2>\n{pygments_note}\n'
+        + "".join(code_html_parts)
+        + f'</section>\n'
+        + "".join(other_sections)
+        + search_section
+        + f'</body>\n</html>\n'
+    )
+
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(html)
+
+
 def run_copycat(args):
     plugin_dir = getattr(args, "plugin_dir", None)
     if plugin_dir:
@@ -1220,6 +1459,44 @@ def run_copycat(args):
         logging.info('Suche nach Muster: "%s"', search_pattern)
     search_results = _build_search_results(files, search_pattern) if search_pattern else {}
 
+    # ── Inkrementeller Cache (Idee 4) ────────────────────────────────────────
+    cache_map: dict = {}  # Path → {"lines": int, "content": str}
+    if getattr(args, "incremental", False):
+        cache_dir = output_dir / ".copycat_cache"
+        cache_file = cache_dir / "cache.json"
+        raw_cache = _load_cache(cache_file)
+        new_entries: dict = {}
+        for code_file in files.get("code", []):
+            rel_key = code_file.relative_to(input_dir).as_posix()
+            current_hash = _hash_file(code_file)
+            cached = raw_cache.get(rel_key, {})
+            if current_hash and current_hash == cached.get("hash"):
+                cache_map[code_file] = {
+                    "lines": cached.get("lines", 0),
+                    "content": cached.get("content", ""),
+                    "from_cache": True,
+                }
+                new_entries[rel_key] = cached
+                logging.debug("Cache-Treffer: %s", rel_key)
+            else:
+                try:
+                    content = code_file.read_text(encoding="utf-8")
+                    lines = sum(1 for line in content.splitlines() if line.strip())
+                except UnicodeDecodeError:
+                    content = "(Binary oder ung\u00fcltiges Encoding - \u00fcbersprungen)"
+                    lines = 1
+                except Exception:
+                    content = "(Fehler beim Lesen)"
+                    lines = 0
+                new_entries[rel_key] = {"hash": current_hash, "lines": lines, "content": content}
+                cache_map[code_file] = {"lines": lines, "content": content, "from_cache": False}
+        _save_cache(cache_file, new_entries)
+        n_cached = sum(1 for f in files.get("code", []) if f in cache_map and
+                       new_entries.get(f.relative_to(input_dir).as_posix(), {}).get("hash")
+                       == raw_cache.get(f.relative_to(input_dir).as_posix(), {}).get("hash"))
+        n_changed = len(files.get("code", [])) - n_cached
+        logging.info("Inkrementell: %d aus Cache, %d neu/ge\u00e4ndert", n_cached, n_changed)
+
     template_path = getattr(args, "template", None)
     if template_path:
         content = _write_template(
@@ -1229,13 +1506,15 @@ def run_copycat(args):
         with open(new_file, "w", encoding="utf-8") as writer:
             writer.write(content)
     elif fmt == "json":
-        _write_json(new_file, files, args, input_dir, git_info, serial, search_pattern, search_results)
+        _write_json(new_file, files, args, input_dir, git_info, serial, search_pattern, search_results, cache_map)
     elif fmt == "md":
         with open(new_file, "w", encoding="utf-8") as writer:
-            _write_md(writer, files, args, input_dir, git_info, serial, search_pattern, search_results)
+            _write_md(writer, files, args, input_dir, git_info, serial, search_pattern, search_results, cache_map)
+    elif fmt == "html":
+        _write_html(new_file, files, args, input_dir, git_info, serial, search_pattern, search_results, cache_map)
     else:
         with open(new_file, "w", encoding="utf-8") as writer:
-            _write_txt(writer, files, args, input_dir, git_info, serial, search_pattern, search_results)
+            _write_txt(writer, files, args, input_dir, git_info, serial, search_pattern, search_results, cache_map)
 
     logging.info("Erstellt: %s", new_file)
 
