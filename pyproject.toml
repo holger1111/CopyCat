@@ -35,6 +35,7 @@ pdf      = ["reportlab>=3.0"]
 ai       = ["openai>=1.0"]
 web      = ["flask>=3.0"]
 gui      = ["tkinterdnd2"]
+security = ["defusedxml>=0.7"]
 all      = [
     "jinja2>=3.0",
     "watchdog>=3.0",
@@ -43,6 +44,7 @@ all      = [
     "openai>=1.0",
     "flask>=3.0",
     "tkinterdnd2",
+    "defusedxml>=0.7",
 ]
 
 [project.urls]

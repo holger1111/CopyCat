@@ -5,9 +5,6 @@ All public symbols are imported here so that existing code and tests
 that import directly from CopyCat continue to work unchanged.
 """
 
-import logging
-from pathlib import Path
-
 # ── Public API (re-exported for backward compatibility) ──────────────────────
 from copycat.core import (
     load_config,

@@ -329,8 +329,8 @@ def test_size_filtered_glob(tmp_path, file_size, max_size, should_include):
     assert (len(gen) == 1) == should_include
 
 
-@patch("CopyCat.logging.debug")
-@patch("CopyCat.logging.info")
+@patch("copycat.utils.files.logging.debug")
+@patch("copycat.utils.files.logging.info")
 def test_size_filtered_glob_progress(mock_info, mock_debug):
     """Test progress reporting in size_filtered_glob."""
     mock_search = MagicMock()
@@ -701,7 +701,7 @@ def test_run_copycat_input_validation(tmp_path, run_args, input_exists):
     
     args = run_args(input_path=input_path)
     
-    with patch("CopyCat.logging.error") as mock_log:
+    with patch("copycat.core.logging.error") as mock_log:
         run_copycat(args)
         if not input_exists:
             mock_log.assert_called()
@@ -4873,7 +4873,7 @@ def test_write_pdf_creates_file(tmp_path, run_args):
     args = run_args()
     (tmp_path / "hello.py").write_text("print('hello')\n", encoding="utf-8")
     import CopyCat
-    files = CopyCat._collect_files(args, tmp_path, CopyCat.Path(__file__).resolve())
+    files = CopyCat._collect_files(args, tmp_path, Path(__file__).resolve())
     out = tmp_path / "test.pdf"
     _write_pdf(out, files, args, tmp_path, "No Git", 1)
     assert out.exists()
@@ -4888,7 +4888,7 @@ def test_write_pdf_with_stats(tmp_path, run_args):
     args = run_args(stats=True)
     (tmp_path / "code.py").write_text("# comment\nx = 1\n", encoding="utf-8")
     import CopyCat
-    files = CopyCat._collect_files(args, tmp_path, CopyCat.Path(__file__).resolve())
+    files = CopyCat._collect_files(args, tmp_path, Path(__file__).resolve())
     stats = CopyCat._build_stats(files)
     out = tmp_path / "stats.pdf"
     _write_pdf(out, files, args, tmp_path, "No Git", 2, stats=stats)

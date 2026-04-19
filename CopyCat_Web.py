@@ -474,13 +474,16 @@ def run():
 
 
 def _validate_report_path(path_str: str) -> Path:
-    """Validiert Pfad gegen Path-Traversal. Gibt Path zurück oder wirft ValueError."""
+    """Validiert Pfad gegen Path-Traversal und Symlink-Angriffe. Gibt Path zurück oder wirft ValueError."""
     if not path_str:
         raise ValueError("Ungültiger Pfad")
     p = Path(path_str).resolve()
     # Prüfe ob '..' als Pfadkomponente vorkommt (Path-Traversal)
     if ".." in Path(path_str).parts:
         raise ValueError("Ungültiger Pfad: Path-Traversal erkannt")
+    # Symlink-Schutz: Symlinks könnten auf sensible Dateien außerhalb des Ausgabeordners zeigen
+    if Path(path_str).is_symlink():
+        raise ValueError("Ungültiger Pfad: Symlinks sind nicht erlaubt")
     # Prüfe Filename-Pattern
     if not re.fullmatch(r"combined_copycat_\d+\.(txt|json|md|html|pdf)", p.name):
         raise ValueError("Ungültiger Dateiname")

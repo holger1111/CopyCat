@@ -13,11 +13,16 @@ htmlcov/
 .coverage
 *.cover
 
-# Coverage-Reports (lokal)
+# Coverage-Reports und Test-Ausgaben (lokal)
 final_cov*.txt
 full_cov*.txt
+cov_full*.txt
+cov_output*.txt
 web_test.txt
+full_test_output.txt
 coverage.xml
+_fix_readmes.py
+cov_output_new.txt
 
 # Tests - Unit Test immer inkludieren
 !test_copycat.py
