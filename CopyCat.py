@@ -313,7 +313,7 @@ def get_next_serial_number(base_path: Path) -> int:
     for p in existing:
         if is_valid_serial_filename(p.name):
             try:
-                match = re.match(r"^combined_copycat_(\d+)\.(txt|json|md|html)$", p.name)
+                match = re.match(r"^combined_copycat_(\d+)\.(txt|json|md|html|pdf)$", p.name)
                 num = int(match.group(1))
                 max_num = max(max_num, num)
             except (ValueError, AttributeError):  # pragma: no cover
@@ -401,7 +401,7 @@ def _collect_cells(tree) -> list:
             continue
         try:
             inner_xml = _decode_drawio_compressed(text)
-            inner_tree = ET.fromstring(inner_xml)
+            inner_tree = _safe_xml_parse(inner_xml)
             cells.extend(inner_tree.iter("mxCell"))
         except Exception:
             pass
@@ -431,6 +431,24 @@ def _write_cells(writer, drawio_file, tree):
     writer.write(f"DIAGRAM {drawio_file.name}: {cells} Cells, {texts} Texte, {unique} Unique\n")
 
 
+def _safe_xml_parse(xml_bytes_or_str):
+    """Parse XML with protection against entity expansion bombs (billion laughs)."""
+    # Use defusedxml if available, otherwise limit entity expansion
+    try:
+        import defusedxml.ElementTree as SafeET
+        return SafeET.fromstring(xml_bytes_or_str if isinstance(xml_bytes_or_str, str)
+                                  else xml_bytes_or_str.decode("utf-8"))
+    except ImportError:
+        pass
+    # Fallback: stdlib with entity expansion limit (Python 3.7.2+)
+    if hasattr(ET, 'XMLParser'):
+        parser = ET.XMLParser()
+        parser.feed(xml_bytes_or_str if isinstance(xml_bytes_or_str, str)
+                    else xml_bytes_or_str.decode("utf-8"))
+        return parser.close()
+    return ET.fromstring(xml_bytes_or_str)
+
+
 def extract_drawio(writer, drawio_file):
     try:
         size = drawio_file.stat().st_size
@@ -446,7 +464,7 @@ def extract_drawio(writer, drawio_file):
         with open(drawio_file, "r", encoding="utf-8") as f:
             xml_content = f.read()
 
-        tree = ET.fromstring(xml_content)
+        tree = _safe_xml_parse(xml_content)
         _write_cells(writer, drawio_file, tree)
 
     except ET.ParseError as e:
@@ -462,7 +480,7 @@ def extract_drawio(writer, drawio_file):
                     return
                 with zf.open(xml_names[0]) as xf:
                     xml_content = xf.read().decode("utf-8")
-            tree = ET.fromstring(xml_content)
+            tree = _safe_xml_parse(xml_content)
             _write_cells(writer, drawio_file, tree)
         except zipfile.BadZipFile:
             writer.write(f"[BINARY: {drawio_file.name} - Invalid Encoding]\n")

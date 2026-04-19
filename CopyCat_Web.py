@@ -30,7 +30,14 @@ from CopyCat import TYPE_FILTERS, load_plugins, run_copycat
 # ── Flask-App ────────────────────────────────────────────────────────────────
 app = Flask(__name__)
 app.secret_key = os.urandom(32)  # wird in __main__ ggf. überschrieben
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 _run_lock = threading.Lock()
+
+# Brute-Force-Schutz: Login-Versuche pro IP begrenzen
+_login_attempts: dict = {}  # IP → {"count": int, "last": float}
+_MAX_LOGIN_ATTEMPTS = 5
+_LOGIN_LOCKOUT_SECONDS = 300  # 5 Minuten
 
 
 # ── Authentifizierung ────────────────────────────────────────────────────────
@@ -106,10 +113,28 @@ def _require_auth():
 def login():
     if request.method == "GET":
         return render_template_string(_LOGIN_TEMPLATE, error=None)
+    # Brute-Force-Schutz
+    import time as _time
+    client_ip = request.remote_addr or "unknown"
+    now = _time.time()
+    attempt_info = _login_attempts.get(client_ip, {"count": 0, "last": 0.0})
+    if attempt_info["count"] >= _MAX_LOGIN_ATTEMPTS:
+        if now - attempt_info["last"] < _LOGIN_LOCKOUT_SECONDS:
+            remaining = int(_LOGIN_LOCKOUT_SECONDS - (now - attempt_info["last"]))
+            return render_template_string(
+                _LOGIN_TEMPLATE,
+                error=f"Zu viele Fehlversuche. Bitte {remaining}s warten.",
+            ), 429
+        # Lockout abgelaufen → Reset
+        attempt_info = {"count": 0, "last": 0.0}
     provided = request.form.get("token", "")
     if _check_token(provided):
+        _login_attempts.pop(client_ip, None)
         session["authenticated"] = True
         return redirect(url_for("index"))
+    attempt_info["count"] += 1
+    attempt_info["last"] = now
+    _login_attempts[client_ip] = attempt_info
     return render_template_string(_LOGIN_TEMPLATE, error="Ungültiges Token. Bitte erneut versuchen.")
 
 # ── HTML-Template (inline, kein separates templates/-Verzeichnis nötig) ──────
@@ -452,10 +477,10 @@ def _validate_report_path(path_str: str) -> Path:
     """Validiert Pfad gegen Path-Traversal. Gibt Path zurück oder wirft ValueError."""
     if not path_str:
         raise ValueError("Ungültiger Pfad")
-    # Blockiere nur echte Traversal-Attacken (../) aber erlaube absolute und relative Pfade
-    if "../" in path_str or "\\..\\" in path_str:  # Windows und Unix Varianten
-        raise ValueError("Ungültiger Pfad: Path-Traversal erkannt")
     p = Path(path_str).resolve()
+    # Prüfe ob '..' als Pfadkomponente vorkommt (Path-Traversal)
+    if ".." in Path(path_str).parts:
+        raise ValueError("Ungültiger Pfad: Path-Traversal erkannt")
     # Prüfe Filename-Pattern
     if not re.fullmatch(r"combined_copycat_\d+\.(txt|json|md|html|pdf)", p.name):
         raise ValueError("Ungültiger Dateiname")
@@ -569,5 +594,13 @@ if __name__ == "__main__":  # pragma: no cover
             "Setze --auth-token oder COPYCAT_WEB_TOKEN um den Zugriff zu beschränken.",
             web_args.host,
         )
+    # Debug-Modus auf nicht-localhost verweigern (Werkzeug-Debugger = RCE-Risiko)
+    if web_args.debug and web_args.host != "127.0.0.1":
+        logging.error(
+            "FEHLER: Debug-Modus auf %s nicht erlaubt (Remote Code Execution Risiko). "
+            "Verwende --host 127.0.0.1 für Debug.",
+            web_args.host,
+        )
+        sys.exit(1)
     print(f"CopyCat Web-Interface läuft auf http://{web_args.host}:{web_args.port}")
     app.run(host=web_args.host, port=web_args.port, debug=web_args.debug)

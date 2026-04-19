@@ -269,10 +269,6 @@ class CopyCatGUI:
             self._stats_var.set(cfg["stats"].lower() in ("true", "yes", "1"))
         if "git_url" in cfg:
             self._git_url_var.set(cfg["git_url"])
-        if "git_url" in cfg:
-            self._git_url_var.set(cfg["git_url"])
-        if "git_url" in cfg:
-            self._git_url_var.set(cfg["git_url"])
 
     def _save_config(self):
         path = filedialog.asksaveasfilename(
