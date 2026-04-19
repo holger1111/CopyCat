@@ -733,7 +733,9 @@ README_GER.md
 
 3. `git commit -m "feat/fix/docs/test/ci: Beschreibung"`
 
-**Tests:** 442 Tests, 100 % Branch-Coverage (CLI, Serial, Gitignore, Draw.io, GUI, Watch, Templates, Diff, Merge, Hook, Plugins, PDF, KI, Timeline, …)
+**Tests:** 530 Tests, 100 % Branch-Coverage (CLI, Serial, Gitignore, Draw.io, GUI, Watch, Templates, Diff, Merge, Hook, Plugins, PDF, KI, Timeline, CSV, Typ-Annotationen, …)
+
+**Typsicherheit:** `py -m mypy copycat/ CopyCat.py --ignore-missing-imports --strict` → 0 Fehler in allen 24 Quelldateien
 
 **CI:** GitHub Actions → pytest + Coverage-Badges (Codecov)
 

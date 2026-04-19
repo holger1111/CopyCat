@@ -21,12 +21,11 @@ def get_next_serial_number(base_path: Path) -> int:
     existing = list(base_path.glob("combined_copycat*"))
     max_num = 0
     for p in existing:
-        if is_valid_serial_filename(p.name):
+        match = re.match(r"^combined_copycat_(\d+)\.(txt|json|md|html|pdf)$", p.name)
+        if match is not None:
             try:
-                match = re.match(r"^combined_copycat_(\d+)\.(txt|json|md|html|pdf)$", p.name)
-                if match is not None:
-                    num = int(match.group(1))
-                    max_num = max(max_num, num)
+                num = int(match.group(1))
+                max_num = max(max_num, num)
             except (ValueError, AttributeError):  # pragma: no cover
                 continue
     return max_num + 1

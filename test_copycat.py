@@ -6311,3 +6311,60 @@ def test_plugins_spec_none(tmp_path, monkeypatch):
     assert "myplugin" not in result
 
 
+def test_html_exporter_notebook_csv(tmp_path):
+    """html exporter: notebook-Zweig mit .csv-Datei (deckt html.py:124 ab)."""
+    import argparse
+    from copycat.exporters.html import _write_html
+    from copycat.utils.plugins import TYPE_FILTERS
+
+    csv_path = tmp_path / "data.csv"
+    csv_path.write_text("name,value\nalpha,1\nbeta,2\n", encoding="utf-8")
+    files: dict = {k: [] for k in TYPE_FILTERS}
+    files["notebook"] = [csv_path]
+    out_file = tmp_path / "out.html"
+    args = argparse.Namespace(
+        input_dir=str(tmp_path), output_dir=str(tmp_path),
+        format="html", search=None, process_all=True,
+        selected_types=[], recursive=True, types=["all"],
+    )
+    _write_html(
+        path=out_file, files=files, args=args, input_dir=tmp_path,
+        git_info="", serial=1, search_pattern=None, search_results=None,
+        cache=None, stats=None,
+    )
+    out = out_file.read_text(encoding="utf-8")
+    assert "data.csv" in out
+    assert "NOTEBOOK" in out
+
+
+def test_extract_csv_stat_oserror(tmp_path, monkeypatch):
+    """csv_extractor: äußerer except-OSError-Zweig – stat() wirft OSError (Zeile 163)."""
+    import copycat.extractors.csv_extractor as _ce
+
+    csv_path = tmp_path / "test.csv"
+    csv_path.write_text("a,b\n1,2\n", encoding="utf-8")
+
+    def _raise_stat(*a: object, **kw: object) -> object:
+        raise OSError("stat error")
+
+    monkeypatch.setattr(_Path, "stat", _raise_stat)
+    buf = _io_mod.StringIO()
+    _ce.extract_csv(buf, csv_path)
+    assert "[CSV READ ERROR:" in buf.getvalue()
+
+
+def test_extract_csv_generic_exception(tmp_path, monkeypatch):
+    """csv_extractor: except Exception-Zweig wird abgedeckt (Zeilen 164-165)."""
+    import copycat.extractors.csv_extractor as _ce
+
+    csv_path = tmp_path / "test.csv"
+    csv_path.write_text("a,b\n1,2\n3,4\n", encoding="utf-8")
+
+    def _raise_err(values: list) -> dict:
+        raise RuntimeError("simulated error")
+
+    monkeypatch.setattr(_ce, "_col_stats", _raise_err)
+    buf = _io_mod.StringIO()
+    _ce.extract_csv(buf, csv_path)
+    assert "[CSV ERROR:" in buf.getvalue()
+
