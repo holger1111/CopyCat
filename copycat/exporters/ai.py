@@ -2,10 +2,17 @@
 
 import logging
 from pathlib import Path
+from typing import Any
 
 
-def _generate_ai_summary(files: dict, input_dir, git_info: str, stats=None,
-                          model: str = "gpt-4o-mini", base_url: str = None) -> str:
+def _generate_ai_summary(
+    files: dict[str, list[Path]],
+    input_dir: Path,
+    git_info: str,
+    stats: dict[str, Any] | None = None,
+    model: str = "gpt-4o-mini",
+    base_url: str | None = None,
+) -> str:
     """Generate an AI project summary using an OpenAI-compatible API.
 
     The API key is read exclusively from the ``COPYCAT_AI_KEY`` environment variable.
@@ -58,7 +65,7 @@ def _generate_ai_summary(files: dict, input_dir, git_info: str, stats=None,
         "Projektbeschreibung:\n" + "\n".join(desc_lines)
     )
 
-    client_kwargs: dict = {"api_key": api_key}
+    client_kwargs: dict[str, str] = {"api_key": api_key}
     if base_url:
         client_kwargs["base_url"] = base_url
 
@@ -70,6 +77,7 @@ def _generate_ai_summary(files: dict, input_dir, git_info: str, stats=None,
             max_tokens=400,
             temperature=0.3,
         )
-        return response.choices[0].message.content.strip()
+        content = response.choices[0].message.content
+        return str(content).strip() if content is not None else ""
     except Exception as exc:
         raise ValueError(f"AI-API-Fehler: {exc}") from exc

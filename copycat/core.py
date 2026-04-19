@@ -12,6 +12,7 @@ import threading
 import time
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlparse
 
 from .exporters.ai import _generate_ai_summary
@@ -36,7 +37,7 @@ from .utils.search import _build_search_results
 from .utils.stats import _build_stats
 
 
-def load_config(config_path=None):
+def load_config(config_path: str | Path | None = None) -> dict[str, str]:
     """Load copycat.conf and return a dict of raw string settings.
 
     Search order (first match wins):
@@ -76,7 +77,7 @@ def load_config(config_path=None):
     return {}
 
 
-def parse_arguments(config_path=None):
+def parse_arguments(config_path: str | Path | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="CopyCat v2.9 - Projekt-Dokumentierer"
     )
@@ -263,7 +264,7 @@ def parse_arguments(config_path=None):
                 _key, ", ".join(sorted(_KNOWN_CONFIG_KEYS)),
             )
 
-    overrides = {}
+    overrides: dict[str, Any] = {}
     if "types" in cfg:
         parts = [t.strip() for t in cfg["types"].replace(",", " ").split()]
         if parts:
@@ -318,29 +319,29 @@ def parse_arguments(config_path=None):
 def diff_reports(path_a: Path, path_b: Path) -> str:
     """Compare two CopyCat reports (TXT or JSON) and return a formatted diff summary."""
 
-    def _parse_txt(text: str) -> dict:
+    def _parse_txt(text: str) -> dict[str, Any]:
         import re
         m = re.search(r"CopyCat v[\d.]+ \| (.+?) \|", text)
         date_str = m.group(1) if m else "unbekannt"
-        type_counts = {
+        type_counts: dict[str, int] = {
             mo.group(1).lower(): int(mo.group(2))
             for mo in re.finditer(r"^(\w+): (\d+) Datei", text, re.MULTILINE)
         }
-        files = {fm.group(1) for fm in re.finditer(r"^----- (.+?) -----$", text, re.MULTILINE)}
+        files: set[str] = {fm.group(1) for fm in re.finditer(r"^----- (.+?) -----$", text, re.MULTILINE)}
         return {"date": date_str, "types": type_counts, "files": files}
 
-    def _parse_json_report(text: str) -> dict:
+    def _parse_json_report(text: str) -> dict[str, Any]:
         data = json.loads(text)
-        date_str = data.get("generated", "unbekannt")
+        date_str: str = data.get("generated", "unbekannt")
         type_counts = data.get("types", {})
-        files = {
+        files: set[str] = {
             e["name"]
             for entries in data.get("details", {}).values()
             for e in entries
         }
         return {"date": date_str, "types": type_counts, "files": files}
 
-    def _parse_report(path: Path) -> dict:
+    def _parse_report(path: Path) -> dict[str, Any]:
         text = path.read_text(encoding="utf-8")
         return _parse_json_report(text) if path.suffix.lower() == ".json" else _parse_txt(text)
 
@@ -427,7 +428,7 @@ def install_hook(project_dir: Path) -> Path:
     return hook_path
 
 
-def merge_reports(paths: list, output: Path = None) -> str:
+def merge_reports(paths: list[Path], output: Path | None = None) -> str:
     """Merge multiple CopyCat TXT/JSON reports into one combined report string."""
     sections = []
     for path in paths:
@@ -464,7 +465,7 @@ def merge_reports(paths: list, output: Path = None) -> str:
     return merged
 
 
-def watch_and_run(args, cooldown: float = 2.0, stop_event=None):
+def watch_and_run(args: argparse.Namespace, cooldown: float = 2.0, stop_event: threading.Event | None = None) -> None:
     """Watch the input directory for changes and re-run CopyCat.
 
     Requires: pip install watchdog
@@ -486,7 +487,7 @@ def watch_and_run(args, cooldown: float = 2.0, stop_event=None):
     last_event_time = [0.0]
 
     class _Handler(FileSystemEventHandler):
-        def on_any_event(self, event):
+        def on_any_event(self, event: Any) -> None:
             if not event.is_directory:
                 last_event_time[0] = time.monotonic()
 
@@ -516,7 +517,7 @@ def watch_and_run(args, cooldown: float = 2.0, stop_event=None):
         observer.join()
 
 
-def run_copycat(args):
+def run_copycat(args: argparse.Namespace) -> str | None:
     git_url = getattr(args, "git_url", None)
     _tmp_dir_obj = None
 
@@ -616,7 +617,7 @@ def run_copycat(args):
     search_results = _build_search_results(files, search_pattern) if search_pattern else {}
 
     # ── Inkrementeller Cache ─────────────────────────────────────────────────
-    cache_map: dict = {}
+    cache_map: dict[Path, dict[str, Any]] = {}
     if getattr(args, "incremental", False):
         cache_dir = output_dir / ".copycat_cache"
         cache_file = cache_dir / "cache.json"
@@ -626,7 +627,7 @@ def run_copycat(args):
             _cleanup_cache(cache_dir, cache_max_age)
 
         raw_cache = _load_cache(cache_file)
-        new_entries: dict = {}
+        new_entries: dict[str, Any] = {}
         for code_file in files.get("code", []):
             rel_key = code_file.relative_to(input_dir).as_posix()
             current_hash = _hash_file(code_file)

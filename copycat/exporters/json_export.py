@@ -1,11 +1,24 @@
 """JSON report exporter."""
 
+import argparse
 import json
 from datetime import datetime
+from pathlib import Path
+from typing import Any
 
 
-def _write_json(path, files, args, input_dir, git_info, serial,
-                search_pattern=None, search_results=None, cache=None, stats=None):
+def _write_json(
+    path: Path,
+    files: dict[str, list[Path]],
+    args: argparse.Namespace,
+    input_dir: Path,
+    git_info: str,
+    serial: int,
+    search_pattern: str | None = None,
+    search_results: dict[Path, list[tuple[int, str]]] | None = None,
+    cache: dict[Path, Any] | None = None,
+    stats: dict[str, Any] | None = None,
+) -> None:
     """Write JSON report."""
     selected_types = args.types if args.types else ["all"]
     process_all = "all" in selected_types
@@ -68,5 +81,5 @@ def _write_json(path, files, args, input_dir, git_info, serial,
         "details": types_out,
     }
 
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(report, f, ensure_ascii=False, indent=2)
+    with open(path, "w", encoding="utf-8") as out_f:
+        json.dump(report, out_f, ensure_ascii=False, indent=2)

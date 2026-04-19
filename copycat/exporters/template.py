@@ -1,13 +1,21 @@
 """Jinja2 template-based report exporter."""
 
+import argparse
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 
 def _write_template(
-    template_path, files, args, input_dir, git_info, serial,
-    search_pattern=None, search_results=None,
-):
+    template_path: str | Path,
+    files: dict[str, list[Path]],
+    args: argparse.Namespace,
+    input_dir: Path,
+    git_info: str,
+    serial: int,
+    search_pattern: str | None = None,
+    search_results: dict[Path, list[tuple[int, str]]] | None = None,
+) -> str:
     """Render a Jinja2 template with CopyCat report context.
 
     Requires: pip install jinja2

@@ -1,13 +1,26 @@
 """PDF report exporter (requires reportlab)."""
 
+import argparse
 from datetime import datetime
+from pathlib import Path
+from typing import Any
 
 from ..utils.files import get_plural
 from .html import _html_escape
 
 
-def _write_pdf(path, files, args, input_dir, git_info, serial,
-               search_pattern=None, search_results=None, cache=None, stats=None):
+def _write_pdf(
+    path: Path,
+    files: dict[str, list[Path]],
+    args: argparse.Namespace,
+    input_dir: Path,
+    git_info: str,
+    serial: int,
+    search_pattern: str | None = None,
+    search_results: dict[Path, list[tuple[int, str]]] | None = None,
+    cache: dict[Path, Any] | None = None,
+    stats: dict[str, Any] | None = None,
+) -> None:
     """Write PDF report using reportlab.
 
     Requires: pip install reportlab

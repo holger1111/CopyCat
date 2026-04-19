@@ -6,7 +6,7 @@ import re
 from pathlib import Path
 
 
-def search_in_file(file_path, pattern):
+def search_in_file(file_path: Path, pattern: str) -> list[tuple[int, str]]:
     """Search regex pattern in a text file. Returns list of (lineno, text) tuples.
 
     Sicherheit: Regex-Timeout gegen ReDoS (Catastrophic Backtracking).
@@ -16,7 +16,7 @@ def search_in_file(file_path, pattern):
         if pattern.count("|") > 20 or len(pattern) > 5000:
             logging.warning("Regex-Pattern zu komplex, übersprungen: %s...", pattern[:50])
             return []
-        compiled = re.compile(pattern, timeout=1)  # 1 Sekunde Timeout
+        compiled = re.compile(pattern, timeout=1)  # type: ignore[call-overload]  # 1 Sekunde Timeout
     except re.error:  # pragma: no cover
         return []  # pragma: no cover
     except (TypeError, AttributeError):
@@ -40,7 +40,7 @@ def search_in_file(file_path, pattern):
     return matches
 
 
-def _build_search_results(files, pattern):
+def _build_search_results(files: dict[str, list[Path]], pattern: str) -> dict[Path, list[tuple[int, str]]]:
     """Search pattern in all text-based files in parallel. Returns {Path: [(lineno, text)]}."""
     SEARCHABLE = {"code", "web", "db", "config", "docs", "deps"}
     candidates = [

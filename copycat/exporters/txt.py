@@ -1,6 +1,9 @@
 """Plain-text report exporter."""
 
+import argparse
 from datetime import datetime
+from pathlib import Path
+from typing import IO, Any
 
 from ..extractors.binary import list_binary_file
 from ..extractors.drawio import extract_drawio
@@ -9,8 +12,18 @@ from ..utils.files import get_plural
 from ..utils.plugins import TYPE_FILTERS, PLUGIN_RENDERERS
 
 
-def _write_txt(writer, files, args, input_dir, git_info, serial,
-               search_pattern=None, search_results=None, cache=None, stats=None):
+def _write_txt(
+    writer: IO[str],
+    files: dict[str, list[Path]],
+    args: argparse.Namespace,
+    input_dir: Path,
+    git_info: str,
+    serial: int,
+    search_pattern: str | None = None,
+    search_results: dict[Path, list[tuple[int, str]]] | None = None,
+    cache: dict[Path, Any] | None = None,
+    stats: dict[str, Any] | None = None,
+) -> None:
     """Write TXT report."""
     mode_text = "REKURSIV" if args.recursive else "FLACH (Default)"
     writer.write(
@@ -114,8 +127,10 @@ def _write_txt(writer, files, args, input_dir, git_info, serial,
             elif t == "notebook":
                 extract_notebook(writer, bfile)
             elif t in PLUGIN_RENDERERS and PLUGIN_RENDERERS[t] is not None:
+                renderer = PLUGIN_RENDERERS[t]
+                assert renderer is not None
                 try:
-                    PLUGIN_RENDERERS[t](bfile, writer, args)
+                    renderer(bfile, writer, args)
                 except Exception as exc:
                     writer.write(f"[Plugin-Fehler: {exc}]\n")
             else:

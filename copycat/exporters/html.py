@@ -1,7 +1,10 @@
 """HTML report exporter and shared _html_escape helper."""
 
+import argparse
 import logging
 from datetime import datetime
+from pathlib import Path
+from typing import Any
 
 from ..utils.files import get_plural
 from ..utils.plugins import TYPE_FILTERS, PLUGIN_RENDERERS
@@ -12,8 +15,18 @@ def _html_escape(s: str) -> str:
     return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
 
 
-def _write_html(path, files, args, input_dir, git_info, serial,
-                search_pattern=None, search_results=None, cache=None, stats=None):
+def _write_html(
+    path: Path,
+    files: dict[str, list[Path]],
+    args: argparse.Namespace,
+    input_dir: Path,
+    git_info: str,
+    serial: int,
+    search_pattern: str | None = None,
+    search_results: dict[Path, list[tuple[int, str]]] | None = None,
+    cache: dict[Path, Any] | None = None,
+    stats: dict[str, Any] | None = None,
+) -> None:
     """Write a self-contained HTML report with optional Pygments syntax highlighting."""
     try:
         from pygments import highlight

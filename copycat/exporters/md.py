@@ -1,14 +1,27 @@
 """Markdown report exporter."""
 
+import argparse
 from datetime import datetime
+from pathlib import Path
+from typing import IO, Any
 
 from ..extractors.notebook import extract_notebook
 from ..utils.files import get_plural
 from ..utils.plugins import TYPE_FILTERS, PLUGIN_RENDERERS
 
 
-def _write_md(writer, files, args, input_dir, git_info, serial,
-              search_pattern=None, search_results=None, cache=None, stats=None):
+def _write_md(
+    writer: IO[str],
+    files: dict[str, list[Path]],
+    args: argparse.Namespace,
+    input_dir: Path,
+    git_info: str,
+    serial: int,
+    search_pattern: str | None = None,
+    search_results: dict[Path, list[tuple[int, str]]] | None = None,
+    cache: dict[Path, Any] | None = None,
+    stats: dict[str, Any] | None = None,
+) -> None:
     """Write Markdown report."""
     mode_text = "Rekursiv" if args.recursive else "Flach"
     total_files = sum(len(files[t]) for t in files)
@@ -96,8 +109,10 @@ def _write_md(writer, files, args, input_dir, git_info, serial,
         elif t in PLUGIN_RENDERERS and PLUGIN_RENDERERS[t] is not None:
             for bfile in files[t]:
                 writer.write(f"### {bfile.name}\n\n```\n")
+                renderer = PLUGIN_RENDERERS[t]
+                assert renderer is not None
                 try:
-                    PLUGIN_RENDERERS[t](bfile, writer, args)
+                    renderer(bfile, writer, args)
                 except Exception as exc:
                     writer.write(f"[Plugin-Fehler: {exc}]\n")
                 writer.write("```\n\n")

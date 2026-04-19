@@ -5,6 +5,8 @@ import logging
 import xml.etree.ElementTree as ET
 import zipfile
 import zlib
+from pathlib import Path
+from typing import IO, Any
 from urllib.parse import unquote
 
 
@@ -15,7 +17,7 @@ def _decode_drawio_compressed(data: str) -> str:
     return unquote(xml_bytes.decode("utf-8"))
 
 
-def _safe_xml_parse(xml_bytes_or_str):
+def _safe_xml_parse(xml_bytes_or_str: str | bytes) -> Any:
     """Parse XML with protection against entity expansion bombs (billion laughs)."""
     try:
         import defusedxml.ElementTree as SafeET
@@ -31,7 +33,7 @@ def _safe_xml_parse(xml_bytes_or_str):
     return ET.fromstring(xml_bytes_or_str)  # pragma: no cover
 
 
-def _collect_cells(tree) -> list:
+def _collect_cells(tree: Any) -> list[Any]:
     """Collect mxCell elements from tree, decompressing diagram content if needed."""
     cells = list(tree.iter("mxCell"))
     if cells:
@@ -49,7 +51,7 @@ def _collect_cells(tree) -> list:
     return cells
 
 
-def _write_cells(writer, drawio_file, tree):
+def _write_cells(writer: IO[str], drawio_file: Path, tree: Any) -> None:
     """Count and write mxCell entries from tree (compressed or plain)."""
     cells_list = _collect_cells(tree)
     cells, texts = 0, 0
@@ -72,7 +74,7 @@ def _write_cells(writer, drawio_file, tree):
     writer.write(f"DIAGRAM {drawio_file.name}: {cells} Cells, {texts} Texte, {unique} Unique\n")
 
 
-def extract_drawio(writer, drawio_file):
+def extract_drawio(writer: IO[str], drawio_file: Path) -> None:
     try:
         size = drawio_file.stat().st_size
         if size == 0:

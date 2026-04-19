@@ -1,9 +1,11 @@
 """File collection, serial numbering, archiving and exclusion helpers."""
 
+import argparse
 import fnmatch
 import logging
 import re
 import shutil
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 from .git import should_skip_gitignore
@@ -22,14 +24,15 @@ def get_next_serial_number(base_path: Path) -> int:
         if is_valid_serial_filename(p.name):
             try:
                 match = re.match(r"^combined_copycat_(\d+)\.(txt|json|md|html|pdf)$", p.name)
-                num = int(match.group(1))
-                max_num = max(max_num, num)
+                if match is not None:
+                    num = int(match.group(1))
+                    max_num = max(max_num, num)
             except (ValueError, AttributeError):  # pragma: no cover
                 continue
     return max_num + 1
 
 
-def move_to_archive(base_path: Path, filename: str):
+def move_to_archive(base_path: Path, filename: str) -> None:
     archive_path = base_path / "CopyCat_Archive"
     archive_path.mkdir(exist_ok=True)
 
@@ -41,11 +44,11 @@ def move_to_archive(base_path: Path, filename: str):
             logging.warning("Archiv-Fehler %s: %s", filename, e)
 
 
-def get_plural(count):
+def get_plural(count: int) -> str:
     return "Datei" if count == 1 else "Dateien"
 
 
-def _should_exclude(candidate, input_dir, exclude_patterns):
+def _should_exclude(candidate: Path, input_dir: Path, exclude_patterns: list[str]) -> bool:
     """Prüft ob candidate auf ein Exclude-Glob-Muster passt."""
     if not exclude_patterns:
         return False
@@ -66,7 +69,14 @@ def _should_exclude(candidate, input_dir, exclude_patterns):
     return False
 
 
-def size_filtered_glob(search_method, patterns, max_bytes, script_file, input_dir, exclude_patterns=None):
+def size_filtered_glob(
+    search_method: Callable[[str], Iterator[Path]],
+    patterns: list[str],
+    max_bytes: float,
+    script_file: Path,
+    input_dir: Path,
+    exclude_patterns: list[str] | None = None,
+) -> Iterator[Path]:
     total_checked = 0
     for pat in patterns:
         for candidate in search_method(pat):
@@ -89,9 +99,9 @@ def size_filtered_glob(search_method, patterns, max_bytes, script_file, input_di
     logging.info("→ %d geprüft, Filter OK", total_checked)
 
 
-def _collect_files(args, input_dir, script_file):
+def _collect_files(args: argparse.Namespace, input_dir: Path, script_file: Path) -> dict[str, list[Path]]:
     """Collect and return files dict based on args."""
-    files = {k: [] for k in TYPE_FILTERS}
+    files: dict[str, list[Path]] = {k: [] for k in TYPE_FILTERS}
     selected_types = args.types if args.types else ["all"]
     process_all = "all" in selected_types
     search_method = input_dir.rglob if args.recursive else input_dir.glob

@@ -2,10 +2,11 @@
 
 import re
 from pathlib import Path
+from typing import Any
 
 
 # Mapping Dateiendung → Tuple von Zeilenpräfixen, die als Kommentar gewertet werden
-_COMMENT_PREFIXES: dict = {
+_COMMENT_PREFIXES: dict[str, tuple[str, ...]] = {
     ".py": ("#", '"""', "'''"),
     ".rb": ("#",), ".sh": ("#",), ".bash": ("#",), ".r": ("#",),
     ".yml": ("#",), ".yaml": ("#",), ".toml": ("#",),
@@ -22,7 +23,7 @@ _COMMENT_PREFIXES: dict = {
 }
 
 
-def _analyse_file(path: Path) -> dict:
+def _analyse_file(path: Path) -> dict[str, Any]:
     """Analyse a source file: count LOC, blank, comment, code lines + cyclomatic complexity."""
     try:
         text = path.read_text(encoding="utf-8")
@@ -56,10 +57,10 @@ def _analyse_file(path: Path) -> dict:
     return {"loc": len(lines), "code": code, "comments": comments, "blank": blank, "complexity": complexity}
 
 
-def _build_stats(files: dict, cache: dict = None) -> dict:
+def _build_stats(files: dict[str, list[Path]], cache: dict[Path, Any] | None = None) -> dict[str, Any]:
     """Build per-file and aggregate stats for all code files."""
     cache = cache or {}
-    per_file: dict = {}
+    per_file: dict[Path, dict[str, Any]] = {}
     for f in files.get("code", []):
         if f in cache and cache[f].get("stats"):
             per_file[f] = cache[f]["stats"]
@@ -70,7 +71,7 @@ def _build_stats(files: dict, cache: dict = None) -> dict:
         total_code = sum(v["code"] for v in per_file.values())
         total_comments = sum(v["comments"] for v in per_file.values())
         total_blank = sum(v["blank"] for v in per_file.values())
-        complexities = [v["complexity"] for v in per_file.values() if v["complexity"] is not None]
+        complexities: list[int] = [v["complexity"] for v in per_file.values() if v["complexity"] is not None]
         avg_c = round(sum(complexities) / len(complexities), 1) if complexities else None
         max_c = max(complexities) if complexities else None
         comment_ratio = round(total_comments / total_loc * 100, 1) if total_loc else 0.0

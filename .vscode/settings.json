@@ -3,6 +3,18 @@
         "git add": true,
         "git commit": true,
         "git push": true,
-        "py": true
+        "py": true,
+        "/^python -m pytest test_copycat\\.py --cov=CopyCat --cov=CopyCat_Web --cov-report=term-missing 2>&1 \\| findstr /V \"\\^\\$\" \\| findstr /i \"MISS\\\\\\|missing\\\\\\|partial\\\\\\|CopyCat\"$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^python -m pytest test_copycat\\.py --cov=CopyCat --cov=CopyCat_Web --cov-report=term-missing 2>&1$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^cd \"c:\\\\Users\\\\holge_l\\\\OneDrive\\\\Archiv\\\\Programme\\\\CopyCat\" && python -c \"\nimport ast, sys\nwith open\\('CopyCat\\.py', encoding='utf-8'\\) as f:\n    src = f\\.read\\(\\)\ntree = ast\\.parse\\(src\\)\nfor node in ast\\.walk\\(tree\\):\n    if isinstance\\(node, \\(ast\\.FunctionDef, ast\\.AsyncFunctionDef, ast\\.ClassDef\\)\\):\n        if node\\.col_offset == 0:\n            print\\(f'L\\{node\\.lineno:4d\\}  \\{type\\(node\\)\\.__name__:15s\\}  \\{node\\.name\\}'\\)\n\"$/": {
+            "approve": true,
+            "matchCommandLine": true
+        }
     }
 }

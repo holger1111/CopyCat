@@ -3,9 +3,10 @@
 import importlib.util
 import logging
 from pathlib import Path
+from typing import Any, Callable, Optional
 
 
-TYPE_FILTERS: dict = {
+TYPE_FILTERS: dict[str, list[str]] = {
     "code": ["*.java", "*.py", "*.spec", "*.cpp", "*.c"],
     "web": ["*.html", "*.css", "*.js", "*.ts", "*.jsx"],
     "db": ["*.sql", "*.db", "*.sqlite", "*.csv"],
@@ -18,11 +19,11 @@ TYPE_FILTERS: dict = {
     "notebook": ["*.ipynb"],
 }
 
-PLUGIN_RENDERERS: dict = {}
-_loaded_plugins: list = []
+PLUGIN_RENDERERS: dict[str, Optional[Callable[..., None]]] = {}
+_loaded_plugins: list[str] = []
 
 
-def load_plugins(plugin_dir=None):
+def load_plugins(plugin_dir: str | Path | None = None) -> list[str]:
     """Lade CopyCat-Plugins aus plugin_dir.
 
     Jede .py-Datei (außer _*.py) muss definieren::
@@ -51,6 +52,9 @@ def load_plugins(plugin_dir=None):
         module_name = plugin_path.stem
         try:
             spec = importlib.util.spec_from_file_location(module_name, plugin_path)
+            if spec is None or spec.loader is None:
+                logging.warning("Plugin '%s': spec konnte nicht geladen werden", module_name)
+                continue
             module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(module)
         except Exception as exc:

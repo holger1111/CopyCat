@@ -2,9 +2,11 @@
 
 import logging
 import struct
+from pathlib import Path
+from typing import IO
 
 
-def list_binary_file(writer, bin_file):
+def list_binary_file(writer: IO[str], bin_file: Path) -> None:
     try:
         size = bin_file.stat().st_size
         if size == 0:

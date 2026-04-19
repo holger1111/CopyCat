@@ -3,12 +3,13 @@
 import json
 import re
 from pathlib import Path
+from typing import Any
 
 from ..utils.files import is_valid_serial_filename
 from .html import _html_escape
 
 
-def build_timeline(archive_dir=None, fmt: str = "md") -> str:
+def build_timeline(archive_dir: Path | None = None, fmt: str = "md") -> str:
     """Build a timeline from CopyCat archive reports.
 
     Reads all ``combined_copycat_N.*`` files from *archive_dir*
@@ -38,7 +39,7 @@ def build_timeline(archive_dir=None, fmt: str = "md") -> str:
         except OSError:
             continue
 
-        entry: dict = {"serial": serial_num, "date": "?", "total": 0, "types": {}}
+        entry: dict[str, Any] = {"serial": serial_num, "date": "?", "total": 0, "types": {}}
         if ext == "json":
             try:
                 data = json.loads(text)
@@ -70,7 +71,7 @@ def build_timeline(archive_dir=None, fmt: str = "md") -> str:
     return _timeline_md(entries)
 
 
-def _timeline_md(entries: list) -> str:
+def _timeline_md(entries: list[dict[str, Any]]) -> str:
     all_types = sorted({t for e in entries for t in e["types"]})
     header = "| Serial | Datum | Gesamt |" + "".join(f" {t.upper()} |" for t in all_types)
     sep = "|---|---|---|" + "|---|" * len(all_types)
@@ -82,7 +83,7 @@ def _timeline_md(entries: list) -> str:
     return "# CopyCat Report-Timeline\n\n" + header + "\n" + sep + "\n" + "\n".join(rows) + "\n"
 
 
-def _timeline_ascii(entries: list) -> str:
+def _timeline_ascii(entries: list[dict[str, Any]]) -> str:
     max_total = max((e["total"] for e in entries), default=1) or 1
     _w = 40
     lines = ["CopyCat Report-Timeline (ASCII)", "=" * 56]
@@ -93,7 +94,7 @@ def _timeline_ascii(entries: list) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _timeline_html(entries: list) -> str:
+def _timeline_html(entries: list[dict[str, Any]]) -> str:
     labels = json.dumps([f"#{e['serial']}" for e in entries])
     data_pts = json.dumps([e["total"] for e in entries])
     rows = "".join(

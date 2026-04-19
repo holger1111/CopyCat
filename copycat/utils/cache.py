@@ -5,6 +5,7 @@ import json
 import logging
 import time
 from pathlib import Path
+from typing import Any
 
 
 def _hash_file(path: Path) -> str:
@@ -50,21 +51,22 @@ def _cleanup_cache(cache_dir: Path, max_age_days: int) -> int:
         return 0
 
 
-def _load_cache(cache_file: Path) -> dict:
+def _load_cache(cache_file: Path) -> dict[str, Any]:
     """Load incremental cache from JSON. Returns {} on missing/invalid file."""
     if not cache_file.is_file():
         return {}
     try:
         with open(cache_file, "r", encoding="utf-8") as fh:
-            data = json.load(fh)
+            data: dict[str, Any] = json.load(fh)
         if data.get("version") != "1":
             return {}
-        return data.get("entries", {})
+        result: dict[str, Any] = data.get("entries", {})
+        return result
     except (OSError, json.JSONDecodeError, KeyError):
         return {}
 
 
-def _save_cache(cache_file: Path, entries: dict) -> None:
+def _save_cache(cache_file: Path, entries: dict[str, Any]) -> None:
     """Persist incremental cache entries to JSON with timestamps for cleanup."""
     try:
         cache_file.parent.mkdir(exist_ok=True)

@@ -1,9 +1,11 @@
 """Jupyter Notebook (.ipynb) cell extractor."""
 
 import json
+from pathlib import Path
+from typing import IO
 
 
-def extract_notebook(writer, nb_file):
+def extract_notebook(writer: IO[str], nb_file: Path) -> None:
     """Extract code and markdown cells from a Jupyter Notebook (.ipynb)."""
     try:
         with open(nb_file, "r", encoding="utf-8") as f:
