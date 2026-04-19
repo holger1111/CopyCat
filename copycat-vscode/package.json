@@ -2,9 +2,10 @@
   "name": "copycat-project-documenter",
   "displayName": "CopyCat – Project Documenter",
   "description": "Run CopyCat documentation reports directly from VS Code",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "holger1111",
   "license": "MIT",
+  "icon": "images/icon.png",
   "repository": {
     "type": "git",
     "url": "https://github.com/holger1111/CopyCat"
@@ -12,8 +13,15 @@
   "engines": {
     "vscode": "^1.85.0"
   },
-  "categories": ["Other"],
-  "keywords": ["documentation", "code", "report", "python"],
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "documentation",
+    "code",
+    "report",
+    "python"
+  ],
   "activationEvents": [],
   "main": "./out/extension.js",
   "contributes": {
@@ -44,7 +52,13 @@
         },
         "copycat.outputFormat": {
           "type": "string",
-          "enum": ["txt", "json", "md", "html", "pdf"],
+          "enum": [
+            "txt",
+            "json",
+            "md",
+            "html",
+            "pdf"
+          ],
           "enumDescriptions": [
             "Einfaches Textformat",
             "JSON-Format",
@@ -63,19 +77,26 @@
         },
         "copycat.excludePatterns": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "default": [],
           "description": "Glob-Muster oder Ordner zum Ausschließen, z.B. [\"*.min.js\", \"dist/\", \"node_modules/\"]."
         },
         "copycat.extraArgs": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "default": [],
           "description": "Zusätzliche CopyCat-Argumente, z.B. [\"--search\", \"TODO|FIXME\"]."
         },
         "copycat.lang": {
           "type": "string",
-          "enum": ["de", "en"],
+          "enum": [
+            "de",
+            "en"
+          ],
           "enumDescriptions": [
             "Report-Ausgabe auf Deutsch",
             "Report output in English"
@@ -95,7 +116,9 @@
   "jest": {
     "preset": "ts-jest",
     "testEnvironment": "node",
-    "testMatch": ["**/src/**/*.test.ts"],
+    "testMatch": [
+      "**/src/**/*.test.ts"
+    ],
     "moduleNameMapper": {
       "^vscode$": "<rootDir>/src/__mocks__/vscode.ts"
     }
