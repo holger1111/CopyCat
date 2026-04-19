@@ -1,11 +1,13 @@
 """HTML report exporter and shared _html_escape helper."""
 
 import argparse
+import io
 import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from ..extractors.csv_extractor import extract_csv
 from ..utils.files import get_plural
 from ..utils.plugins import TYPE_FILTERS, PLUGIN_RENDERERS
 
@@ -114,14 +116,31 @@ def _write_html(
     for t in types_to_process:
         if t == "code" or not files[t]:
             continue
-        rows = "".join(
-            f'<tr><td>{_html_escape(bfile.name)}</td><td>{bfile.stat().st_size} bytes</td></tr>'
-            for bfile in files[t]
-        )
-        other_sections.append(
-            f'<h2>{_html_escape(t.upper())}</h2>\n'
-            f'<table><tr><th>Datei</th><th>Gr\u00f6\u00dfe</th></tr>{rows}</table>\n'
-        )
+        if t == "notebook":
+            nb_parts = [f'<h2>{_html_escape(t.upper())}</h2>\n']
+            for bfile in files[t]:
+                buf = io.StringIO()
+                if bfile.suffix.lower() == ".csv":
+                    extract_csv(buf, bfile)
+                else:
+                    from ..extractors.notebook import extract_notebook  # local import to avoid cycle
+                    extract_notebook(buf, bfile)
+                nb_parts.append(
+                    f'<details><summary><strong>{_html_escape(bfile.name)}</strong>'
+                    f' <em style="color:#555">{bfile.stat().st_size} bytes</em></summary>\n'
+                    f'<pre style="background:#f8f8f8;padding:8px;overflow-x:auto">'
+                    f'{_html_escape(buf.getvalue())}</pre></details>\n'
+                )
+            other_sections.append("".join(nb_parts))
+        else:
+            rows = "".join(
+                f'<tr><td>{_html_escape(bfile.name)}</td><td>{bfile.stat().st_size} bytes</td></tr>'
+                for bfile in files[t]
+            )
+            other_sections.append(
+                f'<h2>{_html_escape(t.upper())}</h2>\n'
+                f'<table><tr><th>Datei</th><th>Größe</th></tr>{rows}</table>\n'
+            )
 
     # Search results section
     search_section = ""

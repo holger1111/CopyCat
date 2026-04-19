@@ -9,14 +9,14 @@ from typing import Any, Callable, Optional
 TYPE_FILTERS: dict[str, list[str]] = {
     "code": ["*.java", "*.py", "*.spec", "*.cpp", "*.c"],
     "web": ["*.html", "*.css", "*.js", "*.ts", "*.jsx"],
-    "db": ["*.sql", "*.db", "*.sqlite", "*.csv"],
+    "db": ["*.sql", "*.db", "*.sqlite"],
     "config": ["*.json", "*.yaml", "*.xml", "*.properties", "*.env"],
     "docs": ["*.md", "*.txt", "*.log", "*.docx"],
     "deps": ["requirements.txt", "package.json", "pom.xml", "go.mod"],
     "img": ["*.png", "*.jpg", "*.gif", "*.bmp", "*.webp", "*.svg", "*.ico"],
     "audio": ["*.mp3", "*.wav", "*.ogg", "*.m4a", "*.flac"],
     "diagram": ["*.drawio", "*.dia", "*.puml"],
-    "notebook": ["*.ipynb"],
+    "notebook": ["*.ipynb", "*.csv"],
 }
 
 PLUGIN_RENDERERS: dict[str, Optional[Callable[..., None]]] = {}

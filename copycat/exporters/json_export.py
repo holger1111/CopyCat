@@ -1,6 +1,8 @@
 """JSON report exporter."""
 
 import argparse
+import csv
+import io
 import json
 from datetime import datetime
 from pathlib import Path
@@ -51,6 +53,26 @@ def _write_json(
                         entry["lines"] = None
                 if stats and f in stats.get("per_file", {}):
                     entry["stats"] = stats["per_file"][f]
+            if t == "notebook" and f.suffix.lower() == ".csv":
+                try:
+                    raw = f.read_text(encoding="utf-8-sig", errors="replace")
+                    sample = raw[:4096]
+                    try:
+                        dialect = csv.Sniffer().sniff(sample, delimiters=",;\t|")
+                        delim = dialect.delimiter
+                    except csv.Error:
+                        delim = ","
+                    reader = csv.reader(io.StringIO(raw), delimiter=delim)
+                    all_rows = list(reader)
+                    headers = all_rows[0] if all_rows else []
+                    entry["csv"] = {
+                        "rows": max(0, len(all_rows) - 1),
+                        "columns": len(headers),
+                        "headers": headers,
+                        "delimiter": delim,
+                    }
+                except Exception:
+                    entry["csv"] = None
             if search_pattern is not None:
                 hits = (search_results or {}).get(f, [])
                 entry["matches"] = [{"line": ln, "text": txt} for ln, txt in hits]

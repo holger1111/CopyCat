@@ -5,6 +5,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import IO, Any
 
+from ..extractors.csv_extractor import extract_csv
 from ..extractors.notebook import extract_notebook
 from ..utils.files import get_plural
 from ..utils.plugins import TYPE_FILTERS, PLUGIN_RENDERERS
@@ -103,9 +104,14 @@ def _write_md(
         writer.write(f"## {t.upper()}\n\n")
         if t == "notebook":
             for bfile in files[t]:
-                writer.write(f"### {bfile.name}\n\n```\n")
-                extract_notebook(writer, bfile)
-                writer.write("```\n\n")
+                if bfile.suffix.lower() == ".csv":
+                    writer.write(f"### {bfile.name}\n\n```\n")
+                    extract_csv(writer, bfile)
+                    writer.write("```\n\n")
+                else:
+                    writer.write(f"### {bfile.name}\n\n```\n")
+                    extract_notebook(writer, bfile)
+                    writer.write("```\n\n")
         elif t in PLUGIN_RENDERERS and PLUGIN_RENDERERS[t] is not None:
             for bfile in files[t]:
                 writer.write(f"### {bfile.name}\n\n```\n")

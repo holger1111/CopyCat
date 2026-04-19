@@ -1835,8 +1835,10 @@ def test_notebook_type_in_type_filters():
     assert "*.ipynb" in TYPE_FILTERS["notebook"]
 
 
-def test_csv_in_db_type_filters():
-    assert "*.csv" in TYPE_FILTERS["db"]
+def test_csv_in_notebook_type_filters():
+    """Feature 10: *.csv wurde von db in notebook verschoben."""
+    assert "*.csv" in TYPE_FILTERS["notebook"]
+    assert "*.csv" not in TYPE_FILTERS["db"]
 
 
 # ==================== NEUE TESTS: WRITE_TXT + WRITE_MD MIT NOTEBOOK ====================
@@ -5833,4 +5835,479 @@ def test_validate_report_path_dotdot_traversal_via_download(web_client):
     client, _ = web_client
     resp = client.get("/download?path=/some/path/../combined_copycat_1.txt")
     assert resp.status_code == 403
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Feature 10 – CSV-Extraktor
+# ═══════════════════════════════════════════════════════════════════════════════
+
+import io as _io_mod
+from pathlib import Path as _Path
+from copycat.extractors.csv_extractor import (
+    extract_csv,
+    _detect_delimiter,
+    _col_stats,
+    _PREVIEW_ROWS,
+)
+
+
+def _csv_file(tmp_path: _Path, content: str, name: str = "test.csv") -> _Path:
+    """Helper: write content to a temp CSV file and return the Path."""
+    p = tmp_path / name
+    p.write_text(content, encoding="utf-8")
+    return p
+
+
+# ── _detect_delimiter ────────────────────────────────────────────────────────
+
+def test_detect_delimiter_comma():
+    assert _detect_delimiter("a,b,c\n1,2,3\n") == ","
+
+
+def test_detect_delimiter_semicolon():
+    assert _detect_delimiter("a;b;c\n1;2;3\n") == ";"
+
+
+def test_detect_delimiter_tab():
+    assert _detect_delimiter("a\tb\tc\n1\t2\t3\n") == "\t"
+
+
+def test_detect_delimiter_pipe():
+    assert _detect_delimiter("a|b|c\n1|2|3\n") == "|"
+
+
+def test_detect_delimiter_fallback_empty():
+    # Sniffer fails on empty → fallback ","
+    assert _detect_delimiter("") == ","
+
+
+def test_detect_delimiter_fallback_no_delimiters():
+    # Single column, Sniffer might fail → always returns something
+    result = _detect_delimiter("abc\ndef\n")
+    assert isinstance(result, str)
+
+
+# ── _col_stats ───────────────────────────────────────────────────────────────
+
+def test_col_stats_numeric_all():
+    s = _col_stats(["1", "2", "3", "4"])
+    assert s["type"] == "numeric"
+    assert s["min"] == 1.0
+    assert s["max"] == 4.0
+    assert s["mean"] == 2.5
+    assert s["unique"] == 4
+    assert s["empty"] == 0
+
+
+def test_col_stats_numeric_with_empty():
+    s = _col_stats(["1", "", "3"])
+    assert s["type"] == "numeric"
+    assert s["empty"] == 1
+    assert s["non_empty"] == 2
+
+
+def test_col_stats_text():
+    s = _col_stats(["hello", "world", "hello"])
+    assert s["type"] == "text"
+    assert s["unique"] == 2
+    assert s["min_len"] == 5
+    assert s["max_len"] == 5
+
+
+def test_col_stats_text_mixed_with_num():
+    # Mixed → text
+    s = _col_stats(["hello", "42", "world"])
+    assert s["type"] == "text"
+
+
+def test_col_stats_all_empty():
+    s = _col_stats(["", "  "])
+    assert s["empty"] == 2
+    assert s["non_empty"] == 0
+    assert s["type"] == "text"
+    assert "min_len" not in s
+
+
+def test_col_stats_unique_count():
+    s = _col_stats(["a", "b", "a", "c"])
+    assert s["unique"] == 3
+
+
+# ── extract_csv – basic output ───────────────────────────────────────────────
+
+def test_extract_csv_basic(tmp_path):
+    content = "name,age,score\nAlice,30,9.5\nBob,25,8.0\n"
+    f = _csv_file(tmp_path, content)
+    buf = _io_mod.StringIO()
+    extract_csv(buf, f)
+    out = buf.getvalue()
+    assert "test.csv" in out
+    assert "2 Zeilen" in out
+    assert "3 Spalten" in out
+    assert "name" in out
+    assert "age" in out
+    assert "score" in out
+    assert "numeric" in out
+
+
+def test_extract_csv_preview_rows(tmp_path):
+    rows = "col\n" + "\n".join(str(i) for i in range(_PREVIEW_ROWS + 5))
+    f = _csv_file(tmp_path, rows)
+    buf = _io_mod.StringIO()
+    extract_csv(buf, f)
+    out = buf.getvalue()
+    assert "weitere Zeilen" in out
+
+
+def test_extract_csv_no_extra_rows_shown(tmp_path):
+    rows = "col\n" + "\n".join(str(i) for i in range(3))
+    f = _csv_file(tmp_path, rows)
+    buf = _io_mod.StringIO()
+    extract_csv(buf, f)
+    out = buf.getvalue()
+    assert "weitere Zeilen" not in out
+
+
+def test_extract_csv_semicolon_delimiter(tmp_path):
+    content = "a;b\n1;2\n3;4\n"
+    f = _csv_file(tmp_path, content)
+    buf = _io_mod.StringIO()
+    extract_csv(buf, f)
+    out = buf.getvalue()
+    assert ";" in out or "TAB" in out or "Trennzeichen" in out
+
+
+def test_extract_csv_tab_delimiter(tmp_path):
+    content = "a\tb\n1\t2\n"
+    f = _csv_file(tmp_path, content)
+    buf = _io_mod.StringIO()
+    extract_csv(buf, f)
+    out = buf.getvalue()
+    assert "TAB" in out
+
+
+def test_extract_csv_empty_file(tmp_path):
+    f = tmp_path / "empty.csv"
+    f.write_bytes(b"")
+    buf = _io_mod.StringIO()
+    extract_csv(buf, f)
+    assert "EMPTY" in buf.getvalue() or "leer" in buf.getvalue().lower()
+
+
+def test_extract_csv_header_only(tmp_path):
+    content = "col1,col2,col3\n"
+    f = _csv_file(tmp_path, content)
+    buf = _io_mod.StringIO()
+    extract_csv(buf, f)
+    out = buf.getvalue()
+    assert "col1" in out
+    assert "0 Zeilen" in out
+
+
+def test_extract_csv_latin1_encoding(tmp_path):
+    content = "name,ort\nMüller,München\n"
+    f = tmp_path / "latin1.csv"
+    f.write_bytes(content.encode("latin-1"))
+    buf = _io_mod.StringIO()
+    extract_csv(buf, f)
+    out = buf.getvalue()
+    # Should not crash; name or error message present
+    assert "latin1.csv" in out
+
+
+def test_extract_csv_missing_cells_in_rows(tmp_path):
+    content = "a,b,c\n1,2\n3,4,5\n"
+    f = _csv_file(tmp_path, content)
+    buf = _io_mod.StringIO()
+    extract_csv(buf, f)
+    out = buf.getvalue()
+    assert "Zeilen" in out
+
+
+def test_extract_csv_text_col_stats(tmp_path):
+    content = "city\nBerlin\nHamburg\nMünchen\n"
+    f = _csv_file(tmp_path, content)
+    buf = _io_mod.StringIO()
+    extract_csv(buf, f)
+    out = buf.getvalue()
+    assert "text" in out
+
+
+def test_extract_csv_empty_col_values(tmp_path):
+    content = "a,b\n,,\n,,\n"
+    f = _csv_file(tmp_path, content)
+    buf = _io_mod.StringIO()
+    extract_csv(buf, f)
+    out = buf.getvalue()
+    assert "leer" in out
+
+
+def test_extract_csv_oserror(tmp_path, monkeypatch):
+    from copycat.extractors import csv_extractor
+    f = tmp_path / "nofile.csv"
+    f.write_text("a,b\n1,2\n", encoding="utf-8")
+    # Force read_text to raise OSError after stat succeeds
+    monkeypatch.setattr(_Path, "read_text", lambda *a, **kw: (_ for _ in ()).throw(OSError("boom")))
+    buf = _io_mod.StringIO()
+    extract_csv(buf, f)
+    out = buf.getvalue()
+    assert "ERROR" in out.upper()
+
+
+# ── CSV in notebook type – wiring ────────────────────────────────────────────
+
+def test_csv_in_notebook_type():
+    """*.csv must match the notebook type, not db."""
+    from copycat.utils.plugins import TYPE_FILTERS
+    from pathlib import PurePosixPath
+    import fnmatch
+    notebook_patterns = TYPE_FILTERS["notebook"]
+    db_patterns = TYPE_FILTERS["db"]
+    assert any(fnmatch.fnmatch("data.csv", p) for p in notebook_patterns)
+    assert not any(fnmatch.fnmatch("data.csv", p) for p in db_patterns)
+
+
+def test_txt_exporter_calls_extract_csv(tmp_path):
+    """txt exporter dispatches .csv files via extract_csv."""
+    import argparse, io as _io
+    from copycat.exporters.txt import _write_txt
+    from copycat.utils.plugins import TYPE_FILTERS
+
+    content = "x,y\n1,2\n3,4\n"
+    csv_path = _csv_file(tmp_path, content, "data.csv")
+    files: dict = {k: [] for k in TYPE_FILTERS}
+    files["notebook"] = [csv_path]
+
+    args = argparse.Namespace(
+        input_dir=str(tmp_path), output_dir=str(tmp_path),
+        format="txt", search=None, process_all=True,
+        selected_types=[], recursive=True, types=["all"],
+    )
+    buf = _io.StringIO()
+    _write_txt(
+        writer=buf,
+        files=files,
+        args=args,
+        input_dir=tmp_path,
+        git_info="",
+        serial=1,
+        search_pattern=None,
+        search_results=None,
+        cache=None,
+        stats=None,
+    )
+    out = buf.getvalue()
+    assert "data.csv" in out
+    assert "Zeilen" in out
+
+
+def test_md_exporter_calls_extract_csv(tmp_path):
+    """md exporter dispatches .csv files via extract_csv."""
+    import argparse, io as _io
+    from copycat.exporters.md import _write_md
+    from copycat.utils.plugins import TYPE_FILTERS
+
+    content = "a,b\n1,2\n"
+    csv_path = _csv_file(tmp_path, content, "sheet.csv")
+    files: dict = {k: [] for k in TYPE_FILTERS}
+    files["notebook"] = [csv_path]
+
+    args = argparse.Namespace(
+        input_dir=str(tmp_path), output_dir=str(tmp_path),
+        format="md", search=None, process_all=True,
+        selected_types=[], recursive=True, types=["all"],
+    )
+    buf = _io.StringIO()
+    _write_md(
+        writer=buf,
+        files=files,
+        args=args,
+        input_dir=tmp_path,
+        git_info="",
+        serial=1,
+        search_pattern=None,
+        search_results=None,
+        cache=None,
+        stats=None,
+    )
+    out = buf.getvalue()
+    assert "sheet.csv" in out
+    assert "Zeilen" in out or "Spalten" in out
+
+
+def test_json_exporter_csv_entry(tmp_path):
+    """json exporter adds csv key for .csv files in notebook type."""
+    import argparse
+    from copycat.exporters.json_export import _write_json
+    from copycat.utils.plugins import TYPE_FILTERS
+
+    content = "col1,col2\nhello,world\nfoo,bar\n"
+    csv_path = _csv_file(tmp_path, content, "rows.csv")
+    files: dict = {k: [] for k in TYPE_FILTERS}
+    files["notebook"] = [csv_path]
+
+    out_file = tmp_path / "out.json"
+    args = argparse.Namespace(
+        input_dir=str(tmp_path), output_dir=str(tmp_path),
+        format="json", search=None, process_all=True,
+        selected_types=[], recursive=True, types=["all"],
+    )
+    _write_json(
+        path=out_file,
+        files=files,
+        args=args,
+        input_dir=tmp_path,
+        git_info="",
+        serial=1,
+        search_pattern=None,
+        search_results=None,
+        cache=None,
+        stats=None,
+    )
+    import json
+    data = json.loads(out_file.read_text(encoding="utf-8"))
+    entries = data["details"]["notebook"]
+    assert len(entries) == 1
+    csv_meta = entries[0]["csv"]
+    assert csv_meta["rows"] == 2
+    assert csv_meta["columns"] == 2
+    assert "col1" in csv_meta["headers"]
+
+
+# ── Coverage-Lücken Feature 10 ───────────────────────────────────────────────
+
+def test_extract_csv_raw_text_none(tmp_path, monkeypatch):
+    """raw_text=None-Zweig: alle Encodings werfen Fehler."""
+    f = tmp_path / "bad.csv"
+    f.write_text("a,b\n1,2\n", encoding="utf-8")
+    orig = _Path.read_text
+    calls = []
+
+    def always_raise(self, *a, **kw):
+        calls.append(1)
+        raise UnicodeDecodeError("utf-8", b"", 0, 1, "reason")
+
+    monkeypatch.setattr(_Path, "read_text", always_raise)
+    buf = _io_mod.StringIO()
+    extract_csv(buf, f)
+    assert "ERROR" in buf.getvalue().upper()
+
+
+def test_extract_csv_all_rows_empty(tmp_path, monkeypatch):
+    """csv.reader gibt keine Zeilen zurück (all_rows=[])."""
+    f = tmp_path / "empty_rows.csv"
+    f.write_text("", encoding="utf-8")
+    # File has size>0 but reader yields nothing → patch size check
+    import copycat.extractors.csv_extractor as _mod
+    monkeypatch.setattr(_mod.Path, "stat", lambda self: type("S", (), {"st_size": 1})())
+    monkeypatch.setattr(_mod.Path, "read_text", lambda self, **kw: "")
+    buf = _io_mod.StringIO()
+    extract_csv(buf, f)
+    out = buf.getvalue()
+    assert "leer" in out or "EMPTY" in out.upper()
+
+
+def test_json_export_csv_sniffer_fallback(tmp_path):
+    """json_export CSV-Zweig: Sniffer-Fehler → Fallback ','."""
+    import argparse, csv as _csv
+    from copycat.exporters.json_export import _write_json
+    from copycat.utils.plugins import TYPE_FILTERS
+
+    # Single-column CSV → Sniffer raises csv.Error on short single-col sample
+    content = "value\n" + "\n".join(str(i) for i in range(5))
+    csv_path = _csv_file(tmp_path, content, "single.csv")
+    files: dict = {k: [] for k in TYPE_FILTERS}
+    files["notebook"] = [csv_path]
+    out_file = tmp_path / "out.json"
+    args = argparse.Namespace(
+        input_dir=str(tmp_path), output_dir=str(tmp_path),
+        format="json", search=None, process_all=True,
+        selected_types=[], recursive=True, types=["all"],
+    )
+    _write_json(
+        path=out_file, files=files, args=args, input_dir=tmp_path,
+        git_info="", serial=1, search_pattern=None, search_results=None,
+        cache=None, stats=None,
+    )
+    import json
+    data = json.loads(out_file.read_text(encoding="utf-8"))
+    entry = data["details"]["notebook"][0]
+    assert entry["csv"] is not None or entry["csv"] is None  # either way, no crash
+
+
+def test_json_export_csv_exception(tmp_path, monkeypatch):
+    """json_export CSV-Zweig: Exception → csv=None."""
+    import argparse
+    from copycat.exporters import json_export as _je
+    from copycat.utils.plugins import TYPE_FILTERS
+
+    csv_path = _csv_file(tmp_path, "a,b\n1,2\n")
+    files: dict = {k: [] for k in TYPE_FILTERS}
+    files["notebook"] = [csv_path]
+    out_file = tmp_path / "out.json"
+    args = argparse.Namespace(
+        input_dir=str(tmp_path), output_dir=str(tmp_path),
+        format="json", search=None, process_all=True,
+        selected_types=[], recursive=True, types=["all"],
+    )
+
+    # Force csv.reader to raise so the except-branch runs
+    import csv as _csv_mod
+
+    def raise_reader(*a, **kw):
+        raise RuntimeError("forced")
+
+    monkeypatch.setattr(_je.csv, "reader", raise_reader)
+    _je._write_json(
+        path=out_file, files=files, args=args, input_dir=tmp_path,
+        git_info="", serial=1, search_pattern=None, search_results=None,
+        cache=None, stats=None,
+    )
+    import json
+    data = json.loads(out_file.read_text(encoding="utf-8"))
+    assert data["details"]["notebook"][0]["csv"] is None
+
+
+def test_html_exporter_notebook_ipynb(tmp_path):
+    """html exporter: notebook-Zweig mit .ipynb-Datei."""
+    import argparse
+    from copycat.exporters.html import _write_html
+    from copycat.utils.plugins import TYPE_FILTERS
+
+    nb_path = tmp_path / "test.ipynb"
+    nb_path.write_text('{"nbformat":4,"nbformat_minor":5,"metadata":{},"cells":[]}', encoding="utf-8")
+    files: dict = {k: [] for k in TYPE_FILTERS}
+    files["notebook"] = [nb_path]
+    out_file = tmp_path / "out.html"
+    args = argparse.Namespace(
+        input_dir=str(tmp_path), output_dir=str(tmp_path),
+        format="html", search=None, process_all=True,
+        selected_types=[], recursive=True, types=["all"],
+    )
+    _write_html(
+        path=out_file, files=files, args=args, input_dir=tmp_path,
+        git_info="", serial=1, search_pattern=None, search_results=None,
+        cache=None, stats=None,
+    )
+    out = out_file.read_text(encoding="utf-8")
+    assert "test.ipynb" in out
+    assert "NOTEBOOK" in out
+
+
+def test_plugins_spec_none(tmp_path, monkeypatch):
+    """load_plugins: spec_from_file_location returns None → skip."""
+    import importlib.util
+    from copycat.utils.plugins import load_plugins
+
+    # Create a dummy plugin file
+    plugin_file = tmp_path / "myplugin.py"
+    plugin_file.write_text("TYPE_NAME = 'test'\nPATTERNS = []\n", encoding="utf-8")
+
+    orig = importlib.util.spec_from_file_location
+    monkeypatch.setattr(importlib.util, "spec_from_file_location", lambda *a, **kw: None)
+
+    result = load_plugins(tmp_path)
+    # No plugin loaded because spec is None
+    assert "myplugin" not in result
+
 

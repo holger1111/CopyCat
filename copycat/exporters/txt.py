@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import IO, Any
 
 from ..extractors.binary import list_binary_file
+from ..extractors.csv_extractor import extract_csv
 from ..extractors.drawio import extract_drawio
 from ..extractors.notebook import extract_notebook
 from ..utils.files import get_plural
@@ -124,6 +125,8 @@ def _write_txt(
         for bfile in files[t]:
             if t == "diagram" and bfile.suffix.lower() in [".drawio", ".dia"]:
                 extract_drawio(writer, bfile)
+            elif t == "notebook" and bfile.suffix.lower() == ".csv":
+                extract_csv(writer, bfile)
             elif t == "notebook":
                 extract_notebook(writer, bfile)
             elif t in PLUGIN_RENDERERS and PLUGIN_RENDERERS[t] is not None:

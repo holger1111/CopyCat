@@ -33,6 +33,7 @@ from copycat.exporters.timeline import (
 from copycat.exporters.txt import _write_txt
 from copycat.extractors.binary import list_binary_file
 from copycat.extractors.drawio import extract_drawio, _safe_xml_parse
+from copycat.extractors.csv_extractor import extract_csv
 from copycat.extractors.notebook import extract_notebook
 from copycat.utils.cache import _cleanup_cache, _hash_file, _load_cache, _save_cache
 from copycat.utils.files import (

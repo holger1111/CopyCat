@@ -18,6 +18,7 @@ from .exporters.pdf import _write_pdf
 from .exporters.template import _write_template
 from .exporters.ai import _generate_ai_summary
 from .extractors.binary import list_binary_file
+from .extractors.csv_extractor import extract_csv
 from .extractors.drawio import extract_drawio
 from .extractors.notebook import extract_notebook
 from .utils.cache import _hash_file, _load_cache, _save_cache
@@ -39,7 +40,7 @@ __all__ = [
     "build_timeline", "_timeline_md", "_timeline_ascii", "_timeline_html",
     "_html_escape", "_write_html", "_write_txt", "_write_json", "_write_md",
     "_write_pdf", "_write_template", "_generate_ai_summary",
-    "list_binary_file", "extract_drawio", "extract_notebook",
+    "list_binary_file", "extract_csv", "extract_drawio", "extract_notebook",
     "_hash_file", "_load_cache", "_save_cache",
     "get_next_serial_number", "get_plural", "is_valid_serial_filename",
     "move_to_archive", "size_filtered_glob",
