@@ -47,7 +47,7 @@ class CopyCatGUI:
         self._root = root
         self._root.title("CopyCat v2.9")
         self._root.resizable(True, True)
-        self._root.minsize(620, 600)
+        self._root.minsize(660, 620)
 
         self._input_var = tk.StringVar()
         self._output_var = tk.StringVar()
@@ -61,6 +61,7 @@ class CopyCatGUI:
         self._incremental_var = tk.BooleanVar(value=False)
         self._stats_var = tk.BooleanVar(value=False)
         self._git_url_var = tk.StringVar()
+        self._plugin_dir_var = tk.StringVar()
         self._watch_stop_event = None
         self._type_vars = {t: tk.BooleanVar(value=True) for t in TYPES}
 
@@ -71,8 +72,23 @@ class CopyCatGUI:
     def _build_ui(self):  # pragma: no cover
         pad = {"padx": 8, "pady": 4}
 
-        # Eingabeordner
-        frm_io = ttk.LabelFrame(self._root, text="Ordner", padding=6)
+        # ── Tab-Notebook ─────────────────────────────────────────────────────
+        notebook = ttk.Notebook(self._root)
+        notebook.pack(fill="both", expand=False, padx=8, pady=(8, 0))
+
+        tab_basic    = ttk.Frame(notebook, padding=4)
+        tab_advanced = ttk.Frame(notebook, padding=4)
+        tab_plugins  = ttk.Frame(notebook, padding=4)
+        tab_tools    = ttk.Frame(notebook, padding=4)
+
+        notebook.add(tab_basic,    text="  Basic  ")
+        notebook.add(tab_advanced, text="  Erweitert  ")
+        notebook.add(tab_plugins,  text="  Plugins  ")
+        notebook.add(tab_tools,    text="  Tools  ")
+
+        # ─────────────────────── TAB: BASIC ──────────────────────────────────
+
+        frm_io = ttk.LabelFrame(tab_basic, text="Ordner", padding=6)
         frm_io.pack(fill="x", **pad)
 
         ttk.Label(frm_io, text="Eingabe:").grid(row=0, column=0, sticky="w")
@@ -85,41 +101,30 @@ class CopyCatGUI:
         _entry_out.grid(row=1, column=1, padx=4, pady=(4, 0))
         ttk.Button(frm_io, text="…", width=3, command=self._browse_output).grid(row=1, column=2, pady=(4, 0))
 
-        ttk.Label(frm_io, text="Git-URL:").grid(row=2, column=0, sticky="w", pady=(4, 0))
-        ttk.Entry(frm_io, textvariable=self._git_url_var, width=55).grid(row=2, column=1, padx=4, pady=(4, 0))
-
         if _DND_AVAILABLE:
             _entry_in.drop_target_register(DND_FILES)
             _entry_in.dnd_bind("<<Drop>>", self._on_drop_input)
             _entry_out.drop_target_register(DND_FILES)
             _entry_out.dnd_bind("<<Drop>>", self._on_drop_output)
 
-        # Dateitypen
-        frm_types = ttk.LabelFrame(self._root, text="Dateitypen", padding=6)
+        frm_types = ttk.LabelFrame(tab_basic, text="Dateitypen", padding=6)
         frm_types.pack(fill="x", **pad)
 
         for i, t in enumerate(TYPES):
             ttk.Checkbutton(frm_types, text=t, variable=self._type_vars[t]).grid(
                 row=i // 5, column=i % 5, sticky="w", padx=6
             )
-        ttk.Button(frm_types, text="Alle", command=self._select_all_types).grid(
-            row=1, column=4, sticky="e", padx=6
-        )
-        ttk.Button(frm_types, text="Keine", command=self._deselect_all_types).grid(
-            row=1, column=3, sticky="e", padx=6
-        )
+        ttk.Button(frm_types, text="Alle",  command=self._select_all_types).grid(row=1, column=4, sticky="e", padx=6)
+        ttk.Button(frm_types, text="Keine", command=self._deselect_all_types).grid(row=1, column=3, sticky="e", padx=6)
 
-        # Optionen
-        frm_opt = ttk.LabelFrame(self._root, text="Optionen", padding=6)
+        frm_opt = ttk.LabelFrame(tab_basic, text="Optionen", padding=6)
         frm_opt.pack(fill="x", **pad)
 
         ttk.Checkbutton(frm_opt, text="Rekursiv", variable=self._recursive_var).grid(
             row=0, column=0, sticky="w", padx=6
         )
-
         ttk.Label(frm_opt, text="Max. Größe (MB):").grid(row=0, column=1, sticky="w", padx=(16, 4))
         ttk.Entry(frm_opt, textvariable=self._max_size_var, width=8).grid(row=0, column=2, sticky="w")
-
         ttk.Label(frm_opt, text="Format:").grid(row=0, column=3, sticky="w", padx=(16, 4))
         ttk.Combobox(
             frm_opt,
@@ -134,59 +139,133 @@ class CopyCatGUI:
             row=1, column=1, columnspan=4, sticky="w", pady=(6, 0)
         )
 
-        ttk.Label(frm_opt, text="Ausschließen:").grid(row=3, column=0, sticky="w", padx=6, pady=(6, 0))
-        ttk.Entry(frm_opt, textvariable=self._exclude_var, width=40).grid(
-            row=3, column=1, columnspan=4, sticky="w", pady=(6, 0)
+        # ─────────────────────── TAB: ERWEITERT ──────────────────────────────
+
+        frm_adv_src = ttk.LabelFrame(tab_advanced, text="Quelle", padding=6)
+        frm_adv_src.pack(fill="x", **pad)
+
+        ttk.Label(frm_adv_src, text="Git-URL:").grid(row=0, column=0, sticky="w")
+        ttk.Entry(frm_adv_src, textvariable=self._git_url_var, width=52).grid(row=0, column=1, padx=4)
+
+        ttk.Label(frm_adv_src, text="Ausschließen:").grid(row=1, column=0, sticky="w", pady=(6, 0))
+        ttk.Entry(frm_adv_src, textvariable=self._exclude_var, width=52).grid(
+            row=1, column=1, padx=4, pady=(6, 0)
+        )
+        ttk.Label(
+            frm_adv_src,
+            text="Glob-Muster, kommagetrennt  –  z.B.  *.min.js, dist/, node_modules/",
+            foreground="#888",
+        ).grid(row=2, column=1, sticky="w", padx=4)
+
+        frm_adv_ana = ttk.LabelFrame(tab_advanced, text="Analyse", padding=6)
+        frm_adv_ana.pack(fill="x", **pad)
+
+        ttk.Checkbutton(frm_adv_ana, text="Inkrementell (Cache)", variable=self._incremental_var).grid(
+            row=0, column=0, sticky="w", padx=6
+        )
+        ttk.Checkbutton(frm_adv_ana, text="Code-Statistiken", variable=self._stats_var).grid(
+            row=0, column=1, sticky="w", padx=(20, 6)
         )
 
-        ttk.Checkbutton(frm_opt, text="Inkrementell (Cache)", variable=self._incremental_var).grid(
-            row=3, column=4, columnspan=2, sticky="w", padx=(16, 0), pady=(6, 0)
+        frm_adv_out = ttk.LabelFrame(tab_advanced, text="Ausgabe-Optionen", padding=6)
+        frm_adv_out.pack(fill="x", **pad)
+
+        ttk.Label(frm_adv_out, text="Template (.j2):").grid(row=0, column=0, sticky="w", padx=6)
+        ttk.Entry(frm_adv_out, textvariable=self._template_var, width=38).grid(
+            row=0, column=1, sticky="w", padx=(0, 4)
+        )
+        ttk.Button(frm_adv_out, text="…", width=3, command=self._browse_template).grid(
+            row=0, column=2, sticky="w"
+        )
+        ttk.Label(frm_adv_out, text="Watch-Cooldown (s):").grid(row=1, column=0, sticky="w", padx=6, pady=(6, 0))
+        ttk.Entry(frm_adv_out, textvariable=self._cooldown_var, width=8).grid(
+            row=1, column=1, sticky="w", pady=(6, 0)
         )
 
-        ttk.Checkbutton(frm_opt, text="Code-Statistiken", variable=self._stats_var).grid(
-            row=4, column=4, columnspan=2, sticky="w", padx=(16, 0), pady=(6, 0)
+        # ─────────────────────── TAB: PLUGINS ────────────────────────────────
+
+        frm_plug = ttk.LabelFrame(tab_plugins, text="Plugin-Verzeichnis", padding=6)
+        frm_plug.pack(fill="x", **pad)
+
+        ttk.Label(frm_plug, text="Plugin-Ordner:").grid(row=0, column=0, sticky="w")
+        ttk.Entry(frm_plug, textvariable=self._plugin_dir_var, width=45).grid(row=0, column=1, padx=4)
+        ttk.Button(frm_plug, text="…", width=3, command=self._browse_plugin_dir).grid(row=0, column=2)
+        ttk.Label(
+            frm_plug,
+            text="Leer = Standard  plugins/-Ordner  neben  CopyCat.py",
+            foreground="#888",
+        ).grid(row=1, column=1, sticky="w", padx=4)
+
+        frm_plug_info = ttk.LabelFrame(tab_plugins, text="Geladene Plugins", padding=6)
+        frm_plug_info.pack(fill="both", expand=True, **pad)
+
+        self._plugin_list = tk.Text(
+            frm_plug_info, state="disabled", height=8, font=("Consolas", 9), wrap="word"
+        )
+        _plug_sb = ttk.Scrollbar(frm_plug_info, command=self._plugin_list.yview)
+        self._plugin_list.configure(yscrollcommand=_plug_sb.set)
+        _plug_sb.pack(side="right", fill="y")
+        self._plugin_list.pack(fill="both", expand=True)
+
+        ttk.Button(tab_plugins, text="🔄  Plugins neu laden", command=self._refresh_plugins).pack(
+            anchor="w", padx=8, pady=(0, 4)
         )
 
-        ttk.Label(frm_opt, text="Template (.j2):").grid(row=4, column=0, sticky="w", padx=6, pady=(6, 0))
-        ttk.Entry(frm_opt, textvariable=self._template_var, width=30).grid(
-            row=4, column=1, columnspan=2, sticky="w", padx=(0, 4), pady=(6, 0)
+        # ─────────────────────── TAB: TOOLS ──────────────────────────────────
+
+        frm_cfg = ttk.LabelFrame(tab_tools, text="Konfiguration", padding=6)
+        frm_cfg.pack(fill="x", **pad)
+
+        ttk.Button(frm_cfg, text="📥  Config laden",    command=self._load_config, width=22).grid(
+            row=0, column=0, padx=6, pady=4
         )
-        ttk.Button(frm_opt, text="…", width=3, command=self._browse_template).grid(
-            row=4, column=3, sticky="w", pady=(6, 0)
-        )
-        ttk.Label(frm_opt, text="Cooldown (s):").grid(row=4, column=4, sticky="w", padx=(16, 4), pady=(6, 0))
-        ttk.Entry(frm_opt, textvariable=self._cooldown_var, width=6).grid(
-            row=4, column=5, sticky="w", pady=(6, 0)
+        ttk.Button(frm_cfg, text="💾  Config speichern", command=self._save_config, width=22).grid(
+            row=0, column=1, padx=6, pady=4
         )
 
-        # Buttons
-        frm_btn = ttk.Frame(self._root, padding=4)
-        frm_btn.pack(fill="x", padx=8)
+        frm_reports = ttk.LabelFrame(tab_tools, text="Reports & Analyse", padding=6)
+        frm_reports.pack(fill="x", **pad)
 
-        self._run_btn = ttk.Button(frm_btn, text="▶  Starten", command=self._on_run)
+        ttk.Button(frm_reports, text="⇄  Diff: Reports vergleichen",      command=self._on_diff,     width=30).grid(row=0, column=0, padx=6, pady=4, sticky="w")
+        ttk.Button(frm_reports, text="📄  Merge: Reports zusammenführen", command=self._on_merge,    width=30).grid(row=0, column=1, padx=6, pady=4, sticky="w")
+        ttk.Button(frm_reports, text="📊  Timeline anzeigen",               command=self._on_timeline, width=30).grid(row=1, column=0, padx=6, pady=4, sticky="w")
+
+        frm_git_tools = ttk.LabelFrame(tab_tools, text="Git", padding=6)
+        frm_git_tools.pack(fill="x", **pad)
+
+        ttk.Button(
+            frm_git_tools, text="🔗  pre-commit Hook installieren",
+            command=self._on_install_hook, width=32
+        ).grid(row=0, column=0, padx=6, pady=4, sticky="w")
+        ttk.Label(
+            frm_git_tools,
+            text="Installiert CopyCat als automatischen Git-Hook im Projektordner.",
+            foreground="#888",
+        ).grid(row=0, column=1, padx=6, sticky="w")
+
+        # ── Run-Leiste (immer sichtbar, unter Tabs) ───────────────────────────
+        ttk.Separator(self._root, orient="horizontal").pack(fill="x", padx=8, pady=(6, 0))
+
+        frm_run = ttk.Frame(self._root, padding=4)
+        frm_run.pack(fill="x", padx=8)
+
+        self._run_btn = ttk.Button(frm_run, text="▶  Starten", command=self._on_run)
         self._run_btn.pack(side="left", padx=4)
 
+        self._watch_btn = ttk.Button(frm_run, text="👁  Watch", command=self._on_watch_toggle)
+        self._watch_btn.pack(side="left", padx=4)
+
         self._open_btn = ttk.Button(
-            frm_btn, text="📂  Ordner öffnen", command=self._open_output_folder, state="disabled"
+            frm_run, text="📂  Ordner öffnen", command=self._open_output_folder, state="disabled"
         )
         self._open_btn.pack(side="left", padx=4)
 
-        ttk.Button(frm_btn, text="📥  Config laden", command=self._load_config).pack(side="left", padx=4)
-        ttk.Button(frm_btn, text="💾  Config speichern", command=self._save_config).pack(side="left", padx=4)
-        ttk.Button(frm_btn, text="⇄  Diff", command=self._on_diff).pack(side="left", padx=4)
-        ttk.Button(frm_btn, text="📄  Merge", command=self._on_merge).pack(side="left", padx=4)
-        ttk.Button(frm_btn, text="🔗  Hook", command=self._on_install_hook).pack(side="left", padx=4)
-        ttk.Button(frm_btn, text="📊  Timeline", command=self._on_timeline).pack(side="left", padx=4)
-        self._watch_btn = ttk.Button(frm_btn, text="👁  Watch", command=self._on_watch_toggle)
-        self._watch_btn.pack(side="left", padx=4)
+        ttk.Button(frm_run, text="✖  Ausgabe leeren", command=self._clear_output).pack(side="right", padx=4)
 
-        ttk.Button(frm_btn, text="✖  Ausgabe leeren", command=self._clear_output).pack(side="right", padx=4)
-
-        # Fortschrittsanzeige
-        self._progress = ttk.Progressbar(frm_btn, mode="indeterminate", length=80)
+        self._progress = ttk.Progressbar(frm_run, mode="indeterminate", length=80)
         self._progress.pack(side="right", padx=8)
 
-        # Ausgabe
+        # ── Ausgabe (immer sichtbar) ──────────────────────────────────────────
         frm_out = ttk.LabelFrame(self._root, text="Ausgabe", padding=6)
         frm_out.pack(fill="both", expand=True, padx=8, pady=4)
 
@@ -197,6 +276,32 @@ class CopyCatGUI:
         self._output_text.pack(fill="both", expand=True)
 
     # ── Helpers ───────────────────────────────────────────────────────────────
+
+    def _browse_plugin_dir(self):  # pragma: no cover
+        folder = filedialog.askdirectory(title="Plugin-Verzeichnis wählen")
+        if folder:
+            self._plugin_dir_var.set(folder)
+
+    def _refresh_plugins(self):  # pragma: no cover
+        """Lädt Plugins aus dem konfigurierten Verzeichnis und zeigt sie an."""
+        from CopyCat import load_plugins, _loaded_plugins  # type: ignore[attr-defined]
+        plugin_dir = self._plugin_dir_var.get().strip() or None
+        try:
+            loaded = load_plugins(plugin_dir)
+        except Exception as exc:
+            messagebox.showerror("Plugin-Fehler", str(exc))
+            return
+        self._plugin_list.configure(state="normal")
+        self._plugin_list.delete("1.0", "end")
+        all_loaded = list(_loaded_plugins)
+        if all_loaded:
+            for name in all_loaded:
+                self._plugin_list.insert("end", f"✔  {name}\n")
+        else:
+            self._plugin_list.insert("end", "(Keine Plugins geladen)\n")
+        if loaded:
+            self._plugin_list.insert("end", f"\nNeu geladen: {', '.join(loaded)}\n")
+        self._plugin_list.configure(state="disabled")
 
     def _browse_input(self):
         folder = filedialog.askdirectory(title="Eingabeordner wählen")
@@ -453,6 +558,7 @@ class CopyCatGUI:
             incremental=self._incremental_var.get(),
             stats=self._stats_var.get(),
             git_url=self._git_url_var.get().strip() or None,
+            plugin_dir=self._plugin_dir_var.get().strip() or None,
             ai_summary=False,
             ai_model="gpt-4o-mini",
             ai_base_url=None,

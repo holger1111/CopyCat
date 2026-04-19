@@ -1557,6 +1557,7 @@ def gui():
     instance._incremental_var = _make_var(False)
     instance._stats_var = _make_var(False)
     instance._git_url_var = _make_var("")
+    instance._plugin_dir_var = _make_var("")
     instance._watch_stop_event = None
     instance._watch_thread = None
     instance._watch_btn = MagicMock()
