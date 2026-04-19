@@ -2484,7 +2484,7 @@ def test_run_copycat_with_template(tmp_path):
         template=str(tmpl), diff=None, merge=None, install_hook=None,
         verbose=False, quiet=False, watch=False, cooldown=2.0,
     )
-    with patch("CopyCat.get_git_info", return_value={}):
+    with patch("copycat.core.get_git_info", return_value={}):
         run_copycat(args)
     files = list(out.glob("*.j2")) + list(out.glob("*.txt"))
     assert any("TOTAL=1" in f.read_text(encoding="utf-8") for f in out.iterdir())
@@ -2508,7 +2508,7 @@ def test_watch_and_run_stops_immediately(tmp_path):
     observer_mock = MagicMock()
 
     with patch("watchdog.observers.Observer", return_value=observer_mock), \
-         patch("CopyCat.run_copycat") as mock_run:
+         patch("copycat.core.run_copycat") as mock_run:
         watch_and_run(Namespace(input=str(tmp_path), recursive=False), cooldown=0.1, stop_event=stop)
 
     observer_mock.start.assert_called_once()
@@ -2537,7 +2537,7 @@ def test_watch_and_run_triggers_run_copycat(tmp_path):
         stop.set()  # nach erstem Lauf stoppen
 
     with patch("watchdog.observers.Observer", FakeObserver), \
-         patch("CopyCat.run_copycat", side_effect=fake_run_copycat):
+         patch("copycat.core.run_copycat", side_effect=fake_run_copycat):
         def _trigger():
             time.sleep(0.05)
             ev = MagicMock()
@@ -2586,7 +2586,7 @@ def test_watch_and_run_run_error_is_caught(tmp_path):
             obs._handler.on_any_event(ev)
 
     with patch("watchdog.observers.Observer", FakeObserver), \
-         patch("CopyCat.run_copycat", side_effect=fake_run):
+         patch("copycat.core.run_copycat", side_effect=fake_run):
         t = threading.Thread(target=_trigger)
         t.start()
         watch_and_run(
@@ -2645,7 +2645,7 @@ def test_watch_and_run_no_stop_event_creates_one(tmp_path):
         ev.set()  # sofort setzen → Loop endet sofort
         return ev
 
-    with patch("CopyCat.threading.Event", side_effect=fake_event), \
+    with patch("copycat.core.threading.Event", side_effect=fake_event), \
          patch("watchdog.observers.Observer", FakeObserver):
         watch_and_run(Namespace(input=str(tmp_path), recursive=False), cooldown=0.1)
 
@@ -2667,7 +2667,7 @@ def test_watch_and_run_directory_event_ignored(tmp_path):
         def join(self): pass
 
     with patch("watchdog.observers.Observer", FakeObserver), \
-         patch("CopyCat.run_copycat") as mock_run:
+         patch("copycat.core.run_copycat") as mock_run:
         watch_and_run(Namespace(input=str(tmp_path), recursive=False), cooldown=0.1, stop_event=stop)
 
     # Manuell einen Verzeichnis-Event feuern (sollte last_event_time nicht setzen)
@@ -2701,7 +2701,7 @@ def test_watch_and_run_event_before_cooldown_no_run(tmp_path):
         stop.set()
 
     with patch("watchdog.observers.Observer", FakeObserver), \
-         patch("CopyCat.run_copycat") as mock_run:
+         patch("copycat.core.run_copycat") as mock_run:
         t = threading.Thread(target=_trigger)
         t.start()
         watch_and_run(
@@ -2953,7 +2953,7 @@ def test_write_txt_plugin_no_renderer_uses_list_binary(tmp_path, clean_plugins):
     files["nrpl"] = [f]
     buf = StringIO()
     args = Namespace(recursive=False, types=["nrpl"], max_size=float("inf"), format="txt", search=None)
-    with patch("CopyCat.list_binary_file") as mock_lbf:
+    with patch("copycat.exporters.txt.list_binary_file") as mock_lbf:
         _write_txt(buf, files, args, tmp_path, "No Git", 1)
     mock_lbf.assert_called_once_with(buf, f)
 
@@ -5095,7 +5095,7 @@ def test_run_copycat_ai_summary_success_txt(tmp_path, run_args):
     args.ai_summary = True
     args.ai_model = "gpt-4o-mini"
     args.ai_base_url = None
-    with patch("CopyCat._generate_ai_summary", return_value="KI-Text-TXT"):
+    with patch("copycat.core._generate_ai_summary", return_value="KI-Text-TXT"):
         result = run_copycat(args)
     content = Path(result).read_text(encoding="utf-8")
     assert "KI-ZUSAMMENFASSUNG" in content
@@ -5108,7 +5108,7 @@ def test_run_copycat_ai_summary_success_md(tmp_path, run_args):
     args.ai_summary = True
     args.ai_model = "gpt-4o-mini"
     args.ai_base_url = None
-    with patch("CopyCat._generate_ai_summary", return_value="KI-Text-MD"):
+    with patch("copycat.core._generate_ai_summary", return_value="KI-Text-MD"):
         result = run_copycat(args)
     content = Path(result).read_text(encoding="utf-8")
     assert "KI-Zusammenfassung" in content
@@ -5121,7 +5121,7 @@ def test_run_copycat_ai_summary_success_json(tmp_path, run_args):
     args.ai_summary = True
     args.ai_model = "gpt-4o-mini"
     args.ai_base_url = None
-    with patch("CopyCat._generate_ai_summary", return_value="KI-Text-JSON"):
+    with patch("copycat.core._generate_ai_summary", return_value="KI-Text-JSON"):
         result = run_copycat(args)
     data = json.loads(Path(result).read_text(encoding="utf-8"))
     assert data.get("ai_summary") == "KI-Text-JSON"
@@ -5133,7 +5133,7 @@ def test_run_copycat_ai_summary_success_html(tmp_path, run_args):
     args.ai_summary = True
     args.ai_model = "gpt-4o-mini"
     args.ai_base_url = None
-    with patch("CopyCat._generate_ai_summary", return_value="KI-Text-HTML"):
+    with patch("copycat.core._generate_ai_summary", return_value="KI-Text-HTML"):
         result = run_copycat(args)
     content = Path(result).read_text(encoding="utf-8")
     assert "KI-Text-HTML" in content
@@ -5146,7 +5146,7 @@ def test_run_copycat_ai_summary_success_pdf(tmp_path, run_args):
     args.ai_summary = True
     args.ai_model = "gpt-4o-mini"
     args.ai_base_url = None
-    with patch("CopyCat._generate_ai_summary", return_value="KI-Text-PDF"):
+    with patch("copycat.core._generate_ai_summary", return_value="KI-Text-PDF"):
         result = run_copycat(args)
     # PDF-Report existiert, KI-Text ist NICHT im Dateiinhalt (nur als Log)
     assert result is not None
@@ -5304,7 +5304,7 @@ def test_build_timeline_default_archive_dir(tmp_path):
     """build_timeline ohne archive_dir nutzt CopyCat_Archive neben CopyCat.py."""
     archive = tmp_path / "CopyCat_Archive"
     archive.mkdir()
-    with patch("CopyCat.__file__", str(tmp_path / "CopyCat.py")):
+    with patch("copycat.exporters.timeline.__file__", str(tmp_path / "a" / "b" / "timeline.py")):
         result = build_timeline()
     assert "Keine Archiv-Reports gefunden" in result
 
@@ -5472,6 +5472,68 @@ def test_run_copycat_cache_cleanup_triggers(tmp_path):
     assert "old_file.py" not in updated_data["entries"]
 
 
+def test_run_copycat_cache_clean_deletes_cache(tmp_path):
+    """--cache-clean löscht vorhandene cache.json und gibt None zurück."""
+    from CopyCat import run_copycat
+    cache_dir = tmp_path / ".copycat_cache"
+    cache_dir.mkdir()
+    cache_file = cache_dir / "cache.json"
+    cache_file.write_text('{"version":"1","entries":{}}', encoding="utf-8")
+    args = Namespace(
+        input=str(tmp_path), output=str(tmp_path), types=["code"], recursive=False,
+        max_size=float("inf"), format="txt", search=None, template=None,
+        watch=False, cooldown=2.0, plugin_dir=None, list_plugins=False,
+        diff=None, merge=None, install_hook=None, verbose=False, quiet=True,
+        exclude=[], incremental=False, stats=False, git_url=None,
+        ai_summary=False, ai_model=None, ai_base_url=None,
+        dry_run=False, cache_max_age=None, cache_clean=True,
+    )
+    result = run_copycat(args)
+    assert result is None
+    assert not cache_file.exists()
+
+
+def test_run_copycat_cache_clean_no_cache(tmp_path, caplog):
+    """--cache-clean ohne vorhandene cache.json loggt Hinweis und gibt None zurück."""
+    from CopyCat import run_copycat
+    args = Namespace(
+        input=str(tmp_path), output=str(tmp_path), types=["code"], recursive=False,
+        max_size=float("inf"), format="txt", search=None, template=None,
+        watch=False, cooldown=2.0, plugin_dir=None, list_plugins=False,
+        diff=None, merge=None, install_hook=None, verbose=False, quiet=True,
+        exclude=[], incremental=False, stats=False, git_url=None,
+        ai_summary=False, ai_model=None, ai_base_url=None,
+        dry_run=False, cache_max_age=None, cache_clean=True,
+    )
+    with caplog.at_level(logging.INFO):
+        result = run_copycat(args)
+    assert result is None
+    assert any("Kein Cache vorhanden" in r.message for r in caplog.records)
+
+
+def test_run_copycat_cache_clean_oserror(tmp_path, caplog):
+    """--cache-clean loggt Fehler wenn cache.json nicht gelöscht werden kann."""
+    from CopyCat import run_copycat
+    cache_dir = tmp_path / ".copycat_cache"
+    cache_dir.mkdir()
+    cache_file = cache_dir / "cache.json"
+    cache_file.write_text('{"version":"1","entries":{}}', encoding="utf-8")
+    args = Namespace(
+        input=str(tmp_path), output=str(tmp_path), types=["code"], recursive=False,
+        max_size=float("inf"), format="txt", search=None, template=None,
+        watch=False, cooldown=2.0, plugin_dir=None, list_plugins=False,
+        diff=None, merge=None, install_hook=None, verbose=False, quiet=True,
+        exclude=[], incremental=False, stats=False, git_url=None,
+        ai_summary=False, ai_model=None, ai_base_url=None,
+        dry_run=False, cache_max_age=None, cache_clean=True,
+    )
+    with patch("pathlib.Path.unlink", side_effect=OSError("Permission denied")), \
+         caplog.at_level(logging.ERROR):
+        result = run_copycat(args)
+    assert result is None
+    assert any("Cache-Datei konnte nicht gelöscht werden" in r.message for r in caplog.records)
+
+
 # ── Tests für neue Sicherheits-Fixes ────────────────────────────────────────
 
 def test_safe_xml_parse_with_defusedxml():
@@ -5542,7 +5604,7 @@ def test_safe_xml_parse_fallback_without_xmlparser():
         # None in sys.modules → ImportError beim import-Versuch
         sys.modules["defusedxml"] = None
         sys.modules["defusedxml.ElementTree"] = None
-        with patch("CopyCat.ET", new=_FakeET):
+        with patch("copycat.extractors.drawio.ET", new=_FakeET):
             result = _safe_xml_parse("<root/>")
     finally:
         for k in ["defusedxml", "defusedxml.ElementTree"]:
@@ -5581,7 +5643,7 @@ def test_search_in_file_compile_type_error(tmp_path):
         if call_count[0] == 1:
             raise TypeError("timeout not supported")
         return real_compile(pattern)
-    with patch("CopyCat.re.compile", side_effect=fake_compile):
+    with patch("copycat.utils.search.re.compile", side_effect=fake_compile):
         result = search_in_file(f, "hello")
     assert len(result) == 1
 
@@ -5676,11 +5738,11 @@ def test_run_copycat_dry_run_with_git_url(tmp_path, monkeypatch):
         def cleanup(self):
             cleanup_called.append(True)
 
-    monkeypatch.setattr("CopyCat.tempfile.TemporaryDirectory", _FakeTmpDir)
+    monkeypatch.setattr("copycat.core.tempfile.TemporaryDirectory", _FakeTmpDir)
 
     mock_result = MagicMock()
     mock_result.returncode = 0
-    monkeypatch.setattr("CopyCat.subprocess.run", lambda *a, **kw: mock_result)
+    monkeypatch.setattr("copycat.core.subprocess.run", lambda *a, **kw: mock_result)
 
     args = Namespace(
         input=None, output=str(tmp_path), types=["all"], recursive=False,
@@ -5691,6 +5753,40 @@ def test_run_copycat_dry_run_with_git_url(tmp_path, monkeypatch):
         git_url="https://github.com/user/repo",
         ai_summary=False, ai_model="gpt-4o-mini", ai_base_url=None,
         dry_run=True, cache_max_age=None,
+    )
+    result = run_copycat(args)
+    assert result is None
+    assert cleanup_called
+
+
+def test_run_copycat_cache_clean_with_git_url(tmp_path, monkeypatch):
+    """--cache-clean + git_url ruft _tmp_dir_obj.cleanup() auf (line 594 in core.py)."""
+    cleanup_called = []
+    fake_tmp_root = tmp_path / "fake_tmp"
+    fake_tmp_root.mkdir()
+    fake_repo = fake_tmp_root / "repo"
+    fake_repo.mkdir()
+
+    class _FakeTmpDir:
+        def __init__(self):
+            self.name = str(fake_tmp_root)
+        def cleanup(self):
+            cleanup_called.append(True)
+
+    monkeypatch.setattr("copycat.core.tempfile.TemporaryDirectory", _FakeTmpDir)
+    mock_result = MagicMock()
+    mock_result.returncode = 0
+    monkeypatch.setattr("copycat.core.subprocess.run", lambda *a, **kw: mock_result)
+
+    args = Namespace(
+        input=None, output=str(tmp_path), types=["all"], recursive=False,
+        max_size=float("inf"), format="txt", search=None, template=None,
+        watch=False, cooldown=2.0, plugin_dir=None, list_plugins=False,
+        diff=None, merge=None, install_hook=None, verbose=False, quiet=True,
+        exclude=[], incremental=False, stats=False,
+        git_url="https://github.com/user/repo",
+        ai_summary=False, ai_model=None, ai_base_url=None,
+        dry_run=False, cache_max_age=None, cache_clean=True,
     )
     result = run_copycat(args)
     assert result is None
