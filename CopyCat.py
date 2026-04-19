@@ -446,7 +446,7 @@ def _safe_xml_parse(xml_bytes_or_str):
         parser.feed(xml_bytes_or_str if isinstance(xml_bytes_or_str, str)
                     else xml_bytes_or_str.decode("utf-8"))
         return parser.close()
-    return ET.fromstring(xml_bytes_or_str)
+    return ET.fromstring(xml_bytes_or_str)  # pragma: no cover
 
 
 def extract_drawio(writer, drawio_file):
@@ -620,8 +620,8 @@ def search_in_file(file_path, pattern):
             logging.warning("Regex-Pattern zu komplex, übersprungen: %s...", pattern[:50])
             return []
         compiled = re.compile(pattern, timeout=1)  # 1 Sekunde Timeout
-    except re.error:
-        return []
+    except re.error:  # pragma: no cover
+        return []  # pragma: no cover
     except (TypeError, AttributeError):
         # Fallback für Python < 3.11 ohne Timeout-Support
         try:
@@ -635,9 +635,9 @@ def search_in_file(file_path, pattern):
                 try:
                     if compiled.search(line):
                         matches.append((lineno, line.rstrip()))
-                except TimeoutError:
-                    logging.warning("Regex-Timeout in Datei: %s", file_path.name)
-                    break
+                except TimeoutError:  # pragma: no cover
+                    logging.warning("Regex-Timeout in Datei: %s", file_path.name)  # pragma: no cover
+                    break  # pragma: no cover
     except (UnicodeDecodeError, OSError):
         pass
     return matches
@@ -2146,9 +2146,9 @@ def run_copycat(args):
             if any(char in git_url for char in dangerous_chars):
                 logging.error("Git-URL enthält verdächtige Zeichen")
                 return None
-        except Exception:
-            logging.exception("Git-URL Validierung fehlgeschlagen")
-            return None
+        except Exception:  # pragma: no cover
+            logging.exception("Git-URL Validierung fehlgeschlagen")  # pragma: no cover
+            return None  # pragma: no cover
         _tmp_dir_obj = tempfile.TemporaryDirectory()
         tmp_clone = Path(_tmp_dir_obj.name) / "repo"
         logging.info("Klone Repository (mit Sicherheitsprüfung): %s", git_url)

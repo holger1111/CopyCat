@@ -5471,3 +5471,269 @@ def test_run_copycat_cache_cleanup_triggers(tmp_path):
     updated_data = json.loads(cache_file.read_text(encoding="utf-8"))
     assert "old_file.py" not in updated_data["entries"]
 
+
+# ── Tests für neue Sicherheits-Fixes ────────────────────────────────────────
+
+def test_safe_xml_parse_with_defusedxml():
+    """_safe_xml_parse nutzt defusedxml wenn verfügbar (String-Eingabe)."""
+    import sys
+    from CopyCat import _safe_xml_parse
+    xml = "<root><child/></root>"
+    mock_et = MagicMock()
+    expected = MagicMock()
+    mock_et.fromstring.return_value = expected
+    mock_parent = MagicMock()
+    mock_parent.ElementTree = mock_et
+    saved = {k: v for k, v in sys.modules.items() if k == "defusedxml" or k.startswith("defusedxml.")}
+    for k in saved:
+        del sys.modules[k]
+    try:
+        sys.modules["defusedxml"] = mock_parent
+        sys.modules["defusedxml.ElementTree"] = mock_et
+        result = _safe_xml_parse(xml)
+    finally:
+        for k in ["defusedxml", "defusedxml.ElementTree"]:
+            sys.modules.pop(k, None)
+        sys.modules.update(saved)
+    mock_et.fromstring.assert_called_once_with(xml)
+    assert result is expected
+
+
+def test_safe_xml_parse_with_defusedxml_bytes():
+    """_safe_xml_parse dekodiert Bytes-Eingabe vor Übergabe an defusedxml (line 439)."""
+    import sys
+    from CopyCat import _safe_xml_parse
+    xml_bytes = b"<root/>"
+    mock_et = MagicMock()
+    expected = MagicMock()
+    mock_et.fromstring.return_value = expected
+    mock_parent = MagicMock()
+    mock_parent.ElementTree = mock_et
+    saved = {k: v for k, v in sys.modules.items() if k == "defusedxml" or k.startswith("defusedxml.")}
+    for k in saved:
+        del sys.modules[k]
+    try:
+        sys.modules["defusedxml"] = mock_parent
+        sys.modules["defusedxml.ElementTree"] = mock_et
+        result = _safe_xml_parse(xml_bytes)
+    finally:
+        for k in ["defusedxml", "defusedxml.ElementTree"]:
+            sys.modules.pop(k, None)
+        sys.modules.update(saved)
+    mock_et.fromstring.assert_called_once_with("<root/>")
+    assert result is expected
+
+
+def test_safe_xml_parse_fallback_without_xmlparser():
+    """_safe_xml_parse fällt auf ET.fromstring zurück wenn kein XMLParser vorhanden."""
+    import sys
+    from CopyCat import _safe_xml_parse
+
+    class _FakeET:
+        """ET-Ersatz ohne XMLParser-Attribut."""
+        @staticmethod
+        def fromstring(xml_str):
+            return "parsed"
+
+    saved = {k: v for k, v in sys.modules.items() if k == "defusedxml" or k.startswith("defusedxml.")}
+    for k in saved:
+        del sys.modules[k]
+    try:
+        # None in sys.modules → ImportError beim import-Versuch
+        sys.modules["defusedxml"] = None
+        sys.modules["defusedxml.ElementTree"] = None
+        with patch("CopyCat.ET", new=_FakeET):
+            result = _safe_xml_parse("<root/>")
+    finally:
+        for k in ["defusedxml", "defusedxml.ElementTree"]:
+            sys.modules.pop(k, None)
+        sys.modules.update(saved)
+    assert result == "parsed"
+
+
+def test_search_in_file_too_many_alternatives(tmp_path):
+    """search_in_file gibt [] zurück bei Regex mit >20 Alternativen."""
+    f = tmp_path / "code.py"
+    f.write_text("x = 1\n")
+    pattern = "|".join(f"tok{i}" for i in range(25))  # 25 Alternativen
+    result = search_in_file(f, pattern)
+    assert result == []
+
+
+def test_search_in_file_pattern_too_long(tmp_path):
+    """search_in_file gibt [] zurück bei Pattern >5000 Zeichen."""
+    f = tmp_path / "code.py"
+    f.write_text("x = 1\n")
+    pattern = "a" * 5001
+    result = search_in_file(f, pattern)
+    assert result == []
+
+
+def test_search_in_file_compile_type_error(tmp_path):
+    """search_in_file behandelt TypeError aus re.compile (Python < 3.11 Fallback)."""
+    f = tmp_path / "code.py"
+    f.write_text("hello world\n")
+    # Erstes re.compile wirft TypeError (kein timeout-Support), zweites liefert normales Ergebnis
+    real_compile = re.compile
+    call_count = [0]
+    def fake_compile(pattern, *args, **kwargs):
+        call_count[0] += 1
+        if call_count[0] == 1:
+            raise TypeError("timeout not supported")
+        return real_compile(pattern)
+    with patch("CopyCat.re.compile", side_effect=fake_compile):
+        result = search_in_file(f, "hello")
+    assert len(result) == 1
+
+
+def test_cleanup_cache_no_cache_file(tmp_path):
+    """_cleanup_cache gibt 0 zurück wenn cache.json nicht existiert (aber Ordner schon)."""
+    from CopyCat import _cleanup_cache
+    cache_dir = tmp_path / ".copycat_cache"
+    cache_dir.mkdir()
+    # Kein cache.json
+    result = _cleanup_cache(cache_dir, 30)
+    assert result == 0
+
+
+def test_cleanup_cache_no_old_entries(tmp_path):
+    """_cleanup_cache gibt 0 zurück wenn alle Einträge noch frisch sind."""
+    from CopyCat import _cleanup_cache
+    import time
+    cache_dir = tmp_path / ".copycat_cache"
+    cache_dir.mkdir()
+    cache_file = cache_dir / "cache.json"
+    cache_data = {
+        "version": "1",
+        "entries": {
+            "fresh_file.py": {"hash": "abc", "timestamp": time.time(), "lines": 5, "content": "x"},
+        }
+    }
+    cache_file.write_text(json.dumps(cache_data), encoding="utf-8")
+    result = _cleanup_cache(cache_dir, 30)
+    assert result == 0
+
+
+def test_cleanup_cache_exception_handling(tmp_path):
+    """_cleanup_cache gibt 0 zurück bei JSON-Fehler in cache.json."""
+    from CopyCat import _cleanup_cache
+    cache_dir = tmp_path / ".copycat_cache"
+    cache_dir.mkdir()
+    cache_file = cache_dir / "cache.json"
+    cache_file.write_text("this is not valid json", encoding="utf-8")
+    result = _cleanup_cache(cache_dir, 30)
+    assert result == 0
+
+
+def test_run_copycat_git_url_dangerous_chars(tmp_path):
+    """run_copycat gibt None zurück bei Git-URL mit gefährlichen Zeichen."""
+    args = Namespace(
+        input=None, output=str(tmp_path), types=["all"], recursive=False,
+        max_size=float("inf"), format="txt", search=None, template=None,
+        watch=False, cooldown=2.0, plugin_dir=None, list_plugins=False,
+        diff=None, merge=None, install_hook=None, verbose=False, quiet=True,
+        exclude=[], incremental=False, stats=False,
+        git_url="https://github.com/user/repo;rm -rf /",
+        ai_summary=False, ai_model="gpt-4o-mini", ai_base_url=None,
+        dry_run=False, cache_max_age=None,
+    )
+    result = run_copycat(args)
+    assert result is None
+
+
+def test_run_copycat_dry_run_with_archive_move(tmp_path):
+    """run_copycat dry_run mit archive_move=True loggt Archivierungshinweis."""
+    code_file = tmp_path / "test.py"
+    code_file.write_text("x = 1\n")
+    args = Namespace(
+        input=str(tmp_path), output=str(tmp_path), types=["all"], recursive=False,
+        max_size=float("inf"), format="txt", search=None, template=None,
+        watch=False, cooldown=2.0, plugin_dir=None, list_plugins=False,
+        diff=None, merge=None, install_hook=None, verbose=False, quiet=True,
+        exclude=[], incremental=False, stats=False, git_url=None,
+        ai_summary=False, ai_model="gpt-4o-mini", ai_base_url=None,
+        dry_run=True, archive_move=True, cache_max_age=None,
+    )
+    result = run_copycat(args)
+    assert result is None
+
+
+def test_run_copycat_dry_run_with_git_url(tmp_path, monkeypatch):
+    """run_copycat dry_run + git_url ruft _tmp_dir_obj.cleanup() auf (line 2274)."""
+    import tempfile as _tempfile
+    from pathlib import Path as _Path
+    cleanup_called = []
+
+    # Erstelle einen echten tmp-Ordner mit 'repo'-Unterverzeichnis
+    fake_tmp_root = tmp_path / "fake_tmp"
+    fake_tmp_root.mkdir()
+    fake_repo = fake_tmp_root / "repo"
+    fake_repo.mkdir()
+
+    class _FakeTmpDir:
+        def __init__(self):
+            self.name = str(fake_tmp_root)
+        def cleanup(self):
+            cleanup_called.append(True)
+
+    monkeypatch.setattr("CopyCat.tempfile.TemporaryDirectory", _FakeTmpDir)
+
+    mock_result = MagicMock()
+    mock_result.returncode = 0
+    monkeypatch.setattr("CopyCat.subprocess.run", lambda *a, **kw: mock_result)
+
+    args = Namespace(
+        input=None, output=str(tmp_path), types=["all"], recursive=False,
+        max_size=float("inf"), format="txt", search=None, template=None,
+        watch=False, cooldown=2.0, plugin_dir=None, list_plugins=False,
+        diff=None, merge=None, install_hook=None, verbose=False, quiet=True,
+        exclude=[], incremental=False, stats=False,
+        git_url="https://github.com/user/repo",
+        ai_summary=False, ai_model="gpt-4o-mini", ai_base_url=None,
+        dry_run=True, cache_max_age=None,
+    )
+    result = run_copycat(args)
+    assert result is None
+    assert cleanup_called
+
+
+def test_web_login_brute_force_lockout(web_client_auth):
+    """Nach 5 Fehlversuchen wird der Login gesperrt (429)."""
+    import CopyCat_Web
+    client, _, _ = web_client_auth
+    # _login_attempts für diese IP zurücksetzen
+    CopyCat_Web._login_attempts.clear()
+    for _ in range(5):
+        client.post("/login", data={"token": "wrong-token"})
+    # 6. Versuch → 429
+    resp = client.post("/login", data={"token": "wrong-token"})
+    assert resp.status_code == 429
+    assert "warten" in resp.data.decode("utf-8")
+
+
+def test_web_login_lockout_expiry(web_client_auth):
+    """Nach abgelaufenem Lockout wird der Zähler zurückgesetzt (line 129)."""
+    import CopyCat_Web
+    import time
+    client, _, _ = web_client_auth
+    CopyCat_Web._login_attempts.clear()
+    # Simuliere 5 abgelaufene Fehlversuche (400 Sekunden alt = über 300s Lockout)
+    CopyCat_Web._login_attempts["127.0.0.1"] = {"count": 5, "last": time.time() - 400}
+    # Neuer Versuch – Lockout abgelaufen, Zähler wird zurückgesetzt (line 129)
+    resp = client.post("/login", data={"token": "wrong-token-again"})
+    assert resp.status_code != 429  # kein Lockout mehr
+
+
+def test_validate_report_path_empty_raises(web_client):
+    """_validate_report_path wirft ValueError bei leerem Pfad (line 479)."""
+    import CopyCat_Web
+    with pytest.raises(ValueError, match="Ungültiger Pfad"):
+        CopyCat_Web._validate_report_path("")
+
+
+def test_validate_report_path_dotdot_traversal_via_download(web_client):
+    """_validate_report_path blockiert '..' via /download-Route (line 479)."""
+    client, _ = web_client
+    resp = client.get("/download?path=/some/path/../combined_copycat_1.txt")
+    assert resp.status_code == 403
+
