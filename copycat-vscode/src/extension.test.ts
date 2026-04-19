@@ -146,8 +146,8 @@ describe('activate', () => {
         expect(sb.show).toHaveBeenCalled();
     });
 
-    it('pushes four disposables to context.subscriptions', () => {
-        expect(ctx.subscriptions).toHaveLength(4);
+    it('pushes five disposables to context.subscriptions', () => {
+        expect(ctx.subscriptions).toHaveLength(5);
     });
 });
 

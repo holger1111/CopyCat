@@ -8,6 +8,100 @@ let statusBarItem: vscode.StatusBarItem;
 
 // ── Aktivierung ──────────────────────────────────────────────────────────────
 
+async function checkRequirements(): Promise<boolean> {
+    const python = resolvePython();
+    const pythonWorks = await commandExists(python);
+
+    if (!pythonWorks) {
+        const choice = await vscode.window.showErrorMessage(
+            'CopyCat: Python nicht gefunden. Installiere Python von python.org.',
+            'Zur Dokumentation',
+            'Abbrechen',
+        );
+        if (choice === 'Zur Dokumentation') {
+            vscode.env.openExternal(vscode.Uri.parse('https://python.org'));
+        }
+        return false;
+    }
+
+    const scriptExists = resolveScript();
+    const copycatCliExists = await commandExists('copycat');
+
+    if (!scriptExists && !copycatCliExists) {
+        const choice = await vscode.window.showWarningMessage(
+            'CopyCat: Weder CopyCat.py noch `copycat` CLI gefunden.',
+            'copycat-tool installieren',
+            'Selbst installieren',
+            'Abbrechen',
+        );
+
+        if (choice === 'copycat-tool installieren') {
+            await installCopycatTool();
+            return true;
+        } else if (choice === 'Selbst installieren') {
+            vscode.env.openExternal(
+                vscode.Uri.parse('https://github.com/holger1111/CopyCat'),
+            );
+        }
+        return false;
+    }
+
+    return true;
+}
+
+async function commandExists(cmd: string): Promise<boolean> {
+    try {
+        await new Promise((resolve, reject) => {
+            const proc = cp.spawn(cmd === 'copycat' ? 'copycat' : cmd, ['--version'], {
+                timeout: 5000,
+                windowsHide: true,
+            });
+            proc.on('close', (code: number | null) => {
+                resolve(code === 0);
+            });
+            proc.on('error', () => reject(new Error('Command not found')));
+        });
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+async function installCopycatTool(): Promise<void> {
+    outputChannel.clear();
+    outputChannel.show(true);
+    outputChannel.appendLine('▶  pip install copycat-tool');
+    outputChannel.appendLine('─'.repeat(60));
+
+    const python = resolvePython();
+    const proc = cp.spawn(python, ['-m', 'pip', 'install', '--upgrade', 'copycat-tool'], {
+        windowsHide: true,
+    });
+
+    return new Promise((resolve, reject) => {
+        proc.stdout?.on('data', (data: Buffer) => outputChannel.append(data.toString()));
+        proc.stderr?.on('data', (data: Buffer) => outputChannel.append(data.toString()));
+        proc.on('close', (code: number | null) => {
+            outputChannel.appendLine('─'.repeat(60));
+            if (code === 0) {
+                outputChannel.appendLine('✓  copycat-tool erfolgreich installiert.');
+                vscode.window.showInformationMessage('CopyCat: copycat-tool installiert.');
+                resolve();
+            } else {
+                outputChannel.appendLine(`✗  Installation fehlgeschlagen (Exit-Code ${code}).`);
+                vscode.window.showErrorMessage(
+                    `CopyCat: Installation fehlgeschlagen. Siehe Output-Channel.`,
+                );
+                reject(new Error(`Installation failed with code ${code}`));
+            }
+        });
+        proc.on('error', (err: Error) => {
+            outputChannel.appendLine(`✗  Fehler: ${err.message}`);
+            reject(err);
+        });
+    });
+}
+
 export function activate(context: vscode.ExtensionContext): void {
     outputChannel = vscode.window.createOutputChannel('CopyCat');
 
@@ -27,9 +121,17 @@ export function activate(context: vscode.ExtensionContext): void {
         vscode.commands.registerCommand('copycat.runRecursive', () =>
             runCopyCat({ recursive: true }),
         ),
+        vscode.commands.registerCommand('copycat.checkRequirements', () =>
+            checkRequirements(),
+        ),
         outputChannel,
         statusBarItem,
     );
+
+    // Beim Start automatisch Voraussetzungen prüfen
+    checkRequirements().catch(() => {
+        // Fehler werden bereits dem Nutzer angezeigt
+    });
 }
 
 // ── Deaktivierung ─────────────────────────────────────────────────────────────

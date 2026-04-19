@@ -2,7 +2,7 @@
   "name": "copycat-project-documenter",
   "displayName": "CopyCat – Project Documenter",
   "description": "Run CopyCat documentation reports directly from VS Code",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "publisher": "holger1111",
   "license": "MIT",
   "icon": "images/icon.png",
