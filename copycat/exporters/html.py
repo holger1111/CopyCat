@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from ..extractors.csv_extractor import extract_csv
+from ..i18n import get_tr
 from ..utils.files import get_plural
 from ..utils.plugins import TYPE_FILTERS, PLUGIN_RENDERERS
 
@@ -29,6 +30,8 @@ def _write_html(
     stats: dict[str, Any] | None = None,
 ) -> None:
     """Write a self-contained HTML report with optional Pygments syntax highlighting."""
+    _lang = str(getattr(args, "lang", "de"))
+    tr = get_tr(_lang)
     try:
         from pygments import highlight
         from pygments.lexers import get_lexer_for_filename
@@ -50,7 +53,7 @@ def _write_html(
             lexer = TextLexer()
         return f"<pre>{highlight(text, lexer, _formatter)}</pre>"
 
-    mode_text = "Rekursiv" if args.recursive else "Flach"
+    mode_text = tr("mode_recursive_title") if args.recursive else tr("mode_flat_title")
     total_files = sum(len(files[t]) for t in files)
     selected_types = args.types if args.types else ["all"]
     process_all = "all" in selected_types
@@ -69,8 +72,8 @@ def _write_html(
     if search_pattern:
         total_hits = sum(len(v) for v in sr.values())
         search_meta = (
-            f"<tr><th>Suche</th><td><code>{_html_escape(search_pattern)}</code>"
-            f" \u2192 {total_hits} Treffer in {len(sr)} {get_plural(len(sr))}</td></tr>"
+            f"<tr><th>{tr('search')}</th><td><code>{_html_escape(search_pattern)}</code>"
+            f" \u2192 {total_hits} {tr('matches')} in {len(sr)} {get_plural(len(sr), _lang)}</td></tr>"
         )
 
     # Code sections
@@ -83,16 +86,16 @@ def _write_html(
                 code_text = cache[code_file].get("content", "")
                 badge = (' <span style="background:#e8f5e9;border:1px solid #a5d6a7;'
                          'border-radius:3px;padding:1px 5px;font-size:.8em;color:#2e7d32">'
-                         'Cache-Treffer</span>') if cache[code_file].get("from_cache") else ""
+                         f'{tr("cache_hit_html")}</span>') if cache[code_file].get("from_cache") else ""
             else:
                 try:
                     code_text = code_file.read_text(encoding="utf-8")
                     lines_count = sum(1 for line in code_text.splitlines() if line.strip())
                 except UnicodeDecodeError:
-                    code_text = "(Binary oder ung\u00fcltiges Encoding - \u00fcbersprungen)"
+                    code_text = tr("binary_skip")
                     lines_count = 1
                 except Exception:
-                    code_text = "(Fehler beim Lesen)"
+                    code_text = tr("read_error")
                     lines_count = 0
                 badge = ""
             folder = rel_path.parent.name if rel_path.parent.name != "." else ""
@@ -102,7 +105,7 @@ def _write_html(
             code_html_parts.append(
                 f'<details open>\n'
                 f'<summary><strong>{_html_escape(code_file.name)}</strong>{folder_str} '
-                f'<em style="color:#555">{lines_count} Zeilen</em>{badge}</summary>\n'
+                f'<em style="color:#555">{lines_count} {tr("lines")}</em>{badge}</summary>\n'
                 f'<div style="overflow-x:auto">{highlighted}</div>\n'
                 f'</details>\n'
             )
@@ -138,7 +141,7 @@ def _write_html(
             )
             other_sections.append(
                 f'<h2>{_html_escape(t.upper())}</h2>\n'
-                f'<table><tr><th>Datei</th><th>Größe</th></tr>{rows}</table>\n'
+                f'<table><tr><th>{tr("file")}</th><th>{tr("size")}</th></tr>{rows}</table>\n'
             )
 
     # Search results section
@@ -152,15 +155,15 @@ def _write_html(
                          f'<td>{lineno}</td>'
                          f'<td><code>{_html_escape(text.strip())}</code></td></tr>\n')
         search_section = (
-            f'<h2>Suchergebnisse: <code>{_html_escape(search_pattern)}</code>'
-            f' ({total_hits} Treffer)</h2>\n'
-            f'<table><tr><th>Datei</th><th>Zeile</th><th>Treffer</th></tr>\n'
+            f'<h2>{tr("search_results")}: <code>{_html_escape(search_pattern)}</code>'
+            f' ({total_hits} {tr("matches")})</h2>\n'
+            f'<table><tr><th>{tr("file")}</th><th>{tr("line")}</th><th>{tr("matches")}</th></tr>\n'
             f'{rows}</table>\n'
         )
 
     pygments_note = "" if _has_pygments else (
         '<p style="color:#888;font-size:.85em">'
-        'Syntax-Highlighting nicht verf\u00fcgbar (pip install pygments).</p>'
+        f'{tr("pygments_missing")}</p>'
     )
 
     # Stats section HTML
@@ -172,13 +175,13 @@ def _write_html(
         compl_summary = f"{avg_str} / {max_str}" if max_str else avg_str
         cards = (
             f'<div class="stat-card"><div class="stat-val">{tot["loc"]}</div>'
-            f'<div class="stat-label">Zeilen gesamt</div></div>'
+            f'<div class="stat-label">{tr("lines_total")}</div></div>'
             f'<div class="stat-card"><div class="stat-val">{tot["code"]}</div>'
-            f'<div class="stat-label">Code-Zeilen</div></div>'
+            f'<div class="stat-label">{tr("code_lines")}</div></div>'
             f'<div class="stat-card"><div class="stat-val">{tot["comment_ratio"]}%</div>'
-            f'<div class="stat-label">Kommentaranteil</div></div>'
+            f'<div class="stat-label">{tr("comment_ratio")}</div></div>'
             f'<div class="stat-card"><div class="stat-val">{compl_summary}</div>'
-            f'<div class="stat-label">Komplexität</div></div>'
+            f'<div class="stat-label">{tr("complexity")}</div></div>'
         )
         rows_html = ""
         for fpath, s in stats["per_file"].items():
@@ -189,15 +192,15 @@ def _write_html(
                 f'<td>{s["comments"]}</td><td>{s["blank"]}</td><td>{c}</td></tr>\n'
             )
         stats_section = (
-            f'<section>\n<h2>Code-Statistiken</h2>\n'
+            f'<section>\n<h2>{tr("code_stats")}</h2>\n'
             f'<div class="stat-cards">{cards}</div>\n'
-            f'<table><tr><th>Datei</th><th>LOC</th><th>Code</th>'
-            f'<th>Kommentar</th><th>Leer</th><th>Komplexität</th></tr>\n'
+            f'<table><tr><th>{tr("file")}</th><th>LOC</th><th>Code</th>'
+            f'<th>{tr("comment")}</th><th>{tr("blank")}</th><th>{tr("complexity")}</th></tr>\n'
             f'{rows_html}</table>\n</section>\n'
         )
 
     html = (
-        f'<!DOCTYPE html>\n<html lang="de">\n<head>\n'
+        f'<!DOCTYPE html>\n<html lang="{_lang}">\n<head>\n'
         f'<meta charset="UTF-8">\n'
         f'<meta name="viewport" content="width=device-width, initial-scale=1">\n'
         f'<title>CopyCat Report #{serial}</title>\n'
@@ -219,21 +222,21 @@ def _write_html(
         f'.stat-val{{font-size:1.6em;font-weight:700;color:#1565c0}}\n'
         f'.stat-label{{font-size:.78em;color:#666;margin-top:4px}}\n'
         f'</style>\n</head>\n<body>\n'
-        f'<header><h1>&#128008; CopyCat v2.9 Report</h1></header>\n'
+        f'<header><h1>&#128008; CopyCat v3.0 Report</h1></header>\n'
         f'<section>\n'
         f'<table>\n'
-        f'<tr><th>Datum</th><td>{now}</td></tr>\n'
-        f'<tr><th>Modus</th><td>{mode_text}</td></tr>\n'
-        f'<tr><th>Pfad</th><td><code>{_html_escape(str(input_dir))}</code></td></tr>\n'
+        f'<tr><th>{tr("date")}</th><td>{now}</td></tr>\n'
+        f'<tr><th>{tr("mode")}</th><td>{mode_text}</td></tr>\n'
+        f'<tr><th>{tr("path")}</th><td><code>{_html_escape(str(input_dir))}</code></td></tr>\n'
         f'<tr><th>Git</th><td>{_html_escape(git_info)}</td></tr>\n'
-        f'<tr><th>Gesamt</th><td>{total_files} {get_plural(total_files)}</td></tr>\n'
+        f'<tr><th>{tr("total")}</th><td>{total_files} {get_plural(total_files, _lang)}</td></tr>\n'
         f'<tr><th>Serial</th><td>#{serial}</td></tr>\n'
         f'{search_meta}\n'
         f'</table>\n</section>\n'
-        f'<section>\n<h2>\u00dcbersicht</h2>\n'
-        f'<table><tr><th>Typ</th><th>Anzahl</th></tr>\n{overview_rows}</table>\n</section>\n'
+        f'<section>\n<h2>{tr("overview")}</h2>\n'
+        f'<table><tr><th>{tr("type")}</th><th>{tr("count")}</th></tr>\n{overview_rows}</table>\n</section>\n'
         + stats_section
-        + f'<section>\n<h2>Code-Details</h2>\n{pygments_note}\n'
+        + f'<section>\n<h2>{tr("code_details")}</h2>\n{pygments_note}\n'
         + "".join(code_html_parts)
         + f'</section>\n'
         + "".join(other_sections)

@@ -1,5 +1,5 @@
 """
-CopyCat v2.9 – thin wrapper around the copycat package.
+CopyCat v3.0 – thin wrapper around the copycat package.
 
 All public symbols are imported here so that existing code and tests
 that import directly from CopyCat continue to work unchanged.

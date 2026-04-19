@@ -43,7 +43,9 @@ def move_to_archive(base_path: Path, filename: str) -> None:
             logging.warning("Archiv-Fehler %s: %s", filename, e)
 
 
-def get_plural(count: int) -> str:
+def get_plural(count: int, lang: str = "de") -> str:
+    if lang == "en":
+        return "file" if count == 1 else "files"
     return "Datei" if count == 1 else "Dateien"
 
 

@@ -1,4 +1,4 @@
-# CopyCat v2.9 - Project Documenter
+# CopyCat v3.0 - Project Documenter
 
 
 ## Automates Code + Diagrams + Media into Text Reports
@@ -28,6 +28,7 @@
 | Merge Mode		| Combine multiple reports (`--merge`)			|
 | Watch Mode		| Auto-rerun on file changes (`--watch`, `--cooldown`)	|
 | Plugin System		| Add custom file types via `.py` plugins (`--plugin-dir`)	|
+| Language Selection	| German/English report output in CLI, GUI and Web UI (`--lang`, config, dropdown)	|
 | Pre-commit Hook	| Install as Git hook (`--install-hook`)		|
 | Config File		| `copycat.conf` auto-loaded; CLI overrides		|
 | PDF Export		| Structured PDF with tables, code details, stats (`--format pdf`)	|
@@ -156,6 +157,7 @@ python CopyCat.py                              # uses copycat.conf if present
 | `--ai-base-url URL`		| Base URL for AI API (e.g. `http://localhost:11434/v1` for Ollama)		| None		|
 | `--timeline`			| Generate a timeline from archived reports					| off		|
 | `--timeline-format`		| Timeline format: `md`, `ascii`, `html`					| `md`		|
+| `--lang`			| Report language: `de` or `en`; also used by GUI/Web/config		| `de`		|
 
 ### Flat vs Recursive
 
@@ -195,12 +197,12 @@ CopyCat.py -s 1                # Max 1MB
 ```
 
 
-#### Output Example (v2.9)
+#### Output Example (v3.0)
 
 
 ````text
 ============================================================
-CopyCat v2.9 | 13.04.2026 20:41 | REKURSIV
+CopyCat v3.0 | 13.04.2026 20:41 | REKURSIV
 /projekt
 GIT: Branch: main | Last Commit: a1b2c3d
 
@@ -273,7 +275,7 @@ DIAGRAM Test_komplex.drawio: 152 Cells, 45 Texte, 23 Unique
 ### Plugin System
 
 
-CopyCat v2.9 supports custom file types via plugins. Place any `.py` file in the `plugins/` folder (next to `CopyCat.py`) or specify a custom directory with `--plugin-dir`.
+CopyCat v3.0 supports custom file types via plugins. Place any `.py` file in the `plugins/` folder (next to `CopyCat.py`) or specify a custom directory with `--plugin-dir`.
 
 
 **Minimal plugin (`plugins/mytype.py`):**
@@ -319,7 +321,7 @@ The example plugin `plugins/example_proto.py` ships with CopyCat and serves as a
 
 ### Web Interface
 
-CopyCat v2.9 includes a browser-based UI powered by Flask.
+CopyCat v3.0 includes a browser-based UI powered by Flask.
 
 **Start:**
 ```bash
@@ -405,7 +407,7 @@ Others			→ [ERROR: file]
 **Example:** DIAGRAM INVALID XML: test.drawio
 
 
-### Performance Tuning (v2.9)
+### Performance Tuning (v3.0)
 
 
 **For large projects (1000+ files):**
@@ -428,7 +430,7 @@ Filter output: → 1274 geprüft, Filter OK
 ### Output Formats
 
 
-CopyCat v2.9 supports four output formats via the `-f` / `--format` flag:
+CopyCat v3.0 supports four output formats via the `-f` / `--format` flag:
 
 
 | Format | Flag | Output File | Description |
@@ -483,7 +485,7 @@ All formats use the same serial number system and archive rotation.
 ### PDF Export
 
 
-CopyCat v2.9 can generate structured PDF reports via `--format pdf`:
+CopyCat v3.0 can generate structured PDF reports via `--format pdf`:
 
 ```bash
 pip install reportlab
@@ -504,7 +506,7 @@ The PDF contains:
 ### AI Summary
 
 
-CopyCat v2.9 can generate an AI-powered project brief appended to any report:
+CopyCat v3.0 can generate an AI-powered project brief appended to any report:
 
 ```bash
 pip install openai
@@ -535,7 +537,7 @@ The API key is read **exclusively** from the `COPYCAT_AI_KEY` environment variab
 ### Report Timeline
 
 
-CopyCat v2.9 can generate a visual history from the `CopyCat_Archive/` folder:
+CopyCat v3.0 can generate a visual history from the `CopyCat_Archive/` folder:
 
 ```bash
 python CopyCat.py --timeline                      # Markdown table (default)
@@ -579,7 +581,7 @@ The Docker image (`python:3.12-slim`) includes all optional dependencies: `repor
 ### Content Search
 
 
-CopyCat v2.9 supports regex-based content search across all text files via `--search` / `-S`:
+CopyCat v3.0 supports regex-based content search across all text files via `--search` / `-S`:
 
 
 ```bash
@@ -753,9 +755,9 @@ README_GER.md
 
 3. `git commit -m "feat/fix/docs/test/ci: description"`
 
-**Tests:** 543 tests, 100% branch coverage (CLI, serial, gitignore, Draw.io, GUI, watch, templates, diff, merge, hook, plugins, PDF, AI, timeline, CSV, type annotations, packaging, …)
+**Tests:** 1102 tests, 100% branch coverage (CLI, serial, gitignore, Draw.io, GUI, watch, templates, diff, merge, hook, plugins, PDF, AI, timeline, CSV, type annotations, packaging, i18n, …)
 
-**Type safety:** `py -m mypy copycat/ CopyCat.py --ignore-missing-imports --strict` → 0 errors across all 25 source files
+**Type safety:** `py -m mypy copycat/ CopyCat.py --ignore-missing-imports --strict` → 0 errors across all 26 source files
 
 **CI:** GitHub Actions → pytest + coverage badges (Codecov)
 

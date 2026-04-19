@@ -72,7 +72,7 @@ def main() -> None:
         tl_base = Path(args.input or str(Path(__file__).parent.parent))
         tl_archive = tl_base / "CopyCat_Archive"
         tl_fmt = getattr(args, "timeline_format", "md")
-        print(build_timeline(tl_archive, fmt=tl_fmt))
+        print(build_timeline(tl_archive, fmt=tl_fmt, lang=getattr(args, "lang", "de")))
 
     else:
         run_copycat(args)

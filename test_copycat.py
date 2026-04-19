@@ -1,4 +1,4 @@
-﻿"""CopyCat v2.9 - Pytest Suite (Refactored & Optimized)"""
+﻿"""CopyCat v3.0 - Pytest Suite (Refactored & Optimized)"""
 
 import logging
 import subprocess
@@ -72,7 +72,7 @@ def mock_writer():
 @pytest.fixture
 def run_args(tmp_path):
     """Factory fixture for Namespace args."""
-    def _make_args(types=None, recursive=False, max_size=None, input_path=None, output_path=None, fmt="txt", search=None, exclude=None, incremental=False, stats=False, git_url=None):
+    def _make_args(types=None, recursive=False, max_size=None, input_path=None, output_path=None, fmt="txt", search=None, exclude=None, incremental=False, stats=False, git_url=None, lang="de"):
         return Namespace(
             input=str(input_path or tmp_path),
             output=str(output_path or tmp_path),
@@ -89,6 +89,7 @@ def run_args(tmp_path):
             incremental=incremental,
             stats=stats,
             git_url=git_url,
+            lang=lang,
         )
     return _make_args
 
@@ -132,6 +133,12 @@ def test_parse_arguments(argv, expected):
             assert getattr(args, key) == val
 
 
+def test_parse_arguments_lang_cli_en():
+    with patch("sys.argv", ["test_copycat.py", "--lang", "en"]):
+        args = parse_arguments()
+    assert args.lang == "en"
+
+
 # ==================== SERIAL NUMBER TESTS ====================
 
 @pytest.mark.parametrize("files,expected", [
@@ -165,16 +172,18 @@ def test_is_valid_serial_filename(name, expected):
 
 # ==================== PLURAL TESTS ====================
 
-@pytest.mark.parametrize("count,expected", [
-    (0, "Dateien"),
-    (1, "Datei"),
-    (2, "Dateien"),
-    (47, "Dateien"),
-    (999, "Dateien"),
+@pytest.mark.parametrize("count,lang,expected", [
+    (0, "de", "Dateien"),
+    (1, "de", "Datei"),
+    (2, "de", "Dateien"),
+    (47, "de", "Dateien"),
+    (999, "de", "Dateien"),
+    (1, "en", "file"),
+    (2, "en", "files"),
 ])
-def test_get_plural(count, expected):
+def test_get_plural(count, lang, expected):
     """Test plural form handling."""
-    assert get_plural(count) == expected
+    assert get_plural(count, lang) == expected
 
 
 # ==================== TYPE FILTERS TESTS ====================
@@ -894,7 +903,7 @@ def test_run_copycat_format_json_basic(tmp_path, run_args):
     assert "files" in data
     assert "types" in data
     assert "version" in data
-    assert data["version"] == "2.9.0"
+    assert data["version"] == "3.0.0"
     assert data["files"] >= 1
     assert "code" in data["types"]
     assert data["git"] is None
@@ -946,7 +955,7 @@ def test_run_copycat_format_md_basic(tmp_path, run_args):
     reports = list(tmp_path.glob("combined_copycat_*.md"))
     assert len(reports) == 1
     content = reports[0].read_text(encoding="utf-8")
-    assert "# CopyCat v2.9 Report" in content
+    assert "# CopyCat v3.0 Report" in content
     assert "## Übersicht" in content
     assert "## Code-Details" in content
     assert "script.py" in content
@@ -996,7 +1005,7 @@ def test_run_copycat_format_html_basic(tmp_path, run_args):
     assert len(reports) == 1
     content = reports[0].read_text(encoding="utf-8")
     assert "<!DOCTYPE html>" in content
-    assert "CopyCat v2.9 Report" in content
+    assert "CopyCat v3.0 Report" in content
     assert "Code-Details" in content
     assert "app.py" in content
 
@@ -1085,7 +1094,7 @@ def test_write_md_direct(tmp_path):
     _write_md(buf, files, args, tmp_path, "No Git", 3)
 
     out = buf.getvalue()
-    assert "# CopyCat v2.9 Report" in out
+    assert "# CopyCat v3.0 Report" in out
     assert "hello.py" in out
     assert "## IMG" in out
     assert "| **Serial** | #3 |" in out
@@ -1460,6 +1469,14 @@ def test_parse_arguments_config_empty_types(tmp_path):
     with patch("sys.argv", ["CopyCat.py"]):
         args = parse_arguments(config_path=str(conf))
     assert args.types == ["all"]
+
+
+def test_parse_arguments_config_lang_en(tmp_path):
+    conf = tmp_path / "copycat.conf"
+    conf.write_text("lang = en\n", encoding="utf-8")
+    with patch("sys.argv", ["test_copycat.py"]):
+        args = parse_arguments(config_path=str(conf))
+    assert args.lang == "en"
 
 
 def test_parse_arguments_config_unknown_key_warns(tmp_path, caplog):
@@ -2055,7 +2072,7 @@ def _make_txt_report(tmp_path, name, files_code, files_web=None):
     """Hilfsfunktion: Erzeugt ein minimales TXT-Report im CopyCat-Format."""
     lines = [
         "=" * 60,
-        f"CopyCat v2.9 | 01.01.2025 10:00 | FLACH (Default)",
+        f"CopyCat v3.0 | 01.01.2025 10:00 | FLACH (Default)",
         str(tmp_path),
         "GIT: No Git",
         "",
@@ -2160,8 +2177,8 @@ def test_gui_on_diff_success(gui, tmp_path):
     """_on_diff zeigt Diff-Ergebnis im Ausgabefeld."""
     rep_a = tmp_path / "a.txt"
     rep_b = tmp_path / "b.txt"
-    rep_a.write_text("CopyCat v2.9 | 01.01.2025 | FLACH\nGesamt: 0\n----- x.py -----\n")
-    rep_b.write_text("CopyCat v2.9 | 01.01.2025 | FLACH\nGesamt: 0\n----- y.py -----\n")
+    rep_a.write_text("CopyCat v3.0 | 01.01.2025 | FLACH\nGesamt: 0\n----- x.py -----\n")
+    rep_b.write_text("CopyCat v3.0 | 01.01.2025 | FLACH\nGesamt: 0\n----- y.py -----\n")
 
     with patch("tkinter.filedialog.askopenfilename", side_effect=[str(rep_a), str(rep_b)]):
         gui._on_diff()
@@ -2266,7 +2283,7 @@ def _make_txt_for_merge(tmp_path, name, filenames):
     """Hilfsfunktion: minimales TXT-Report."""
     lines = [
         "=" * 60,
-        f"CopyCat v2.9 | 01.01.2025 10:00 | FLACH (Default)",
+        f"CopyCat v3.0 | 01.01.2025 10:00 | FLACH (Default)",
         str(tmp_path), "GIT: No Git", "",
         f"Gesamt: {len(filenames)} Dateien", "Serial #1",
         "=" * 60, "CODE-Details:",
@@ -5178,7 +5195,7 @@ def test_build_timeline_txt_reports(tmp_path):
     archive.mkdir()
     (archive / "combined_copycat_1.txt").write_text(
         "============================================================\n"
-        "CopyCat v2.9 | 01.01.2025 14:00 | FLACH (Default)\n"
+        "CopyCat v3.0 | 01.01.2025 14:00 | FLACH (Default)\n"
         "/some/path\nGIT: No Git\n\nGesamt: 5 Dateien\nSerial #1\n"
         "============================================================\n"
         "CODE: 3 Dateien\n",
@@ -5186,7 +5203,7 @@ def test_build_timeline_txt_reports(tmp_path):
     )
     (archive / "combined_copycat_2.txt").write_text(
         "============================================================\n"
-        "CopyCat v2.9 | 15.01.2025 10:00 | FLACH (Default)\n"
+        "CopyCat v3.0 | 15.01.2025 10:00 | FLACH (Default)\n"
         "/some/path\nGIT: No Git\n\nGesamt: 8 Dateien\nSerial #2\n"
         "============================================================\n"
         "CODE: 5 Dateien\n",
@@ -5320,7 +5337,7 @@ def test_build_timeline_invalid_filename_skipped(tmp_path):
     (archive / "combined_copycat_99.xyz").write_text("something", encoding="utf-8")
     # Gültige Datei
     (archive / "combined_copycat_1.txt").write_text(
-        "CopyCat v2.9 | 01.01.2025 10:00 | FLACH\nGesamt: 3 Dateien\n",
+        "CopyCat v3.0 | 01.01.2025 10:00 | FLACH\nGesamt: 3 Dateien\n",
         encoding="utf-8",
     )
     result = build_timeline(archive)
@@ -5361,6 +5378,76 @@ def test_build_timeline_txt_no_date_or_total(tmp_path):
     result = build_timeline(archive)
     # Eintrag mit Fallback '?' für Datum und 0 für Gesamt
     assert "?" in result or "1" in result
+
+
+# ==================== M40+: Language Selection (DE/EN) ====================
+
+def test_write_txt_lang_en(tmp_path):
+    files = {t: [] for t in TYPE_FILTERS}
+    code_file = tmp_path / "main.py"
+    code_file.write_text("print('hello')\n", encoding="utf-8")
+    files["code"] = [code_file]
+    writer = StringIO()
+    args = Namespace(types=["code"], recursive=False, lang="en")
+
+    _write_txt(writer, files, args, tmp_path, "No Git", 1)
+    out = writer.getvalue()
+
+    assert "FLAT (Default)" in out
+    assert "Total: 1 file" in out
+    assert "CODE Details:" in out
+    assert "Lines" in out
+
+
+def test_write_md_lang_en(tmp_path):
+    files = {t: [] for t in TYPE_FILTERS}
+    code_file = tmp_path / "main.py"
+    code_file.write_text("print('hello')\n", encoding="utf-8")
+    files["code"] = [code_file]
+    writer = StringIO()
+    args = Namespace(types=["code"], recursive=False, lang="en")
+
+    _write_md(writer, files, args, tmp_path, "No Git", 1)
+    out = writer.getvalue()
+
+    assert "| **Date** |" in out
+    assert "| **Mode** | Flat |" in out
+    assert "## Overview" in out
+    assert "## Code Details" in out
+
+
+def test_write_html_lang_en(tmp_path):
+    files = {t: [] for t in TYPE_FILTERS}
+    code_file = tmp_path / "main.py"
+    code_file.write_text("print('hello')\n", encoding="utf-8")
+    files["code"] = [code_file]
+    args = Namespace(types=["code"], recursive=False, lang="en")
+    out_file = tmp_path / "report.html"
+
+    _write_html(out_file, files, args, tmp_path, "No Git", 1)
+    html = out_file.read_text(encoding="utf-8")
+
+    assert '<html lang="en">' in html
+    assert "<th>Date</th>" in html
+    assert "<h2>Overview</h2>" in html
+    assert "Total</th><td>1 file" in html
+
+
+def test_build_timeline_md_lang_en_with_txt_input(tmp_path):
+    archive = tmp_path / "CopyCat_Archive"
+    archive.mkdir()
+    (archive / "combined_copycat_1.txt").write_text(
+        "============================================================\n"
+        "CopyCat v3.0 | 01.01.2025 14:00 | FLAT (Default)\n"
+        "/some/path\nGIT: No Git\n\nTotal: 3 files\nSerial #1\n"
+        "============================================================\n"
+        "CODE: 3 files\n",
+        encoding="utf-8",
+    )
+
+    result = build_timeline(archive, fmt="md", lang="en")
+    assert "| Serial | Date | Total |" in result
+    assert "| #1 |" in result
 
 
 # ── Tests für Fix #4-#6: Error-Context, Cache-Cleanup, Dry-Run ──────────────
@@ -6496,7 +6583,7 @@ def test_cli_main_merge(tmp_path, monkeypatch, capsys):
 
 def test_cli_main_timeline(tmp_path, monkeypatch, capsys):
     """cli.main() --timeline ruft build_timeline auf."""
-    monkeypatch.setattr(_cli_mod, "build_timeline", lambda arch, fmt: "TIMELINE_OUTPUT")
+    monkeypatch.setattr(_cli_mod, "build_timeline", lambda arch, fmt, lang="de": "TIMELINE_OUTPUT")
     with patch("sys.argv", ["copycat", "--input", str(tmp_path), "--timeline"]):
         _cli_mod.main()
     out = capsys.readouterr().out

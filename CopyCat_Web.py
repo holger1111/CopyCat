@@ -1,5 +1,5 @@
 """
-CopyCat v2.9 – Web-Interface (Flask)
+CopyCat v3.0 – Web-Interface (Flask)
 
 Start:  python CopyCat_Web.py
         python CopyCat_Web.py --port 8080 --host 0.0.0.0
@@ -143,7 +143,7 @@ _TEMPLATE = """<!DOCTYPE html>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>CopyCat v2.9 Web</title>
+  <title>CopyCat v3.0 Web</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: system-ui, sans-serif; background: #f0f2f5; color: #1a1a2e; min-height: 100vh; }
@@ -184,7 +184,7 @@ _TEMPLATE = """<!DOCTYPE html>
 </head>
 <body>
   <header>
-    <h1>&#128008; CopyCat v2.9</h1>
+    <h1>&#128008; CopyCat v3.0</h1>
     <span>Web-Interface</span>
   </header>
   <main>
@@ -262,6 +262,13 @@ _TEMPLATE = """<!DOCTYPE html>
         <label style="display:flex;align-items:center;gap:.5rem;margin-bottom:.9rem;">
           <input type="checkbox" name="stats" {% if form.stats %}checked{% endif %}> Code-Statistiken
         </label>
+        <div style="margin-bottom:.9rem;">
+          <label for="lang">Sprache / Language</label>
+          <select id="lang" name="lang">
+            <option value="de" {% if form.lang == 'de' %}selected{% endif %}>Deutsch</option>
+            <option value="en" {% if form.lang == 'en' %}selected{% endif %}>English</option>
+          </select>
+        </div>
       </div>
 
       <div class="card">
@@ -339,6 +346,7 @@ def _build_args(form) -> Namespace:
       incremental="incremental" in form,
       stats="stats" in form,
       git_url=form.get("git_url", "").strip() or None,
+      lang=form.get("lang", "de") if form.get("lang", "de") in ("de", "en") else "de",
     )
 
 
@@ -356,6 +364,7 @@ def _form_defaults():
         "incremental": False,
         "stats": False,
         "git_url": "",
+        "lang": "de",
     }
 
 
@@ -408,6 +417,7 @@ def run():
       "incremental": "incremental" in request.form,
       "stats": "stats" in request.form,
       "git_url": request.form.get("git_url", "").strip(),
+      "lang": request.form.get("lang", "de") if request.form.get("lang", "de") in ("de", "en") else "de",
     }
 
     git_url = form_data.get("git_url", "")
@@ -574,7 +584,7 @@ def api_run():
 
 
 def _parse_web_args():
-    parser = argparse.ArgumentParser(description="CopyCat v2.9 Web-Interface")
+    parser = argparse.ArgumentParser(description="CopyCat v3.0 Web-Interface")
     parser.add_argument("--host", default="127.0.0.1", help="Bind-Adresse (default: 127.0.0.1)")
     parser.add_argument("--port", type=int, default=5000, help="Port (default: 5000)")
     parser.add_argument("--debug", action="store_true", help="Flask Debug-Modus")

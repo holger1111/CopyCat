@@ -1,4 +1,4 @@
-## CopyCat v2.9 – Projektübersicht
+## CopyCat v3.0 – Projektübersicht
 
 ### Zweck
 CopyCat ist ein **automatisierter Projekt-Dokumentierer**: Er scannt einen lokalen Ordner oder ein Remote-Git-Repository und erzeugt einen konsolidierten Report (TXT, JSON, MD, HTML), der Quellcode, Diagramme, Medien, Notebooks u. v. m. zusammenfasst – per einzigem Befehl.
@@ -12,10 +12,10 @@ CopyCat ist ein **automatisierter Projekt-Dokumentierer**: Er scannt einen lokal
 | CopyCat.py | **Core-Engine** – gesamte Logik, CLI, alle Ausgabeformater |
 | CopyCat_GUI.py | **Tkinter-GUI** – grafische Oberfläche |
 | CopyCat_Web.py | **Flask-Web-Interface** – Browser-UI + REST-API |
-| test_copycat.py | **Pytest-Suite** (~300 Tests, Ziel: 100 % Coverage) |
+| test_copycat.py | **Pytest-Suite** (1102 Tests, 100 % Branch-Coverage) |
 | plugins | Dynamisches Plugin-System |
 | copycat-vscode | TypeScript VS-Code-Extension |
-| Entwicklungsplan.md | Detaillierter Meilensteinplan (36 Meilensteine) |
+| Entwicklungsplan.md | Detaillierter Meilensteinplan (41 Meilensteine) |
 
 ---
 
@@ -32,6 +32,7 @@ CopyCat ist ein **automatisierter Projekt-Dokumentierer**: Er scannt einen lokal
 - **JSON** – strukturiert mit Metadaten
 - **MD** – Markdown mit Codeblöcken
 - **HTML** – eigenständig mit `<details>`-Klappboxen + optionalem Syntax-Highlighting (Pygments)
+- **PDF** – strukturierter Report mit Meta-Tabelle, Code-Details und Statistiken
 - **Jinja2-Template** – benutzerdefiniertes Rendering
 
 **Spezial-Renderer:**
@@ -48,6 +49,7 @@ CopyCat ist ein **automatisierter Projekt-Dokumentierer**: Er scannt einen lokal
 - `install_hook()` – automatischer Git-Pre-commit-Hook
 - `watch_and_run()` – Dateisystem-Überwachung via `watchdog`
 - Remote-Repo via `--git-url`: `git clone --depth 1` in temporäres Verzeichnis
+- DE/EN-Sprachausgabe via `--lang`, `copycat.conf`, GUI-Kombobox und Web-Dropdown
 - **Serial-/Archiv-System**: jeder Lauf erzeugt `combined_copycat_N.*`, ältere in CopyCat_Archive
 
 ---
@@ -68,6 +70,7 @@ CopyCat ist ein **automatisierter Projekt-Dokumentierer**: Er scannt einen lokal
 - Drag & Drop via `tkinterdnd2` (graceful fallback)
 - `ttk.Progressbar` für Fortschrittsanzeige
 - Config laden/speichern über `copycat.conf`
+- Sprachauswahl via Kombobox (Deutsch/English), in `copycat.conf` persistiert
 - **`ttk.Notebook` mit 4 Tabs** (Meilenstein 38):
   - **Basic**: Ordner (Eingabe/Ausgabe, DnD), Dateitypen-Checkboxen, Rekursiv/Format/Max-Größe, Regex-Suche
   - **Erweitert**: Git-URL, Ausschließen, Inkrementell/Stats, Template (.j2), Watch-Cooldown
@@ -83,6 +86,7 @@ CopyCat ist ein **automatisierter Projekt-Dokumentierer**: Er scannt einen lokal
 - `GET /` – Formular, `POST /run` – Ausführung, `GET /download` – Datei-Download, `POST /api/run` – REST-API
 - Sicherheit: Download nur per `re.fullmatch` validierter Dateinamen (kein Path-Traversal)
 - `_run_lock` verhindert parallele Läufe
+- Formular mit DE/EN-Sprachauswahl; Sprache wird an Reports und Timeline durchgereicht
 
 ---
 
@@ -93,9 +97,9 @@ CopyCat ist ein **automatisierter Projekt-Dokumentierer**: Er scannt einen lokal
 
 ---
 
-### Entwicklungsstand (40 Meilensteine)
+### Entwicklungsstand (41 Meilensteine)
 
-- **Alle 40 Meilensteine implementiert**:
+- **Alle 41 Meilensteine implementiert**:
   | # | Feature | Status |
   |---|---|---|
   | 1–32 | CLI, GUI, Web, Plugins, Tests, HTML, Cache, Stats, Remote-Repo, VS-Code-Extension … | ✅ |
@@ -103,21 +107,23 @@ CopyCat ist ein **automatisierter Projekt-Dokumentierer**: Er scannt einen lokal
   | 34 | Docker-Image | ✅ |
   | 35 | KI-Zusammenfassung (`--ai-summary`, OpenAI/Ollama) | ✅ |
   | 36 | Report-Timeline (ASCII/HTML mit Chart.js) | ✅ |
-  | 37 | Vollständige Type Annotations – `mypy --strict` 0 Fehler (24 Dateien) | ✅ |
+  | 37 | Vollständige Type Annotations – `mypy --strict` 0 Fehler (26 Dateien) | ✅ |
   | 38 | GUI-Reorganisation – `ttk.Notebook` mit 4 Tabs (Basic/Erweitert/Plugins/Tools) | ✅ |
   | 39 | CSV-Support Komplettierung – `extract_csv()`, Spaltenstatistiken, Vorschau-Tabelle | ✅ |
   | 40 | Python Packaging – `pyproject.toml`, `copycat` CLI Entry Point, PyPI-ready (`copycat-tool`) | ✅ |
+  | 41 | DE/EN-Sprachauswahl – `--lang`, GUI/Web-Auswahl, i18n-Exporter, bilinguale Timeline | ✅ |
 
-- **Testsuite**: 543 Tests, 100 % Branch-Coverage
-- **Typisierung**: `mypy --strict` auf 25 Quelldateien → 0 Fehler
+- **Testsuite**: 1102 Tests, 100 % Branch-Coverage
+- **Typisierung**: `mypy --strict` auf 26 Quelldateien → 0 Fehler
 
 ---
 
 ### Technische Besonderheiten
 
 - Alle optionalen Abhängigkeiten (Jinja2, watchdog, Flask, Pygments, tkinterdnd2) mit graceful fallback
-- Vollständige Typ-Annotationen in allen 25 Quelldateien; `mypy --strict` → 0 Fehler
+- Vollständige Typ-Annotationen in allen 26 Quelldateien; `mypy --strict` → 0 Fehler
 - `pip install copycat-tool` – `pyproject.toml` (PEP 621/517, hatchling); `copycat`-CLI-Einstiegspunkt; optionale Extras (`pdf`, `ai`, `web`, `gui`, `all`)
+- Zentrale i18n-Schicht für DE/EN-Reports in CLI, GUI, Web und Timeline
 - Deutsch-first UI, parallele englische README
 - CI via GitHub Actions; PyInstaller-`.exe`-Builds als Artifacts; automatisches PyPI-Release via Trusted Publishing bei Tag `v*`
 - OWASP-konformer Pfad-Traversal-Schutz im Web-Interface

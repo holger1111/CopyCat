@@ -11,7 +11,7 @@ FROM python:3.12-slim
 
 LABEL org.opencontainers.image.title="CopyCat" \
       org.opencontainers.image.description="Automatischer Projekt-Dokumentierer" \
-      org.opencontainers.image.version="2.9.0"
+      org.opencontainers.image.version="3.0.0"
 
 # Abhängigkeiten installieren (alle optionalen inklusive)
 RUN pip install --no-cache-dir \

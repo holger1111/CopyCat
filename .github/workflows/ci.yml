@@ -1,4 +1,4 @@
-name: CopyCat CI v2.9
+name: CopyCat CI v3.0
 on: [push, pull_request]
 
 env:

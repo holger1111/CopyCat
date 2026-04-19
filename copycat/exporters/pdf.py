@@ -5,6 +5,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from ..i18n import get_tr
 from ..utils.files import get_plural
 from .html import _html_escape
 
@@ -43,7 +44,7 @@ def _write_pdf(
         rightMargin=20 * mm, leftMargin=20 * mm,
         topMargin=25 * mm, bottomMargin=20 * mm,
         title=f"CopyCat Report #{serial}",
-        author="CopyCat v2.9",
+        author="CopyCat v3.0",
     )
     styles = getSampleStyleSheet()
     h2_style = styles["Heading2"]
@@ -60,8 +61,10 @@ def _write_pdf(
     )
 
     story = []
+    _lang = str(getattr(args, "lang", "de"))
+    tr = get_tr(_lang)
     now = datetime.now().strftime("%d.%m.%Y %H:%M")
-    mode_text = "Rekursiv" if args.recursive else "Flach"
+    mode_text = tr("mode_recursive_title") if args.recursive else tr("mode_flat_title")
     total_files = sum(len(v) for v in files.values())
     cache = cache or {}
     sr = search_results or {}
@@ -69,22 +72,22 @@ def _write_pdf(
     _grid_c = rl_colors.HexColor("#90caf9")
 
     # Header
-    story.append(Paragraph(f"CopyCat v2.9 Report #{serial}", title_style))
+    story.append(Paragraph(f"CopyCat v3.0 Report #{serial}", title_style))
     story.append(Spacer(1, 4 * mm))
 
     # Meta table
     meta_data = [
-        ["Datum", now],
-        ["Modus", mode_text],
-        ["Pfad", str(input_dir)],
+        [tr("date"), now],
+        [tr("mode"), mode_text],
+        [tr("path"), str(input_dir)],
         ["Git", git_info],
-        ["Gesamt", f"{total_files} {get_plural(total_files)}"],
+        [tr("total"), f"{total_files} {get_plural(total_files, _lang)}"],
     ]
     if search_pattern:
         total_hits = sum(len(v) for v in sr.values())
         meta_data.append([
-            "Suche",
-            f'"{search_pattern}" \u2192 {total_hits} Treffer in {len(sr)} {get_plural(len(sr))}',
+            tr("search"),
+            f'"{search_pattern}" \u2192 {total_hits} {tr("matches")} in {len(sr)} {get_plural(len(sr), _lang)}',
         ])
     meta_table = Table(meta_data, colWidths=[35 * mm, None])
     meta_table.setStyle(TableStyle([
@@ -100,8 +103,8 @@ def _write_pdf(
     story.append(Spacer(1, 6 * mm))
 
     # Overview
-    story.append(Paragraph("\u00dcbersicht", h2_style))
-    ov_rows = [["Typ", "Anzahl"]] + [
+    story.append(Paragraph(tr("overview"), h2_style))
+    ov_rows = [[tr("type"), tr("count")]] + [
         [t.upper(), str(len(flist))] for t, flist in files.items() if flist
     ]
     ov_table = Table(ov_rows, colWidths=[55 * mm, 30 * mm])
@@ -118,18 +121,18 @@ def _write_pdf(
 
     # Stats
     if stats and stats.get("per_file"):
-        story.append(Paragraph("Code-Statistiken", h2_style))
+        story.append(Paragraph(tr("code_stats"), h2_style))
         tot = stats["total"]
         avg_str = (
             f"\u00d8 {tot['avg_complexity']}"
             if tot["avg_complexity"] is not None else "\u2013"
         )
-        s_rows = [["Datei", "LOC", "Code", "Komm.", "Leer", "Kompl."]]
+        s_rows = [[tr("file"), "LOC", "Code", tr("comment_short"), tr("blank"), tr("complexity_short")]]
         for fpath, s in stats["per_file"].items():
             c = str(s["complexity"]) if s["complexity"] is not None else "\u2013"
             s_rows.append([fpath.name, str(s["loc"]), str(s["code"]),
                            str(s["comments"]), str(s["blank"]), c])
-        s_rows.append(["GESAMT", str(tot["loc"]), str(tot["code"]),
+        s_rows.append([tr("total_upper"), str(tot["loc"]), str(tot["code"]),
                        str(tot["comments"]), str(tot["blank"]), avg_str])
         s_table = Table(s_rows)
         s_table.setStyle(TableStyle([
@@ -142,7 +145,7 @@ def _write_pdf(
             ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
         ]))
         story.append(s_table)
-        story.append(Paragraph(f"Kommentaranteil: {tot['comment_ratio']}%", normal_style))
+        story.append(Paragraph(f"{tr('comment_ratio')}: {tot['comment_ratio']}%", normal_style))
         story.append(Spacer(1, 4 * mm))
 
     # Code details
@@ -150,7 +153,7 @@ def _write_pdf(
     process_all = "all" in selected_types
     _MAX_LINES_PDF = 150
     if process_all or "code" in selected_types:
-        story.append(Paragraph("Code-Details", h2_style))
+        story.append(Paragraph(tr("code_details"), h2_style))
         for code_file in files.get("code", []):
             rel_path = code_file.relative_to(input_dir)
             if code_file in cache:
@@ -161,13 +164,13 @@ def _write_pdf(
                     code_text = code_file.read_text(encoding="utf-8")
                     lines_count = sum(1 for ln in code_text.splitlines() if ln.strip())
                 except (UnicodeDecodeError, OSError):
-                    code_text = "(Binary oder ung\u00fcltiges Encoding - \u00fcbersprungen)"
+                    code_text = tr("binary_skip")
                     lines_count = 0
-            story.append(Paragraph(f"{rel_path.as_posix()} ({lines_count} Zeilen)", h3_style))
+            story.append(Paragraph(f"{rel_path.as_posix()} ({lines_count} {tr('lines')})", h3_style))
             code_lines = code_text.splitlines()
             if len(code_lines) > _MAX_LINES_PDF:
                 code_text = "\n".join(code_lines[:_MAX_LINES_PDF]) + (
-                    f"\n... [{len(code_lines) - _MAX_LINES_PDF} weitere Zeilen ausgelassen]"
+                    "\n" + tr("lines_omitted").format(count=len(code_lines) - _MAX_LINES_PDF)
                 )
             safe_code = _html_escape(code_text)
             story.append(Preformatted(safe_code, code_style))
@@ -177,9 +180,9 @@ def _write_pdf(
     if search_pattern and sr:
         total_hits = sum(len(v) for v in sr.values())
         story.append(Paragraph(
-            f'Suchergebnisse: "{search_pattern}" ({total_hits} Treffer)', h2_style
+            f'{tr("search_results")}: "{search_pattern}" ({total_hits} {tr("matches")})', h2_style
         ))
-        sr_rows = [["Datei", "Zeile", "Treffer"]]
+        sr_rows = [[tr("file"), tr("line"), tr("matches")]]
         for f_path, hits in sr.items():
             for lineno, text in hits:
                 sr_rows.append([f_path.name, str(lineno), text.strip()[:80]])

@@ -1,4 +1,4 @@
-# CopyCat v2.9+ Entwicklungsplan  
+# CopyCat v3.0 Entwicklungsplan  
 
 Der Plan folgt strikt der Raumanweisung:
 
@@ -668,14 +668,14 @@ Code-Qualität auf höchstem Stand: vollständige Typisierung, ergonomische GUI,
 ├── **Problem**: CopyCat war nur als direktes Skript (`python CopyCat.py`) nutzbar; kein `pip install`, kein CLI-Einstiegspunkt, keine PyPI-Veröffentlichung, keine dynamische Versionsverwaltung.
 
 ├── **Lösung**:
-│   ├── `copycat/__init__.py`: `__version__ = "2.9.0"` als zentrale Versionsquelle; `"__version__"` in `__all__`.
+│   ├── `copycat/__init__.py`: `__version__ = "3.0.0"` als zentrale Versionsquelle; `"__version__"` in `__all__`.
 │   ├── `copycat/cli.py`: Neuer CLI-Einstiegspunkt `main()` – lädt Argumente via `parse_arguments()`, setzt Log-Level, delegiert an `list_plugins`, `install_hook`, `merge_reports`, `diff_reports`, `watch_and_run`, `build_timeline` oder `run_copycat`.
 │   ├── `copycat/core.py`: `--version` Flag in `parse_arguments()` via `action="version"` und `__version__`.
-│   ├── `copycat/exporters/json_export.py`: `"version"` im JSON-Output jetzt dynamisch aus `__version__` statt hartkodiert `"2.9"`.
+│   ├── `copycat/exporters/json_export.py`: `"version"` im JSON-Output jetzt dynamisch aus `__version__` statt hartkodiert `"3.0"`.
 │   ├── `CopyCat.py`: Legacy-Wrapper; `__main__`-Block delegiert an `copycat.cli:main`.
 │   ├── `pyproject.toml`: PEP 621/517-konform mit `hatchling`; optionale Extras (`template`, `watch`, `html`, `pdf`, `ai`, `web`, `gui`, `all`); `[project.scripts] copycat = "copycat.cli:main"`.
 │   ├── `.github/workflows/ci.yml`: Neuer `publish`-Job (tag-getriggert, Trusted Publishing via `pypa/gh-action-pypi-publish`).
-│   ├── `Dockerfile`: Label-Version auf `2.9.0`, `pyproject.toml` eingebunden, `pip install -e .`, `ENTRYPOINT ["copycat", ...]`.
+│   ├── `Dockerfile`: Label-Version auf `3.0.0`, `pyproject.toml` eingebunden, `pip install -e .`, `ENTRYPOINT ["copycat", ...]`.
 │   └── `copycat-vscode/`: Extension und `package.json` aktualisiert – CLI-Fallback wenn kein `CopyCat.py` gefunden.
 
 ├── **Tests**: 14 neue Tests (543 gesamt, 100 % Branch-Coverage); `test_version_exported`, `test_version_in_json_export`, `test_cli_main_version`, `test_cli_main_runs_run_copycat`, `test_cli_main_list_plugins`, `test_cli_main_list_plugins_with_results`, `test_cli_main_install_hook`, `test_cli_main_diff`, `test_cli_main_merge`, `test_cli_main_timeline`, `test_cli_main_watch`, `test_cli_main_verbose_log_level`, `test_cli_main_quiet_log_level`.
@@ -683,3 +683,28 @@ Code-Qualität auf höchstem Stand: vollständige Typisierung, ergonomische GUI,
 ├── **README-Änderungen**: Installationsblock (`pip install copycat-tool[all]`), Konsolenbefehle auf `copycat`-CLI umgestellt, Testanzahl 530 → 543, mypy-Quelldateien 24 → 25.
 
 └── **Risiken**: Zirkulärer Import `json_export.py → copycat → json_export` gelöst durch Top-Level-`__version__`-Definition in `__init__.py` vor allen Importen; verifiziert via pytest + mypy --strict (0 Fehler, 25 Quelldateien).
+
+
+---
+
+## Meilenstein 41 – DE/EN-Sprachauswahl (`--lang`, GUI/Web, i18n-Exporter)
+
+**Ziel:** Durchgängige deutsche und englische Report-Ausgabe in CLI, GUI und Web-Interface, inklusive persistenter Konfiguration und robuster Verarbeitung bilingualer Archiv-/Diff-Daten.
+
+├── **Problem**: Bisher waren Report-Texte, Überschriften und Meta-Angaben weitgehend fest auf Deutsch verdrahtet. Damit waren englische Reports, internationale Nutzung und konsistente Web-/GUI-Ausgabe nicht möglich.
+
+├── **Lösung**:
+│   ├── `copycat/i18n.py`: Neue zentrale Übersetzungsschicht via `get_tr(lang)` mit DE/EN-Stringtabellen.
+│   ├── `copycat/core.py`: Neues CLI-Flag `--lang {de,en}`; Konfigurationswert `lang = de|en` aus `copycat.conf` wird gelesen und validiert.
+│   ├── `copycat/utils/files.py`: `get_plural(count, lang)` liefert deutsche oder englische Singular-/Pluralformen.
+│   ├── `copycat/exporters/txt.py`, `md.py`, `html.py`, `pdf.py`: Alle Report-Header, Metadaten und Hinweistexte auf `tr(...)` umgestellt.
+│   ├── `copycat/exporters/timeline.py`: `build_timeline(..., lang=...)` erweitert; Parser akzeptiert deutsche und englische TXT-Muster (`Gesamt/Total`, `Datei/files`).
+│   ├── `copycat/cli.py`: Übergibt `lang` an Timeline-Aufrufe.
+│   ├── `CopyCat_Web.py`: Formular-Dropdown für Sprache; Auswahl wird in Formularzustand und Ausführung übernommen.
+│   └── `CopyCat_GUI.py`: Kombobox für Sprache; Wert wird geladen/gespeichert und an die Core-Engine weitergereicht.
+
+├── **Tests**: Neue und erweiterte Tests für CLI-Parsing, Konfigurationsübernahme, Pluralbildung, TXT/MD/HTML-Export und Timeline; Gesamtstand aktuell 1102 Tests bei 100 % Branch-Coverage.
+
+├── **README-Änderungen**: Feature-Tabellen und Parameterlisten in `README.md` und `README_GER.md` um `--lang` ergänzt; Doku auf 1102 Tests und 26 mypy-geprüfte Quelldateien aktualisiert.
+
+└── **Risiken**: Bestehende GUI-Tests mit partieller Objektinitialisierung benötigten robuste Guards für `_lang_var`; gelöst via Initialisierung in `__init__` plus `hasattr(...)`-Absicherung.

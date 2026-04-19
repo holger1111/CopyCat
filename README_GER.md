@@ -1,4 +1,4 @@
-# CopyCat v2.9 - Projekt-Dokumentierer
+# CopyCat v3.0 - Projekt-Dokumentierer
 
 
 ## Automatisiert Code + Diagramme + Medien zu Text-Report
@@ -28,6 +28,7 @@
 | Merge-Modus		| Mehrere Reports zusammenführen (`--merge`)		|
 | Watch-Modus		| Automatischer Re-Run bei Änderungen (`--watch`, `--cooldown`)	|
 | Plugin-System		| Eigene Dateitypen per `.py`-Plugin hinzufügen (`--plugin-dir`)	|
+| Sprachauswahl		| Deutsche/englische Report-Ausgabe in CLI, GUI und Web UI (`--lang`, Config, Dropdown)	|
 | Pre-commit Hook	| Als Git-Hook installieren (`--install-hook`)		|
 | Konfigurationsdatei	| `copycat.conf` auto-geladen; CLI überschreibt	|
 | KI-Zusammenfassung	| KI-Projektbrief via OpenAI-kompatibler API (`--ai-summary`)	|
@@ -131,6 +132,7 @@ python CopyCat.py                              # nutzt copycat.conf falls vorhan
 | `--ai-base-url URL`		| Basis-URL für KI-API (z.B. `http://localhost:11434/v1` für Ollama)		| None		|
 | `--timeline`			| Zeitstrahl aus archivierten Reports erstellen					| aus		|
 | `--timeline-format`		| Timeline-Format: `md`, `ascii`, `html`					| `md`		|
+| `--lang`			| Report-Sprache: `de` oder `en`; gilt auch für GUI/Web/Config		| `de`		|
 ### Flach vs Rekursiv
 
 
@@ -169,12 +171,12 @@ CopyCat.py -s 1			# Max Dateigröße 1 MB
 ```
 
 
-### Ausgabe-Beispiel (v2.9)
+### Ausgabe-Beispiel (v3.0)
 
 
 ````text
 ============================================================
-CopyCat v2.9 | 13.04.2026 20:41 | REKURSIV
+CopyCat v3.0 | 13.04.2026 20:41 | REKURSIV
 /projekt
 GIT: Branch: main | Last Commit: a1b2c3d
 
@@ -247,7 +249,7 @@ DIAGRAM Test_komplex.drawio: 152 Cells, 45 Texte, 23 Unique
 ### Plugin-System
 
 
-CopyCat v2.9 unterstützt eigene Dateitypen per Plugin. Lege eine `.py`-Datei in den Ordner `plugins/` (neben `CopyCat.py`) oder gib ein benutzerdefiniertes Verzeichnis mit `--plugin-dir` an.
+CopyCat v3.0 unterstützt eigene Dateitypen per Plugin. Lege eine `.py`-Datei in den Ordner `plugins/` (neben `CopyCat.py`) oder gib ein benutzerdefiniertes Verzeichnis mit `--plugin-dir` an.
 
 
 **Minimales Plugin (`plugins/meintyp.py`):**
@@ -293,7 +295,7 @@ Das Beispiel-Plugin `plugins/example_proto.py` liegt CopyCat bei und dient als K
 
 ### Web-Interface
 
-CopyCat v2.9 enthält eine Browser-Oberfläche auf Flask-Basis.
+CopyCat v3.0 enthält eine Browser-Oberfläche auf Flask-Basis.
 
 **Start:**
 ```bash
@@ -379,7 +381,7 @@ Rest			→ [ERROR: datei]
 **Beispiel:** DIAGRAM INVALID XML: test.drawio
 
 
-###  Performance-Tuning (v2.9)
+###  Performance-Tuning (v3.0)
 
 
 **Für große Projekte (1000+ Files):**
@@ -402,7 +404,7 @@ Ausgabe bei Filter: → 1274 geprüft, Filter OK
 ### Ausgabeformate
 
 
-CopyCat v2.9 unterstützt vier Ausgabeformate über das `-f` / `--format`-Flag:
+CopyCat v3.0 unterstützt vier Ausgabeformate über das `-f` / `--format`-Flag:
 
 
 | Format | Flag | Ausgabedatei | Beschreibung |
@@ -457,7 +459,7 @@ Alle Formate verwenden dasselbe Serial-System und die Archiv-Rotation.
 ### PDF-Export
 
 
-CopyCat v2.9 erstellt strukturierte PDF-Reports via `--format pdf`:
+CopyCat v3.0 erstellt strukturierte PDF-Reports via `--format pdf`:
 
 ```bash
 pip install reportlab
@@ -478,7 +480,7 @@ Das PDF enthält:
 ### KI-Zusammenfassung
 
 
-CopyCat v2.9 kann einen KI-generierten Projektsteckbrief an jeden Report anhängen:
+CopyCat v3.0 kann einen KI-generierten Projektsteckbrief an jeden Report anhängen:
 
 ```bash
 pip install openai
@@ -509,7 +511,7 @@ Der API-Key wird **ausschließlich** aus der Umgebungsvariable `COPYCAT_AI_KEY` 
 ### Report-Timeline
 
 
-CopyCat v2.9 erstellt eine visuelle Historie aus dem `CopyCat_Archive/`-Ordner:
+CopyCat v3.0 erstellt eine visuelle Historie aus dem `CopyCat_Archive/`-Ordner:
 
 ```bash
 python CopyCat.py --timeline                           # Markdown-Tabelle (Standard)
@@ -553,7 +555,7 @@ Das Docker-Image (`python:3.12-slim`) enthält alle optionalen Abhängigkeiten: 
 ### Inhaltssuche
 
 
-CopyCat v2.9 unterstützt Regex-basierte Inhaltssuche über alle Textdateien via `--search` / `-S`:
+CopyCat v3.0 unterstützt Regex-basierte Inhaltssuche über alle Textdateien via `--search` / `-S`:
 
 
 ```bash
@@ -727,9 +729,9 @@ README_GER.md
 
 3. `git commit -m "feat/fix/docs/test/ci: Beschreibung"`
 
-**Tests:** 543 Tests, 100 % Branch-Coverage (CLI, Serial, Gitignore, Draw.io, GUI, Watch, Templates, Diff, Merge, Hook, Plugins, PDF, KI, Timeline, CSV, Typ-Annotationen, Packaging, …)
+**Tests:** 1102 Tests, 100 % Branch-Coverage (CLI, Serial, Gitignore, Draw.io, GUI, Watch, Templates, Diff, Merge, Hook, Plugins, PDF, KI, Timeline, CSV, Typ-Annotationen, Packaging, i18n, …)
 
-**Typsicherheit:** `py -m mypy copycat/ CopyCat.py --ignore-missing-imports --strict` → 0 Fehler in allen 25 Quelldateien
+**Typsicherheit:** `py -m mypy copycat/ CopyCat.py --ignore-missing-imports --strict` → 0 Fehler in allen 26 Quelldateien
 
 **CI:** GitHub Actions → pytest + Coverage-Badges (Codecov)
 

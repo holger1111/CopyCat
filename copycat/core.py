@@ -23,6 +23,7 @@ from .exporters.pdf import _write_pdf
 from .exporters.template import _write_template
 from .exporters.timeline import build_timeline, _timeline_md, _timeline_ascii, _timeline_html
 from .exporters.txt import _write_txt
+from .i18n import get_tr
 from .utils.cache import _cleanup_cache, _hash_file, _load_cache, _save_cache
 from .utils.files import (
     _collect_files,
@@ -80,7 +81,7 @@ def load_config(config_path: str | Path | None = None) -> dict[str, str]:
 def parse_arguments(config_path: str | Path | None = None) -> argparse.Namespace:
     from copycat import __version__
     parser = argparse.ArgumentParser(
-        description="CopyCat v2.9 - Projekt-Dokumentierer"
+        description="CopyCat v3.0 - Projekt-Dokumentierer"
     )
     parser.add_argument(
         "--version", action="version", version=f"CopyCat {__version__}"
@@ -251,6 +252,12 @@ def parse_arguments(config_path: str | Path | None = None) -> argparse.Namespace
         action="store_true",
         help="Gesamten Cache löschen und beenden",
     )
+    parser.add_argument(
+        "--lang",
+        choices=["de", "en"],
+        default="de",
+        help="Report output language: de (German, default) or en (English)",
+    )
 
     # ── Config-Datei: Defaults aus copycat.conf (CLI überschreibt) ──────────
     cfg = load_config(config_path)
@@ -258,7 +265,7 @@ def parse_arguments(config_path: str | Path | None = None) -> argparse.Namespace
     _KNOWN_CONFIG_KEYS = {
         "types", "recursive", "max_size_mb", "format", "search",
         "input", "output", "exclude", "incremental", "stats",
-        "git_url", "ai_model", "ai_base_url",
+        "git_url", "ai_model", "ai_base_url", "lang",
     }
     for _key in cfg:
         if _key not in _KNOWN_CONFIG_KEYS:
@@ -305,6 +312,12 @@ def parse_arguments(config_path: str | Path | None = None) -> argparse.Namespace
         overrides["ai_model"] = cfg["ai_model"]
     if "ai_base_url" in cfg:
         overrides["ai_base_url"] = cfg["ai_base_url"]
+    if "lang" in cfg:
+        cfg_lang = cfg["lang"].strip().lower()
+        if cfg_lang in ("de", "en"):
+            overrides["lang"] = cfg_lang
+        else:
+            logging.warning("copycat.conf: ungültiger lang-Wert wird ignoriert")
     if overrides:
         parser.set_defaults(**overrides)
     # ────────────────────────────────────────────────────────────────────────
@@ -329,7 +342,7 @@ def diff_reports(path_a: Path, path_b: Path) -> str:
         date_str = m.group(1) if m else "unbekannt"
         type_counts: dict[str, int] = {
             mo.group(1).lower(): int(mo.group(2))
-            for mo in re.finditer(r"^(\w+): (\d+) Datei", text, re.MULTILINE)
+            for mo in re.finditer(r"^(\w+): (\d+) (?:Datei(?:en)?|files?)", text, re.MULTILINE)
         }
         files: set[str] = {fm.group(1) for fm in re.finditer(r"^----- (.+?) -----$", text, re.MULTILINE)}
         return {"date": date_str, "types": type_counts, "files": files}
@@ -522,6 +535,8 @@ def watch_and_run(args: argparse.Namespace, cooldown: float = 2.0, stop_event: t
 
 
 def run_copycat(args: argparse.Namespace) -> str | None:
+    _lang = str(getattr(args, "lang", "de"))
+    tr = get_tr(_lang)
     git_url = getattr(args, "git_url", None)
     _tmp_dir_obj = None
 
@@ -649,10 +664,10 @@ def run_copycat(args: argparse.Namespace) -> str | None:
                     content = code_file.read_text(encoding="utf-8")
                     lines = sum(1 for line in content.splitlines() if line.strip())
                 except UnicodeDecodeError:
-                    content = "(Binary oder ung\u00fcltiges Encoding - \u00fcbersprungen)"
+                    content = tr("binary_skip")
                     lines = 1
                 except Exception:
-                    content = "(Fehler beim Lesen)"
+                    content = tr("read_error")
                     lines = 0
                 new_entries[rel_key] = {"hash": current_hash, "lines": lines, "content": content}
                 cache_map[code_file] = {"lines": lines, "content": content, "from_cache": False}

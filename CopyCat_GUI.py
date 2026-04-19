@@ -1,6 +1,6 @@
 """
 CopyCat GUI v1.1
-Grafische Oberfläche für CopyCat v2.9
+Grafische Oberfläche für CopyCat v3.0
 """
 
 import argparse
@@ -45,7 +45,7 @@ class RedirectText:
 class CopyCatGUI:
     def __init__(self, root: tk.Tk):  # pragma: no cover
         self._root = root
-        self._root.title("CopyCat v2.9")
+        self._root.title("CopyCat v3.0")
         self._root.resizable(True, True)
         self._root.minsize(660, 620)
 
@@ -60,6 +60,7 @@ class CopyCatGUI:
         self._exclude_var = tk.StringVar()
         self._incremental_var = tk.BooleanVar(value=False)
         self._stats_var = tk.BooleanVar(value=False)
+        self._lang_var = tk.StringVar(value="de")
         self._git_url_var = tk.StringVar()
         self._plugin_dir_var = tk.StringVar()
         self._watch_stop_event = None
@@ -166,6 +167,14 @@ class CopyCatGUI:
         ttk.Checkbutton(frm_adv_ana, text="Code-Statistiken", variable=self._stats_var).grid(
             row=0, column=1, sticky="w", padx=(20, 6)
         )
+        ttk.Label(frm_adv_ana, text="Sprache:").grid(row=1, column=0, sticky="w", padx=6, pady=(6, 0))
+        ttk.Combobox(
+            frm_adv_ana,
+            textvariable=self._lang_var,
+            values=["de", "en"],
+            state="readonly",
+            width=5,
+        ).grid(row=1, column=1, sticky="w", padx=(20, 6), pady=(6, 0))
 
         frm_adv_out = ttk.LabelFrame(tab_advanced, text="Ausgabe-Optionen", padding=6)
         frm_adv_out.pack(fill="x", **pad)
@@ -374,6 +383,8 @@ class CopyCatGUI:
             self._stats_var.set(cfg["stats"].lower() in ("true", "yes", "1"))
         if "git_url" in cfg:
             self._git_url_var.set(cfg["git_url"])
+        if hasattr(self, "_lang_var") and "lang" in cfg and cfg["lang"] in ("de", "en"):
+            self._lang_var.set(cfg["lang"])
 
     def _save_config(self):
         path = filedialog.asksaveasfilename(
@@ -391,6 +402,7 @@ class CopyCatGUI:
             f"types = {','.join(selected) if selected else 'all'}",
             f"recursive = {'true' if self._recursive_var.get() else 'false'}",
             f"format = {self._format_var.get()}",
+            f"lang = {self._lang_var.get() if hasattr(self, '_lang_var') else 'de'}",
         ]
         max_size = self._max_size_var.get().strip()
         if max_size:
@@ -562,6 +574,7 @@ class CopyCatGUI:
             ai_summary=False,
             ai_model="gpt-4o-mini",
             ai_base_url=None,
+            lang=self._lang_var.get() if hasattr(self, "_lang_var") else "de",
         )
 
     def _on_watch_toggle(self):  # pragma: no cover

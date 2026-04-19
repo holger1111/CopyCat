@@ -5,11 +5,12 @@ import re
 from pathlib import Path
 from typing import Any
 
+from ..i18n import get_tr
 from ..utils.files import is_valid_serial_filename
 from .html import _html_escape
 
 
-def build_timeline(archive_dir: Path | None = None, fmt: str = "md") -> str:
+def build_timeline(archive_dir: Path | None = None, fmt: str = "md", lang: str = "de") -> str:
     """Build a timeline from CopyCat archive reports.
 
     Reads all ``combined_copycat_N.*`` files from *archive_dir*
@@ -52,28 +53,29 @@ def build_timeline(archive_dir: Path | None = None, fmt: str = "md") -> str:
             m_date = re.search(r"CopyCat v[\d.]+ \| (.+?) \|", text)
             if m_date:
                 entry["date"] = m_date.group(1).strip()
-            m_total = re.search(r"Gesamt: (\d+)", text)
+            m_total = re.search(r"(?:Gesamt|Total):\s*(\d+)", text)
             if m_total:
                 entry["total"] = int(m_total.group(1))
-            for tm in re.finditer(r"^(\w+): (\d+) Datei", text, re.MULTILINE):
+            for tm in re.finditer(r"^(\w+): (\d+) (?:Datei(?:en)?|files?)", text, re.MULTILINE):
                 entry["types"][tm.group(1).lower()] = int(tm.group(2))
         entries.append(entry)
 
     if not entries:
-        return "Keine Archiv-Reports gefunden.\n"
+        return get_tr(lang)("no_archive")
 
     entries.sort(key=lambda e: e["serial"])
 
     if fmt == "ascii":
-        return _timeline_ascii(entries)
+        return _timeline_ascii(entries, lang)
     if fmt == "html":
-        return _timeline_html(entries)
-    return _timeline_md(entries)
+        return _timeline_html(entries, lang)
+    return _timeline_md(entries, lang)
 
 
-def _timeline_md(entries: list[dict[str, Any]]) -> str:
+def _timeline_md(entries: list[dict[str, Any]], lang: str = "de") -> str:
+    tr = get_tr(lang)
     all_types = sorted({t for e in entries for t in e["types"]})
-    header = "| Serial | Datum | Gesamt |" + "".join(f" {t.upper()} |" for t in all_types)
+    header = f"| Serial | {tr('date')} | {tr('total')} |" + "".join(f" {t.upper()} |" for t in all_types)
     sep = "|---|---|---|" + "|---|" * len(all_types)
     rows = []
     for e in entries:
@@ -83,7 +85,7 @@ def _timeline_md(entries: list[dict[str, Any]]) -> str:
     return "# CopyCat Report-Timeline\n\n" + header + "\n" + sep + "\n" + "\n".join(rows) + "\n"
 
 
-def _timeline_ascii(entries: list[dict[str, Any]]) -> str:
+def _timeline_ascii(entries: list[dict[str, Any]], lang: str = "de") -> str:
     max_total = max((e["total"] for e in entries), default=1) or 1
     _w = 40
     lines = ["CopyCat Report-Timeline (ASCII)", "=" * 56]
@@ -94,7 +96,8 @@ def _timeline_ascii(entries: list[dict[str, Any]]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _timeline_html(entries: list[dict[str, Any]]) -> str:
+def _timeline_html(entries: list[dict[str, Any]], lang: str = "de") -> str:
+    tr = get_tr(lang)
     labels = json.dumps([f"#{e['serial']}" for e in entries])
     data_pts = json.dumps([e["total"] for e in entries])
     rows = "".join(
@@ -103,8 +106,8 @@ def _timeline_html(entries: list[dict[str, Any]]) -> str:
         for e in entries
     )
     return (
-        '<!DOCTYPE html>\n<html lang="de">\n<head>\n<meta charset="UTF-8">\n'
-        '<title>CopyCat Timeline</title>\n'
+        f'<!DOCTYPE html>\n<html lang="{lang}">\n<head>\n<meta charset="UTF-8">\n'
+        f'<title>CopyCat Timeline</title>\n'
         '<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js">'
         '</script>\n'
         '<style>'
@@ -123,13 +126,13 @@ def _timeline_html(entries: list[dict[str, Any]]) -> str:
         '<script>\nnew Chart(document.getElementById("cc-chart"), {\n'
         '  type: "bar",\n'
         f'  data: {{ labels: {labels},\n'
-        f'    datasets: [{{ label: "Dateien gesamt", data: {data_pts},\n'
+        f'    datasets: [{{ label: "{tr("files_total")}", data: {data_pts},\n'
         '      backgroundColor: "#1565c0", borderRadius: 4 }] },\n'
         '  options: { responsive: true,\n'
         '    plugins: { legend: { display: false } },\n'
         '    scales: { y: { beginAtZero: true } } }\n'
         '});\n</script>\n'
-        '<h2>Details</h2>\n'
-        '<table>\n<tr><th>Serial</th><th>Datum</th><th>Dateien</th></tr>\n'
+        f'<h2>Details</h2>\n'
+        f'<table>\n<tr><th>Serial</th><th>{tr("date")}</th><th>{tr("timeline_files")}</th></tr>\n'
         f'{rows}\n</table>\n</body>\n</html>\n'
     )
