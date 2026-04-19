@@ -1,4 +1,4 @@
-# CopyCat v2.1+ Entwicklungsplan  
+# CopyCat v2.9+ Entwicklungsplan  
 
 Der Plan folgt strikt der Raumanweisung:
 
@@ -10,7 +10,7 @@ Der Plan folgt strikt der Raumanweisung:
 
 **Gesamtaufwand:**
 
-\~33-47h für 1 Person.
+\~33-47h für 1 Person (Grundplan) + weitere ~15h für Meilensteine 37–39.
 
 
 
@@ -27,6 +27,16 @@ Vollständig dokumentiert und erweiterbar.
 **Nach Meilensteine 12:**
 
 Enterprise-Ready
+
+
+**Nach Meilenstein 36:**
+
+Produktionsreife Vollversion mit KI, Docker, Timeline und PDF.
+
+
+**Nach Meilenstein 39:**
+
+Code-Qualität auf höchstem Stand: vollständige Typisierung, ergonomische GUI, vollwertiger Data-Science-Support.
 
 
 
@@ -599,3 +609,77 @@ Enterprise-Ready
 ├── **README-Änderungen**: „Report-Timeline" Abschnitt mit Beispielausgabe und `--timeline`-Erklärung.
 
 └── **Risiken**: Archive-Reports unterschiedlicher Versionen (gelöst: robustes Parsing mit Fallback).
+
+
+
+### MEILENSTEIN 37: Vollständige Type Annotations (mypy --strict) ✅ Implementiert
+
+##### ⏱️ 6h
+
+├── **Problem**: Keine Typ-Annotationen im gesamten `copycat/`-Paket; mypy-Prüfung schlug mit hunderten Fehlern fehl.
+
+├── **Lösung**: Alle 24 Quelldateien in `copycat/` sowie `CopyCat.py` mit vollständigen Typ-Annotationen versehen; `py -m mypy copycat/ CopyCat.py --ignore-missing-imports --strict` → 0 Fehler. Schlüsselpattern: `dict[str, list[Path]]`, `dict[Path, list[tuple[int, str]]] | None`, `dict[str, Any] | None`, `IO[str]`; `spec.loader`-Guard in `plugins.py`; Callable-Narrowing via `assert renderer is not None`; `re.compile(pattern, timeout=1)  # type: ignore[call-overload]`.
+
+├── **Tests**: Alle bestehenden 493 Tests bleiben grün; mypy-Lauf als Qualitäts-Gate.
+
+├── **README-Änderungen**: mypy-Badge und `--strict`-Hinweis in beiden Readmes ergänzen.
+
+└── **Risiken**: `re.compile` akzeptiert kein `timeout`-Keyword laut mypy-Stubs (gelöst mit `# type: ignore[call-overload]`).
+
+
+
+### MEILENSTEIN 38: GUI-Reorganisation mit ttk.Notebook ✅ Implementiert
+
+##### ⏱️ 5h
+
+├── **Problem**: `CopyCat_GUI.py` war ein flaches Formular; mit wachsender Feature-Zahl wurde die Oberfläche unübersichtlich.
+
+├── **Lösung**: `ttk.Notebook` mit 4 Tabs (**Basic**, **Erweitert**, **Plugins**, **Tools**); Run-Leiste und Ausgabefenster bleiben immer sichtbar unterhalb der Tabs. Tab-Inhalte: Basic (Ordner, Dateitypen, Rekursiv/Format/Max-Größe, Regex-Suche), Erweitert (Git-URL, Ausschließen, Inkrementell/Stats, Template, Watch-Cooldown), Plugins (Plugin-Verzeichnis + Browse + Refresh + geladene-Plugins-Anzeige), Tools (Config laden/speichern, Diff, Merge, Timeline, Git-Hook). Neue Members: `_plugin_dir_var`, `_browse_plugin_dir()`, `_refresh_plugins()`; `_build_args()` übergibt `plugin_dir`.
+
+├── **Tests**: Headless-Fixture um `_plugin_dir_var` ergänzt; alle 493 Tests weiterhin grün; Commit `b130166`.
+
+├── **README-Änderungen**: GUI-Beschreibung mit Tab-Struktur und Screenshot-Hinweis aktualisieren.
+
+└── **Risiken**: Bestehende Headless-Test-Fixtures fehlten das neue Member (gelöst: `instance._plugin_dir_var = _make_var("")`).
+
+
+
+### MEILENSTEIN 39: CSV-Support Komplettierung ✅ Implementiert
+
+##### ⏱️ 5h
+
+├── **Problem**: `.csv`-Dateien wurden im `db`-Typ als Binary behandelt (`list_binary_file`); kein strukturierter Report-Inhalt für Data-Science-Projekte.
+
+├── **Lösung**: Neuer Extraktor `copycat/extractors/csv_extractor.py` mit `extract_csv()`, `_detect_delimiter()` (csv.Sniffer, Fallback `,`), `_col_stats()` (numeric/text, min/max/mean, unique, leer); Vorschau-Tabelle (erste 10 Zeilen); Encoding-Fallback (utf-8-sig → utf-8 → latin-1). `*.csv` von `db`-Typ nach `notebook`-Typ verschoben. Alle 4 Exporter (txt, md, html, json_export) dispatchen `.csv` via `extract_csv()` und `.ipynb` via `extract_notebook()`. JSON-Exporter ergänzt `"csv"`-Objekt mit `rows`, `columns`, `headers`, `delimiter`.
+
+├── **Tests**: 34 neue Tests (527 gesamt, 99 % Branch-Coverage); Unit-Tests für `_detect_delimiter`, `_col_stats`, `extract_csv` (leer, latin-1, Tab-Delimiter, fehlende Zellen, OSError); Integration-Tests für txt/md/json-Exporter und Typ-Routing; Commit `5f75703`.
+
+├── **README-Änderungen**: `notebook`-Zeile in Dateitypen-Tabelle um `*.csv` ergänzen; CSV-Extraktion unter Spezial-Renderer dokumentieren.
+
+└── **Risiken**: Sniffer versagt bei Single-Column-CSVs (gelöst: `csv.Error`-Fallback); sehr große CSVs (gelöst: `--max-size` greift vor Extraktion).
+
+
+---
+
+## Meilenstein 40 – Python Packaging (pyproject.toml, `copycat` CLI Entry Point, PyPI-ready)
+
+**Ziel:** CopyCat als installierbares Python-Paket veröffentlichen (PyPI-Name `copycat-tool`), mit `copycat`-CLI-Befehl statt `python CopyCat.py`, versionierter JSON-Ausgabe und GitHub-Actions-Publish-Pipeline.
+
+├── **Problem**: CopyCat war nur als direktes Skript (`python CopyCat.py`) nutzbar; kein `pip install`, kein CLI-Einstiegspunkt, keine PyPI-Veröffentlichung, keine dynamische Versionsverwaltung.
+
+├── **Lösung**:
+│   ├── `copycat/__init__.py`: `__version__ = "2.9.0"` als zentrale Versionsquelle; `"__version__"` in `__all__`.
+│   ├── `copycat/cli.py`: Neuer CLI-Einstiegspunkt `main()` – lädt Argumente via `parse_arguments()`, setzt Log-Level, delegiert an `list_plugins`, `install_hook`, `merge_reports`, `diff_reports`, `watch_and_run`, `build_timeline` oder `run_copycat`.
+│   ├── `copycat/core.py`: `--version` Flag in `parse_arguments()` via `action="version"` und `__version__`.
+│   ├── `copycat/exporters/json_export.py`: `"version"` im JSON-Output jetzt dynamisch aus `__version__` statt hartkodiert `"2.9"`.
+│   ├── `CopyCat.py`: Legacy-Wrapper; `__main__`-Block delegiert an `copycat.cli:main`.
+│   ├── `pyproject.toml`: PEP 621/517-konform mit `hatchling`; optionale Extras (`template`, `watch`, `html`, `pdf`, `ai`, `web`, `gui`, `all`); `[project.scripts] copycat = "copycat.cli:main"`.
+│   ├── `.github/workflows/ci.yml`: Neuer `publish`-Job (tag-getriggert, Trusted Publishing via `pypa/gh-action-pypi-publish`).
+│   ├── `Dockerfile`: Label-Version auf `2.9.0`, `pyproject.toml` eingebunden, `pip install -e .`, `ENTRYPOINT ["copycat", ...]`.
+│   └── `copycat-vscode/`: Extension und `package.json` aktualisiert – CLI-Fallback wenn kein `CopyCat.py` gefunden.
+
+├── **Tests**: 14 neue Tests (543 gesamt, 100 % Branch-Coverage); `test_version_exported`, `test_version_in_json_export`, `test_cli_main_version`, `test_cli_main_runs_run_copycat`, `test_cli_main_list_plugins`, `test_cli_main_list_plugins_with_results`, `test_cli_main_install_hook`, `test_cli_main_diff`, `test_cli_main_merge`, `test_cli_main_timeline`, `test_cli_main_watch`, `test_cli_main_verbose_log_level`, `test_cli_main_quiet_log_level`.
+
+├── **README-Änderungen**: Installationsblock (`pip install copycat-tool[all]`), Konsolenbefehle auf `copycat`-CLI umgestellt, Testanzahl 530 → 543, mypy-Quelldateien 24 → 25.
+
+└── **Risiken**: Zirkulärer Import `json_export.py → copycat → json_export` gelöst durch Top-Level-`__version__`-Definition in `__init__.py` vor allen Importen; verifiziert via pytest + mypy --strict (0 Fehler, 25 Quelldateien).

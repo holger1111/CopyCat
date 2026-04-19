@@ -57,38 +57,5 @@ from copycat.utils.stats import _COMMENT_PREFIXES, _analyse_file, _build_stats
 
 # ── Entry point ──────────────────────────────────────────────────────────────
 if __name__ == "__main__":  # pragma: no cover
-    _args = parse_arguments()
-    if getattr(_args, "verbose", False):
-        _log_level = logging.DEBUG
-    elif getattr(_args, "quiet", False):
-        _log_level = logging.WARNING
-    else:
-        _log_level = logging.INFO
-    logging.basicConfig(level=_log_level, format="%(message)s")
-    if getattr(_args, "list_plugins", False):
-        _plugin_dir = getattr(_args, "plugin_dir", None) or str(Path(__file__).parent / "plugins")
-        _loaded = load_plugins(_plugin_dir)
-        if _loaded:
-            print("Geladene Plugins:")
-            for _t in _loaded:
-                _pats = TYPE_FILTERS.get(_t, [])
-                _rinfo = "benutzerdefinierter Renderer" if PLUGIN_RENDERERS.get(_t) else "Standard-Renderer"
-                print(f"  {_t}: {', '.join(_pats)} ({_rinfo})")
-        else:
-            print(f"Keine Plugins in {_plugin_dir} gefunden.")
-    elif getattr(_args, "install_hook", None):
-        hook = install_hook(Path(_args.install_hook))
-        print(f"Hook installiert: {hook}")
-    elif getattr(_args, "merge", None):
-        print(merge_reports([Path(p) for p in _args.merge]))
-    elif getattr(_args, "diff", None):
-        print(diff_reports(Path(_args.diff[0]), Path(_args.diff[1])))
-    elif getattr(_args, "watch", False):
-        watch_and_run(_args, cooldown=getattr(_args, "cooldown", 2.0))
-    elif getattr(_args, "timeline", False):
-        _tl_base = Path(_args.input or str(Path(__file__).parent))
-        _tl_archive = _tl_base / "CopyCat_Archive"
-        _tl_fmt = getattr(_args, "timeline_format", "md")
-        print(build_timeline(_tl_archive, fmt=_tl_fmt))
-    else:
-        run_copycat(_args)
+    from copycat.cli import main as _main
+    _main()

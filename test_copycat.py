@@ -894,7 +894,7 @@ def test_run_copycat_format_json_basic(tmp_path, run_args):
     assert "files" in data
     assert "types" in data
     assert "version" in data
-    assert data["version"] == "2.9"
+    assert data["version"] == "2.9.0"
     assert data["files"] >= 1
     assert "code" in data["types"]
     assert data["git"] is None
@@ -6367,4 +6367,186 @@ def test_extract_csv_generic_exception(tmp_path, monkeypatch):
     buf = _io_mod.StringIO()
     _ce.extract_csv(buf, csv_path)
     assert "[CSV ERROR:" in buf.getvalue()
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Meilenstein 40 – CLI Entry Point (copycat/cli.py)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+import copycat.cli as _cli_mod
+from copycat import __version__ as _copycat_version
+
+
+def test_version_exported():
+    """__version__ ist in copycat.__init__ definiert und nicht leer."""
+    assert isinstance(_copycat_version, str)
+    assert len(_copycat_version) > 0
+
+
+def test_version_in_json_export(tmp_path):
+    """json_export schreibt __version__ statt hardcoded '2.9'."""
+    import argparse
+    from copycat.exporters.json_export import _write_json
+    from copycat.utils.plugins import TYPE_FILTERS
+    import json as _json
+
+    out = tmp_path / "out.json"
+    files: dict = {k: [] for k in TYPE_FILTERS}
+    args = argparse.Namespace(
+        input_dir=str(tmp_path), output_dir=str(tmp_path),
+        recursive=False, search=None, types=["all"],
+    )
+    _write_json(
+        path=out, files=files, args=args, input_dir=tmp_path,
+        git_info="", serial=1, search_pattern=None, search_results=None,
+        stats=None,
+    )
+    data = _json.loads(out.read_text(encoding="utf-8"))
+    assert data["version"] == _copycat_version
+
+
+def test_cli_main_version(capsys):
+    """--version gibt Versionsstring aus und endet mit SystemExit."""
+    import sys
+
+    with patch("sys.argv", ["copycat", "--version"]):
+        with pytest.raises(SystemExit) as exc_info:
+            _cli_mod.main()
+    assert exc_info.value.code == 0
+    captured = capsys.readouterr()
+    assert _copycat_version in (captured.out + captured.err)
+
+
+def test_cli_main_runs_run_copycat(tmp_path, monkeypatch):
+    """cli.main() ohne spezielle Flags ruft run_copycat auf."""
+    import sys
+
+    called: list[object] = []
+
+    def _fake_run(args: object) -> None:
+        called.append(args)
+
+    monkeypatch.setattr(_cli_mod, "run_copycat", _fake_run)
+    with patch("sys.argv", ["copycat", "--input", str(tmp_path), "--quiet"]):
+        _cli_mod.main()
+    assert len(called) == 1
+
+
+def test_cli_main_list_plugins(tmp_path, monkeypatch, capsys):
+    """cli.main() --list-plugins ruft load_plugins auf und gibt Ergebnis aus."""
+    import sys
+
+    monkeypatch.setattr(_cli_mod, "load_plugins", lambda _d: {})
+    with patch("sys.argv", ["copycat", "--input", str(tmp_path), "--list-plugins"]):
+        _cli_mod.main()
+    out = capsys.readouterr().out
+    assert "Keine Plugins" in out
+
+
+def test_cli_main_list_plugins_with_results(tmp_path, monkeypatch, capsys):
+    """cli.main() --list-plugins mit echten Plugins zeigt Details."""
+
+    fake_plugins: dict = {"myfmt": None}
+    monkeypatch.setattr(_cli_mod, "load_plugins", lambda _d: fake_plugins)
+    monkeypatch.setitem(_cli_mod.TYPE_FILTERS, "myfmt", ["*.xyz"])
+    with patch("sys.argv", ["copycat", "--input", str(tmp_path), "--list-plugins"]):
+        _cli_mod.main()
+    out = capsys.readouterr().out
+    assert "myfmt" in out
+    # Cleanup
+    del _cli_mod.TYPE_FILTERS["myfmt"]
+
+
+def test_cli_main_install_hook(tmp_path, monkeypatch, capsys):
+    """cli.main() --install-hook ruft install_hook auf."""
+    hook_path = tmp_path / ".git" / "hooks" / "pre-commit"
+
+    monkeypatch.setattr(_cli_mod, "install_hook", lambda p: p / ".git" / "hooks" / "pre-commit")
+    with patch("sys.argv", ["copycat", "--install-hook", str(tmp_path)]):
+        _cli_mod.main()
+    out = capsys.readouterr().out
+    assert "Hook installiert" in out
+
+
+def test_cli_main_diff(tmp_path, monkeypatch, capsys):
+    """cli.main() --diff ruft diff_reports auf."""
+    r1 = tmp_path / "r1.txt"
+    r2 = tmp_path / "r2.txt"
+    r1.write_text("A", encoding="utf-8")
+    r2.write_text("B", encoding="utf-8")
+
+    monkeypatch.setattr(_cli_mod, "diff_reports", lambda a, b: "DIFF_RESULT")
+    with patch("sys.argv", ["copycat", "--diff", str(r1), str(r2)]):
+        _cli_mod.main()
+    out = capsys.readouterr().out
+    assert "DIFF_RESULT" in out
+
+
+def test_cli_main_merge(tmp_path, monkeypatch, capsys):
+    """cli.main() --merge ruft merge_reports auf."""
+    r1 = tmp_path / "r1.txt"
+    r1.write_text("X", encoding="utf-8")
+
+    monkeypatch.setattr(_cli_mod, "merge_reports", lambda ps: "MERGED")
+    with patch("sys.argv", ["copycat", "--merge", str(r1)]):
+        _cli_mod.main()
+    out = capsys.readouterr().out
+    assert "MERGED" in out
+
+
+def test_cli_main_timeline(tmp_path, monkeypatch, capsys):
+    """cli.main() --timeline ruft build_timeline auf."""
+    monkeypatch.setattr(_cli_mod, "build_timeline", lambda arch, fmt: "TIMELINE_OUTPUT")
+    with patch("sys.argv", ["copycat", "--input", str(tmp_path), "--timeline"]):
+        _cli_mod.main()
+    out = capsys.readouterr().out
+    assert "TIMELINE_OUTPUT" in out
+
+
+def test_cli_main_watch(tmp_path, monkeypatch):
+    """cli.main() --watch ruft watch_and_run auf."""
+    called: list[object] = []
+
+    def _fake_watch(args: object, cooldown: float = 2.0) -> None:
+        called.append(cooldown)
+
+    monkeypatch.setattr(_cli_mod, "watch_and_run", _fake_watch)
+    with patch("sys.argv", ["copycat", "--input", str(tmp_path), "--watch"]):
+        _cli_mod.main()
+    assert len(called) == 1
+
+
+def test_cli_main_verbose_log_level(tmp_path, monkeypatch):
+    """cli.main() --verbose setzt logging.DEBUG."""
+    import logging as _logging
+
+    set_levels: list[int] = []
+    original_basic = _logging.basicConfig
+
+    def _capture_basic(**kw: object) -> None:
+        if "level" in kw:
+            set_levels.append(int(kw["level"]))  # type: ignore[arg-type]
+
+    monkeypatch.setattr(_logging, "basicConfig", _capture_basic)
+    monkeypatch.setattr(_cli_mod, "run_copycat", lambda _a: None)
+    with patch("sys.argv", ["copycat", "--input", str(tmp_path), "--verbose"]):
+        _cli_mod.main()
+    assert _logging.DEBUG in set_levels
+
+
+def test_cli_main_quiet_log_level(tmp_path, monkeypatch):
+    """cli.main() --quiet setzt logging.WARNING."""
+    import logging as _logging
+
+    set_levels: list[int] = []
+
+    def _capture_basic(**kw: object) -> None:
+        if "level" in kw:
+            set_levels.append(int(kw["level"]))  # type: ignore[arg-type]
+
+    monkeypatch.setattr(_logging, "basicConfig", _capture_basic)
+    monkeypatch.setattr(_cli_mod, "run_copycat", lambda _a: None)
+    with patch("sys.argv", ["copycat", "--input", str(tmp_path), "--quiet"]):
+        _cli_mod.main()
+    assert _logging.WARNING in set_levels
 

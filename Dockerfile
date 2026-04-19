@@ -11,7 +11,7 @@ FROM python:3.12-slim
 
 LABEL org.opencontainers.image.title="CopyCat" \
       org.opencontainers.image.description="Automatischer Projekt-Dokumentierer" \
-      org.opencontainers.image.version="2.9"
+      org.opencontainers.image.version="2.9.0"
 
 # Abhängigkeiten installieren (alle optionalen inklusive)
 RUN pip install --no-cache-dir \
@@ -23,11 +23,16 @@ RUN pip install --no-cache-dir \
 
 WORKDIR /app
 
+COPY pyproject.toml .
+COPY copycat/ ./copycat/
 COPY CopyCat.py .
 COPY plugins/ ./plugins/
+
+# Paket installieren (Entry-Point `copycat` wird registriert)
+RUN pip install --no-cache-dir -e .
 
 # Standard-Eingabeordner: /project (per Volume-Mount)
 VOLUME ["/project"]
 
-ENTRYPOINT ["python", "/app/CopyCat.py", "--input", "/project", "--output", "/project"]
+ENTRYPOINT ["copycat", "--input", "/project", "--output", "/project"]
 CMD []

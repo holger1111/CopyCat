@@ -110,24 +110,18 @@ npm run package       # creates copycat-0.1.0.vsix
 
 
 ```bash
-python CopyCat.py                              # Default (flat, all types, txt)
-python CopyCat.py -i C:\Project               # Input folder
-python CopyCat.py -o docs                     # Output folder
-python CopyCat.py -t code,diagram             # Code + diagrams only
-python CopyCat.py -r -s 5                     # Recursive, max 5MB
-python CopyCat.py -f json                     # JSON output
-python CopyCat.py -f md                       # Markdown output
-python CopyCat.py -S "TODO|FIXME"             # Search for TODOs
-python CopyCat.py --template report.j2        # Custom Jinja2 output
-python CopyCat.py -w --cooldown 3             # Watch mode, 3 s cooldown
-python CopyCat.py --diff report1.txt report2.txt  # Compare two reports
-python CopyCat.py --merge r1.txt r2.txt       # Merge reports
-python CopyCat.py --install-hook C:\Project   # Install Git pre-commit hook
-python CopyCat.py -v                          # Verbose (DEBUG)
-python CopyCat.py -q                          # Quiet (warnings only)
-python CopyCat.py --help                      # Help
+# Recommended: installed via pip
+copycat                                        # Default (flat, all types, txt)
+copycat -i C:\Project                          # Input folder
+copycat -o docs -r -f json                     # Recursive, JSON output
+copycat -S "TODO|FIXME"                        # Search for TODOs
+copycat --version                              # Show version
+copycat --help                                 # Help
+
+# Legacy: run directly
+python CopyCat.py -i C:\Project -r             # Still works unchanged
 # Config file auto-loaded from CWD or script dir:
-python CopyCat.py                             # uses copycat.conf if present
+python CopyCat.py                              # uses copycat.conf if present
 ```
 
 
@@ -759,13 +753,20 @@ README_GER.md
 
 3. `git commit -m "feat/fix/docs/test/ci: description"`
 
-**Tests:** 530 tests, 100% branch coverage (CLI, serial, gitignore, Draw.io, GUI, watch, templates, diff, merge, hook, plugins, PDF, AI, timeline, CSV, type annotations, …)
+**Tests:** 543 tests, 100% branch coverage (CLI, serial, gitignore, Draw.io, GUI, watch, templates, diff, merge, hook, plugins, PDF, AI, timeline, CSV, type annotations, packaging, …)
 
-**Type safety:** `py -m mypy copycat/ CopyCat.py --ignore-missing-imports --strict` → 0 errors across all 24 source files
+**Type safety:** `py -m mypy copycat/ CopyCat.py --ignore-missing-imports --strict` → 0 errors across all 25 source files
 
 **CI:** GitHub Actions → pytest + coverage badges (Codecov)
 
-**Install optional dependencies:**
+**Install:**
+```bash
+pip install copycat-tool           # Core (no optional deps)
+pip install copycat-tool[all]      # All optional features
+pip install copycat-tool[pdf,ai]   # Only PDF + AI
+```
+
+**Install optional dependencies (development/manual use):**
 ```bash
 pip install jinja2 watchdog tkinterdnd2 reportlab openai
 ```

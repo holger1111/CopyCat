@@ -86,24 +86,18 @@ npm run package       # erstellt copycat-0.1.0.vsix
 
 
 ```bash
-python CopyCat.py                              # Standard (flach, alle Typen, txt)
-python CopyCat.py -i C:\Projekt               # Eingabeordner
-python CopyCat.py -o docs                     # Ausgabeordner
-python CopyCat.py -t code,diagram             # Nur Code+Diagramme
-python CopyCat.py -r -s 5                     # Rekursiv, max 5MB
-python CopyCat.py -f json                     # JSON-Ausgabe
-python CopyCat.py -f md                       # Markdown-Ausgabe
-python CopyCat.py -S "TODO|FIXME"             # Nach TODOs suchen
-python CopyCat.py --template report.j2        # Benutzerdefinierte Jinja2-Ausgabe
-python CopyCat.py -w --cooldown 3             # Watch-Modus, 3 s Cooldown
-python CopyCat.py --diff report1.txt report2.txt  # Zwei Reports vergleichen
-python CopyCat.py --merge r1.txt r2.txt       # Reports zusammenführen
-python CopyCat.py --install-hook C:\Projekt   # Git pre-commit Hook installieren
-python CopyCat.py -v                          # Ausführlich (DEBUG)
-python CopyCat.py -q                          # Nur Warnungen
-python CopyCat.py --help                      # Hilfe
+# Empfohlen: nach pip-Installation
+copycat                                        # Standard (flach, alle Typen, txt)
+copycat -i C:\Projekt                          # Eingabeordner
+copycat -o docs -r -f json                     # Rekursiv, JSON-Ausgabe
+copycat -S "TODO|FIXME"                        # Nach TODOs suchen
+copycat --version                              # Version anzeigen
+copycat --help                                 # Hilfe
+
+# Legacy: direkt ausführen
+python CopyCat.py -i C:\Projekt -r             # Weiterhin unverändert nutzbar
 # Konfigurationsdatei wird automatisch aus CWD oder Skript-Ordner geladen:
-python CopyCat.py                             # nutzt copycat.conf falls vorhanden
+python CopyCat.py                              # nutzt copycat.conf falls vorhanden
 ```
 
 
@@ -733,13 +727,20 @@ README_GER.md
 
 3. `git commit -m "feat/fix/docs/test/ci: Beschreibung"`
 
-**Tests:** 530 Tests, 100 % Branch-Coverage (CLI, Serial, Gitignore, Draw.io, GUI, Watch, Templates, Diff, Merge, Hook, Plugins, PDF, KI, Timeline, CSV, Typ-Annotationen, …)
+**Tests:** 543 Tests, 100 % Branch-Coverage (CLI, Serial, Gitignore, Draw.io, GUI, Watch, Templates, Diff, Merge, Hook, Plugins, PDF, KI, Timeline, CSV, Typ-Annotationen, Packaging, …)
 
-**Typsicherheit:** `py -m mypy copycat/ CopyCat.py --ignore-missing-imports --strict` → 0 Fehler in allen 24 Quelldateien
+**Typsicherheit:** `py -m mypy copycat/ CopyCat.py --ignore-missing-imports --strict` → 0 Fehler in allen 25 Quelldateien
 
 **CI:** GitHub Actions → pytest + Coverage-Badges (Codecov)
 
-**Optionale Abhängigkeiten installieren:**
+**Installation:**
+```bash
+pip install copycat-tool           # Kern (ohne optionale Abhängigkeiten)
+pip install copycat-tool[all]      # Alle optionalen Features
+pip install copycat-tool[pdf,ai]   # Nur PDF + KI
+```
+
+**Optionale Abhängigkeiten installieren (Entwicklung/manuelle Nutzung):**
 ```bash
 pip install jinja2 watchdog tkinterdnd2 reportlab openai
 ```

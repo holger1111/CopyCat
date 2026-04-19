@@ -1,0 +1,68 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "copycat-tool"
+dynamic = ["version"]
+description = "Automatischer Projekt-Dokumentierer – Code + Diagramme + Medien → Reports"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.11"
+authors = [{ name = "holger1111", email = "" }]
+keywords = ["documentation", "code-analysis", "project-report", "diagram", "csv"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Documentation",
+    "Topic :: Utilities",
+]
+
+[project.scripts]
+copycat = "copycat.cli:main"
+
+[project.optional-dependencies]
+template = ["jinja2>=3.0"]
+watch    = ["watchdog>=3.0"]
+html     = ["pygments>=2.0"]
+pdf      = ["reportlab>=3.0"]
+ai       = ["openai>=1.0"]
+web      = ["flask>=3.0"]
+gui      = ["tkinterdnd2"]
+all      = [
+    "jinja2>=3.0",
+    "watchdog>=3.0",
+    "pygments>=2.0",
+    "reportlab>=3.0",
+    "openai>=1.0",
+    "flask>=3.0",
+    "tkinterdnd2",
+]
+
+[project.urls]
+Homepage   = "https://github.com/holger1111/CopyCat"
+Repository = "https://github.com/holger1111/CopyCat"
+Issues     = "https://github.com/holger1111/CopyCat/issues"
+
+[tool.hatch.version]
+path = "copycat/__init__.py"
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "copycat/",
+    "plugins/",
+    "CopyCat.py",
+    "CopyCat_GUI.py",
+    "CopyCat_Web.py",
+    "README.md",
+    "LICENSE",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["copycat"]

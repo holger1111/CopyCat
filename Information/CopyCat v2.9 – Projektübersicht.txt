@@ -37,6 +37,7 @@ CopyCat ist ein **automatisierter Projekt-Dokumentierer**: Er scannt einen lokal
 **Spezial-Renderer:**
 - `extract_drawio()` – Plain-XML, ZIP und Base64/zlib-komprimierte Diagramme
 - `extract_notebook()` – Jupyter-Notebook-Zellen-Extraktion
+- `extract_csv()` – Delimiter-Erkennung (csv.Sniffer, Fallback `,`), Encoding-Fallback (utf-8/latin-1), Spaltenstatistiken (numeric/text, min/max/mean, unique, leer), Vorschau-Tabelle (erste 10 Zeilen)
 - `list_binary_file()` – MIME-Erkennung + WAV-Dauermessung
 
 **Erweiterte Features:**
@@ -67,6 +68,12 @@ CopyCat ist ein **automatisierter Projekt-Dokumentierer**: Er scannt einen lokal
 - Drag & Drop via `tkinterdnd2` (graceful fallback)
 - `ttk.Progressbar` für Fortschrittsanzeige
 - Config laden/speichern über `copycat.conf`
+- **`ttk.Notebook` mit 4 Tabs** (Meilenstein 38):
+  - **Basic**: Ordner (Eingabe/Ausgabe, DnD), Dateitypen-Checkboxen, Rekursiv/Format/Max-Größe, Regex-Suche
+  - **Erweitert**: Git-URL, Ausschließen, Inkrementell/Stats, Template (.j2), Watch-Cooldown
+  - **Plugins**: Plugin-Verzeichnis + Browse + Refresh + Anzeige geladener Plugins
+  - **Tools**: Config laden/speichern, Diff, Merge, Timeline, Git-Hook
+- Run-Leiste und Ausgabefenster immer sichtbar unterhalb der Tabs
 
 ---
 
@@ -86,22 +93,31 @@ CopyCat ist ein **automatisierter Projekt-Dokumentierer**: Er scannt einen lokal
 
 ---
 
-### Entwicklungsstand (36 Meilensteine)
+### Entwicklungsstand (40 Meilensteine)
 
-- **Meilensteine 1–32**: implementiert (CLI, GUI, Web, Plugins, Tests, HTML, Cache, Stats, Remote-Repo, VS-Code-Extension …)
-- **Meilensteine 33–36** (geplant):
-  | # | Feature |
-  |---|---|
-  | 33 | PDF-Export (`weasyprint`/`reportlab`) |
-  | 34 | Docker-Image |
-  | 35 | KI-Zusammenfassung (`--ai-summary`, OpenAI/Ollama) |
-  | 36 | Report-Timeline (ASCII/HTML mit Chart.js) |
+- **Alle 40 Meilensteine implementiert**:
+  | # | Feature | Status |
+  |---|---|---|
+  | 1–32 | CLI, GUI, Web, Plugins, Tests, HTML, Cache, Stats, Remote-Repo, VS-Code-Extension … | ✅ |
+  | 33 | PDF-Export (`weasyprint`/`reportlab`) | ✅ |
+  | 34 | Docker-Image | ✅ |
+  | 35 | KI-Zusammenfassung (`--ai-summary`, OpenAI/Ollama) | ✅ |
+  | 36 | Report-Timeline (ASCII/HTML mit Chart.js) | ✅ |
+  | 37 | Vollständige Type Annotations – `mypy --strict` 0 Fehler (24 Dateien) | ✅ |
+  | 38 | GUI-Reorganisation – `ttk.Notebook` mit 4 Tabs (Basic/Erweitert/Plugins/Tools) | ✅ |
+  | 39 | CSV-Support Komplettierung – `extract_csv()`, Spaltenstatistiken, Vorschau-Tabelle | ✅ |
+  | 40 | Python Packaging – `pyproject.toml`, `copycat` CLI Entry Point, PyPI-ready (`copycat-tool`) | ✅ |
+
+- **Testsuite**: 543 Tests, 100 % Branch-Coverage
+- **Typisierung**: `mypy --strict` auf 25 Quelldateien → 0 Fehler
 
 ---
 
 ### Technische Besonderheiten
 
 - Alle optionalen Abhängigkeiten (Jinja2, watchdog, Flask, Pygments, tkinterdnd2) mit graceful fallback
+- Vollständige Typ-Annotationen in allen 25 Quelldateien; `mypy --strict` → 0 Fehler
+- `pip install copycat-tool` – `pyproject.toml` (PEP 621/517, hatchling); `copycat`-CLI-Einstiegspunkt; optionale Extras (`pdf`, `ai`, `web`, `gui`, `all`)
 - Deutsch-first UI, parallele englische README
-- CI via GitHub Actions; PyInstaller-`.exe`-Builds als Artifacts
+- CI via GitHub Actions; PyInstaller-`.exe`-Builds als Artifacts; automatisches PyPI-Release via Trusted Publishing bei Tag `v*`
 - OWASP-konformer Pfad-Traversal-Schutz im Web-Interface

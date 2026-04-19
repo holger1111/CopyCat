@@ -1,5 +1,7 @@
 """CopyCat package – public API."""
 
+__version__ = "2.9.0"
+
 from .core import (
     load_config,
     parse_arguments,
@@ -48,4 +50,5 @@ __all__ = [
     "TYPE_FILTERS", "PLUGIN_RENDERERS", "_loaded_plugins", "load_plugins",
     "search_in_file", "_build_search_results",
     "_analyse_file", "_build_stats", "_COMMENT_PREFIXES",
+    "__version__",
 ]

@@ -64,6 +64,7 @@ export function resolvePython(): string {
 /**
  * Ermittelt den Pfad zu CopyCat.py.
  * Priorität: copycat.scriptPath → CopyCat.py im Workspace-Stammverzeichnis
+ * Gibt undefined zurück wenn nicht gefunden (dann wird `copycat` CLI verwendet).
  */
 export function resolveScript(): string | undefined {
     const cfg = vscode.workspace.getConfiguration('copycat');
@@ -95,23 +96,8 @@ export function runCopyCat(opts: RunOptions): void {
         return;
     }
 
-    // CopyCat.py ermitteln
+    // CopyCat.py ermitteln; falls nicht gefunden, `copycat` CLI aus PATH verwenden
     const script = resolveScript();
-    if (!script) {
-        vscode.window.showErrorMessage(
-            'CopyCat: CopyCat.py nicht gefunden. '
-            + 'Bitte copycat.scriptPath in den Einstellungen konfigurieren.',
-            'Einstellungen öffnen',
-        ).then(choice => {
-            if (choice === 'Einstellungen öffnen') {
-                vscode.commands.executeCommand(
-                    'workbench.action.openSettings',
-                    'copycat.scriptPath',
-                );
-            }
-        });
-        return;
-    }
 
     // Argumente aufbauen
     const python = resolvePython();
@@ -123,7 +109,16 @@ export function runCopyCat(opts: RunOptions): void {
     const excludePatterns = cfg.get<string[]>('excludePatterns', []);
     const extraArgs = cfg.get<string[]>('extraArgs', []);
 
-    const args: string[] = [script, '--input', inputDir, '--format', fmt, '--quiet'];
+    // Wenn CopyCat.py vorhanden: `python CopyCat.py …`, sonst: `copycat …`
+    let command: string;
+    let args: string[];
+    if (script) {
+        command = python;
+        args = [script, '--input', inputDir, '--format', fmt, '--quiet'];
+    } else {
+        command = 'copycat';
+        args = ['--input', inputDir, '--format', fmt, '--quiet'];
+    }
 
     if (opts.recursive) {
         args.push('--recursive');
@@ -144,13 +139,13 @@ export function runCopyCat(opts: RunOptions): void {
     outputChannel.appendLine(
         `▶  CopyCat${opts.recursive ? ' (rekursiv)' : ''}  –  ${new Date().toLocaleTimeString()}`,
     );
-    outputChannel.appendLine(`   ${python} ${args.join(' ')}`);
+    outputChannel.appendLine(`   ${command} ${args.join(' ')}`);
     outputChannel.appendLine('─'.repeat(60));
 
     statusBarItem.text = '$(sync~spin) CopyCat …';
     statusBarItem.tooltip = 'CopyCat läuft …';
 
-    const proc = cp.spawn(python, args, { cwd: inputDir });
+    const proc = cp.spawn(command, args, { cwd: inputDir });
 
     proc.stdout.on('data', (data: Buffer) => outputChannel.append(data.toString()));
     proc.stderr.on('data', (data: Buffer) => outputChannel.append(data.toString()));

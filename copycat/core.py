@@ -78,8 +78,12 @@ def load_config(config_path: str | Path | None = None) -> dict[str, str]:
 
 
 def parse_arguments(config_path: str | Path | None = None) -> argparse.Namespace:
+    from copycat import __version__
     parser = argparse.ArgumentParser(
         description="CopyCat v2.9 - Projekt-Dokumentierer"
+    )
+    parser.add_argument(
+        "--version", action="version", version=f"CopyCat {__version__}"
     )
     parser.add_argument(
         "--input", "-i", default=None, help="Eingabeordner (default: Skriptordner)"

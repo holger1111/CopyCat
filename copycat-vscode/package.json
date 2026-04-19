@@ -40,7 +40,7 @@
         "copycat.scriptPath": {
           "type": "string",
           "default": "",
-          "description": "Pfad zu CopyCat.py. Leer = automatisch im Workspace-Stammverzeichnis suchen."
+          "description": "Pfad zu CopyCat.py. Leer = automatisch im Workspace-Stammverzeichnis suchen. Falls nicht gefunden, wird der `copycat`-CLI-Befehl aus PATH verwendet (erfordert: pip install copycat-tool)."
         },
         "copycat.outputFormat": {
           "type": "string",

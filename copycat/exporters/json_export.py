@@ -8,6 +8,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from copycat import __version__
+
 
 def _write_json(
     path: Path,
@@ -90,7 +92,7 @@ def _write_json(
         else None
     )
     report = {
-        "version": "2.9",
+        "version": __version__,
         "generated": datetime.now().strftime("%d.%m.%Y %H:%M"),
         "mode": "recursive" if args.recursive else "flat",
         "input": str(input_dir),
