@@ -6,3 +6,7 @@ tsconfig.json
 *.map
 .gitignore
 *.vsix
+out/**/*.map
+out/**/*.test.js
+out/**/*.test.d.ts
+out/__mocks__/**

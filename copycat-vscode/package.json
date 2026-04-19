@@ -1,13 +1,13 @@
 {
-  "name": "copycat",
-  "displayName": "CopyCat",
+  "name": "copycat-project-documenter",
+  "displayName": "CopyCat – Project Documenter",
   "description": "Run CopyCat documentation reports directly from VS Code",
   "version": "0.1.0",
-  "publisher": "copycat",
+  "publisher": "holger1111",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/your-username/CopyCat"
+    "url": "https://github.com/holger1111/CopyCat"
   },
   "engines": {
     "vscode": "^1.85.0"
@@ -44,11 +44,13 @@
         },
         "copycat.outputFormat": {
           "type": "string",
-          "enum": ["txt", "json", "md"],
+          "enum": ["txt", "json", "md", "html", "pdf"],
           "enumDescriptions": [
             "Einfaches Textformat",
             "JSON-Format",
-            "Markdown-Format"
+            "Markdown-Format",
+            "HTML-Format",
+            "PDF-Format"
           ],
           "default": "txt",
           "description": "Ausgabeformat für den generierten Report."
@@ -70,6 +72,16 @@
           "items": { "type": "string" },
           "default": [],
           "description": "Zusätzliche CopyCat-Argumente, z.B. [\"--search\", \"TODO|FIXME\"]."
+        },
+        "copycat.lang": {
+          "type": "string",
+          "enum": ["de", "en"],
+          "enumDescriptions": [
+            "Report-Ausgabe auf Deutsch",
+            "Report output in English"
+          ],
+          "default": "de",
+          "description": "Sprache der Report-Ausgabe (--lang)."
         }
       }
     }

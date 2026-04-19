@@ -108,6 +108,7 @@ export function runCopyCat(opts: RunOptions): void {
     const maxSize = cfg.get<number>('maxSizeMb', 0);
     const excludePatterns = cfg.get<string[]>('excludePatterns', []);
     const extraArgs = cfg.get<string[]>('extraArgs', []);
+    const lang = cfg.get<string>('lang', 'de');
 
     // Wenn CopyCat.py vorhanden: `python CopyCat.py …`, sonst: `copycat …`
     let command: string;
@@ -132,6 +133,7 @@ export function runCopyCat(opts: RunOptions): void {
     if (extraArgs.length > 0) {
         args.push(...extraArgs);
     }
+    args.push('--lang', lang);
 
     // Output Channel öffnen und Lauf starten
     outputChannel.clear();

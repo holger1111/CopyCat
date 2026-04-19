@@ -175,6 +175,7 @@ describe('runCopyCat', () => {
             maxSizeMb: 0,
             excludePatterns: [],
             extraArgs: [],
+            lang: 'de',
         });
     });
 
@@ -187,15 +188,16 @@ describe('runCopyCat', () => {
         expect(cp.spawn).not.toHaveBeenCalled();
     });
 
-    it('shows error and does not spawn when CopyCat.py is not found', () => {
+    it('falls back to copycat CLI when CopyCat.py is not found', () => {
         (fs.existsSync as jest.Mock).mockReturnValue(false);
-        mockCfg({ scriptPath: '' });
+        const proc = makeMockProc();
+        (cp.spawn as jest.Mock).mockReturnValue(proc);
+        mockCfg({ scriptPath: '', outputFormat: 'txt', maxSizeMb: 0, excludePatterns: [], extraArgs: [], lang: 'de' });
         runCopyCat({ recursive: false });
-        expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(
-            expect.stringContaining('CopyCat.py nicht gefunden'),
-            expect.any(String),
-        );
-        expect(cp.spawn).not.toHaveBeenCalled();
+        const [command, args] = (cp.spawn as jest.Mock).mock.calls[0] as [string, string[]];
+        expect(command).toBe('copycat');
+        expect(args).not.toContain('/workspace/CopyCat.py');
+        expect(cp.spawn).toHaveBeenCalled();
     });
 
     it('spawns python with the standard arguments', () => {
@@ -248,11 +250,21 @@ describe('runCopyCat', () => {
     it('appends extraArgs to the spawn command', () => {
         const proc = makeMockProc();
         (cp.spawn as jest.Mock).mockReturnValue(proc);
-        mockCfg({ scriptPath: '/workspace/CopyCat.py', outputFormat: 'txt', maxSizeMb: 0, excludePatterns: [], extraArgs: ['--search', 'TODO'] });
+        mockCfg({ scriptPath: '/workspace/CopyCat.py', outputFormat: 'txt', maxSizeMb: 0, excludePatterns: [], extraArgs: ['--search', 'TODO'], lang: 'de' });
         runCopyCat({ recursive: false });
         const args = (cp.spawn as jest.Mock).mock.calls[0][1] as string[];
         expect(args).toContain('--search');
         expect(args).toContain('TODO');
+    });
+
+    it('adds --lang when configured', () => {
+        const proc = makeMockProc();
+        (cp.spawn as jest.Mock).mockReturnValue(proc);
+        mockCfg({ scriptPath: '/workspace/CopyCat.py', outputFormat: 'txt', maxSizeMb: 0, excludePatterns: [], extraArgs: [], lang: 'en' });
+        runCopyCat({ recursive: false });
+        const args = (cp.spawn as jest.Mock).mock.calls[0][1] as string[];
+        expect(args).toContain('--lang');
+        expect(args).toContain('en');
     });
 
     it('shows success message when process exits with code 0', () => {
