@@ -233,6 +233,11 @@ def parse_arguments(config_path=None):
         metavar="TAGE",
         help="Cache-Einträge älter als N Tage löschen (z.B. --cache-max-age 30)",
     )
+    parser.add_argument(
+        "--cache-clean",
+        action="store_true",
+        help="Gesamten Cache löschen und beenden",
+    )
 
     # ── Config-Datei: Defaults aus copycat.conf (CLI überschreibt) ──────────
     cfg = load_config(config_path)
@@ -918,8 +923,8 @@ def watch_and_run(args, cooldown: float = 2.0, stop_event=None):
                 logging.info("Änderung erkannt – erzeuge Report...")
                 try:
                     run_copycat(args)
-                except Exception as exc:
-                    logging.error("Watch-Fehler beim Re-Run: %s", exc)
+                except Exception:
+                    logging.exception("Watch-Fehler beim Re-Run")
     finally:
         observer.stop()
         observer.join()
@@ -2181,6 +2186,24 @@ def run_copycat(args):
     if not input_dir.is_dir():
         logging.error("Fehler: %s ist kein Ordner", input_dir)
         if _tmp_dir_obj is not None:
+            _tmp_dir_obj.cleanup()
+        return None
+
+    # ── Cache-Clean: Gesamten Cache löschen und beenden ───────────────────
+    if getattr(args, "cache_clean", False):
+        cache_dir = output_dir / ".copycat_cache"
+        cache_file = cache_dir / "cache.json"
+        if cache_file.is_file():
+            try:
+                cache_file.unlink()
+                logging.info("Cache vollständig gelöscht: %s", cache_file)
+                print(f"\n✓ Cache gelöscht: {cache_file}")
+            except OSError:
+                logging.exception("Cache-Datei konnte nicht gelöscht werden")
+        else:
+            logging.info("Kein Cache vorhanden: %s", cache_file)
+            print(f"\nKein Cache vorhanden: {cache_file}")
+        if _tmp_dir_obj:
             _tmp_dir_obj.cleanup()
         return None
 
